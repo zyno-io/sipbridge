@@ -124,3 +124,10 @@ or private Git history. The publisher uses a protected, masked project variable
 key; SSH verifies GitHub's pinned host key. Publication is serialized and uses
 normal fast-forward pushes, so conflicting publication fails rather than
 overwriting history. Make edits in canonical GitLab.
+
+Adding or changing the GitHub Actions workflow requires a maintainer identity
+with workflow authority. The initial workflow is seeded through maintainer SSH;
+the scoped CI key publishes ordinary documentation changes. If GitHub rejects a
+workflow update for missing OAuth `workflow` scope, publish that reviewed
+canonical revision with maintainer SSH (`bash scripts/publish-docs.sh`) before
+retrying CI. Do not broaden the CI key to a user credential.

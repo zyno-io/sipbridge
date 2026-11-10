@@ -147,7 +147,6 @@ func TestRetainedCodecCanonicalCompatibilityAndOwnership(t *testing.T) {
 		{Payload: &pb.Envelope_DialogEvent{DialogEvent: &pb.DialogEvent{Kind: pb.DialogEvent_ENDED, Message: message}}},
 		{Payload: &pb.Envelope_FlowAdoptionResult{FlowAdoptionResult: &pb.FlowAdoptionResult{Error: "unavailable"}}},
 		{Payload: &pb.Envelope_ApplicationStatus{ApplicationStatus: &pb.ApplicationStatus{Application: &pb.ProcessRef{InstanceId: "controller"}}}},
-		{Payload: &pb.Envelope_AuthorityReceipt{AuthorityReceipt: &pb.AuthorityReceipt{Context: context}}},
 		{Payload: &pb.Envelope_CredentialLookup{CredentialLookup: &pb.CredentialLookup{Context: context}}},
 	}
 	for _, envelope := range envelopes {

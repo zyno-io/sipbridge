@@ -16,8 +16,8 @@ func TestStateConfigurationRequiresRedisAndDiscovery(t *testing.T) {
 	if err != nil || cfg == nil || len(cfg.NamespaceKey) != 32 || cfg.Redis.TLS != nil {
 		t.Fatalf("local configuration: %v", err)
 	}
-	if cfg.Versions.Schema != "3" || cfg.Versions.Reducer != "9" || cfg.Versions.Timers != "1" {
-		t.Fatal("service must fence older native reducer profiles")
+	if cfg.Versions.Schema != "1" || cfg.Versions.Reducer != "1" || cfg.Versions.Timers != "1" {
+		t.Fatal("service must use the initial native state profile")
 	}
 	for _, invalid := range []struct{ key, value string }{
 		{"SIPBRIDGE_STATE_NAMESPACE", "bad/name"}, {"SIPBRIDGE_STATE_GENERATION", "bad/name"},

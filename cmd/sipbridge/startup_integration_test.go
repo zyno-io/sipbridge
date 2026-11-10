@@ -166,7 +166,7 @@ func testStateStartupWithSecurity(t *testing.T, backend string, offline, partial
 		}
 	}
 	arguments := []string{"--control-listen", control, "--sip-listen", public, "--sip-plain-listen", sip, "--admin-listen", admin, "--sip-cert", certificate, "--sip-key", keyPath, "--instance", "degraded-fixture", "--advertise", public, "--advertise-plain", sip}
-	controlURL := "wss://" + control + "/v2/control"
+	controlURL := "wss://" + control + "/v1/control"
 	controlHeaders := http.Header{}
 	if securityMode == "mtls" {
 		arguments = append(arguments, "--control-cert", certificate, "--control-key", keyPath, "--client-ca", certificate, "--allowed-client-uri", "spiffe://fixture/controller")
@@ -180,7 +180,7 @@ func testStateStartupWithSecurity(t *testing.T, backend string, offline, partial
 		controlHeaders.Set("Authorization", "Bearer "+token)
 		if securityMode == "bearer-plain" {
 			arguments = append(arguments, "--control-transport=plain")
-			controlURL = "ws://" + control + "/v2/control"
+			controlURL = "ws://" + control + "/v1/control"
 		} else {
 			arguments = append(arguments, "--control-cert", certificate, "--control-key", keyPath)
 		}
@@ -299,7 +299,7 @@ func testStateStartupWithSecurity(t *testing.T, backend string, offline, partial
 		cancel()
 		t.Fatal(err)
 	}
-	probeHello := &pb.Envelope{CorrelationId: "unavailable-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "unavailable-probe", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 2, Capabilities: []string{"sip.v1", controlpkg.StateCapability, controlpkg.DirectoryReconcileCapability, controlpkg.CompletionRelayCapability, controlpkg.NativeCompletionCapability}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
+	probeHello := &pb.Envelope{CorrelationId: "unavailable-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "unavailable-probe", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 1, Capabilities: []string{"sip.v1", controlpkg.StateCapability, controlpkg.NativeCompletionCapability}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
 	probeWire, err := protojson.Marshal(probeHello)
 	if err == nil {
 		err = probe.Write(attempt, websocket.MessageText, probeWire)
@@ -326,7 +326,7 @@ func testStateStartupWithSecurity(t *testing.T, backend string, offline, partial
 	}
 	var controller *websocket.Conn
 	recoveryDeadline := time.Now().Add(8 * time.Second)
-	hello := &pb.Envelope{CorrelationId: "recover-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "surviving-controller", Epoch: "same-process"}, ConnectionAttempt: 1, Major: 2, Capabilities: []string{"sip.v1", controlpkg.StateCapability, controlpkg.DirectoryReconcileCapability, controlpkg.CompletionRelayCapability, controlpkg.NativeCompletionCapability}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
+	hello := &pb.Envelope{CorrelationId: "recover-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "surviving-controller", Epoch: "same-process"}, ConnectionAttempt: 1, Major: 1, Capabilities: []string{"sip.v1", controlpkg.StateCapability, controlpkg.NativeCompletionCapability}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
 	if securityMode != "mtls" {
 		hello.GetHello().Capabilities = append(hello.GetHello().Capabilities, controlpkg.ControllerReattachCapability)
 	}
@@ -485,7 +485,7 @@ func testStartupStateLoss(t *testing.T, client *redis.Client, prefix string, con
 		}
 	}
 	hello.GetHello().ConnectionAttempt = 2
-	replacement, _, err := websocket.Dial(ctx, "wss://"+control+"/v2/control", &websocket.DialOptions{HTTPClient: &http.Client{Transport: transport}, Subprotocols: []string{controlpkg.Subprotocol}})
+	replacement, _, err := websocket.Dial(ctx, "wss://"+control+"/v1/control", &websocket.DialOptions{HTTPClient: &http.Client{Transport: transport}, Subprotocols: []string{controlpkg.Subprotocol}})
 	if err != nil {
 		t.Fatal("normal reconnect failed", err)
 	}

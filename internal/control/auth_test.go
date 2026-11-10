@@ -32,7 +32,7 @@ func testBearer(t *testing.T) (*BearerAuthenticator, string, string) {
 func TestBearerRotationKeepsPrincipalAndInvalidUpdateKeepsPreviousToken(t *testing.T) {
 	auth, token, file := testBearer(t)
 	authenticate := func(value string) (string, error) {
-		request, _ := http.NewRequest(http.MethodGet, "https://localhost/v2/control", nil)
+		request, _ := http.NewRequest(http.MethodGet, "https://localhost/v1/control", nil)
 		if value != "" {
 			request.Header.Set("Authorization", value)
 		}
@@ -47,7 +47,7 @@ func TestBearerRotationKeepsPrincipalAndInvalidUpdateKeepsPreviousToken(t *testi
 			t.Fatal("invalid authorization accepted")
 		}
 	}
-	request, _ := http.NewRequest(http.MethodGet, "https://localhost/v2/control", nil)
+	request, _ := http.NewRequest(http.MethodGet, "https://localhost/v1/control", nil)
 	request.Header.Add("Authorization", "Bearer "+token)
 	request.Header.Add("Authorization", "Bearer "+token)
 	if _, err := auth.Authenticate(request); !errors.Is(err, ErrUnauthenticated) {
@@ -99,7 +99,7 @@ func TestBearerTokenFileLengthAndTerminalNewline(t *testing.T) {
 				t.Fatalf("valid=%t: %v", test.valid, err)
 			}
 			if test.valid {
-				request, _ := http.NewRequest(http.MethodGet, "http://localhost/v2/control", nil)
+				request, _ := http.NewRequest(http.MethodGet, "http://localhost/v1/control", nil)
 				request.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 4096))
 				if _, err := auth.Authenticate(request); err != nil {
 					t.Fatal("maximum-length token was not preserved")
@@ -203,7 +203,7 @@ func TestExplicitBearerPlainControlNeedsNoTLSAndRejectsNonLoopback(t *testing.T)
 			t.Error(err)
 		}
 	})
-	connection, _, err := bearerDial("ws://"+listener.Addr().String()+"/v2/control", token, nil)
+	connection, _, err := bearerDial("ws://"+listener.Addr().String()+"/v1/control", token, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestAuthenticatedPrincipalsCannotSupersedeEachOthersProcessClaim(t *testing
 		t.Fatal(err)
 	}
 	defer other.CloseNow()
-	send(t, other, &pb.Envelope{CorrelationId: "steal", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "same-process-id", Epoch: "epoch"}, ConnectionAttempt: 2, Major: 2, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}})
+	send(t, other, &pb.Envelope{CorrelationId: "steal", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "same-process-id", Epoch: "epoch"}, ConnectionAttempt: 2, Major: 1, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}})
 	if _, err := receive(other); err == nil {
 		t.Fatal("different authenticated principal superseded the claim")
 	}

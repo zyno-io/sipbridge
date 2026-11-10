@@ -2,7 +2,7 @@
 
 Status: experimental implemented service contract, with proposed conformance and
 drain requirements identified below. The current service uses UDP/TCP/TLS listeners,
-authenticated JSON control, schema 3 / reducer 9 / timers 1 CAS and autonomous native
+authenticated JSON control, schema 1 / reducer 1 / timers 1 CAS and autonomous native
 completion. [Verification](docs/verification.md) lists the current test coverage
 and its limits; full platform conformance is not yet qualified. The session-only
 and stdio programs are separate [fixtures](docs/fixtures.md).
@@ -59,19 +59,14 @@ claim admission so an incompatible controller cannot fence a compatible one.
 | `sip.command-admission.v1` | Command-time policy/delivery admission for Respond, OpenUac and DialogRequest. |
 | `sip.command-budget.v1` | Commands may carry the 40-second budget; ordinary RPC/write limits remain separate. |
 | `sip.dialog-continuity.v1` | Explicit native validation of same-transport replacement-flow attempts. |
-| `sip.directory-reconcile.v1` | Compatibility hello label still required by deployed consumers; does not enable removed reconciliation RPCs. |
-| `sip.completion-relay.v1` | Compatibility hello requirement; does not restore trusted per-send grants/physical relay/settlement. |
 
 State execution requires `sip.state.v1` for every backend. Negotiation validates
 state authority before claim admission and acquires the native owner lease before
 publishing a usable peer. There is no backend-specific state capability.
 
-Do not remove compatibility labels, generated fields or consumers independently
-of the controllers that still use them. Producer-contracted native builds are required rollback targets after controller
-compatibility consumers retire; an older producer that emits removed RPCs is safe
-only while its consumers remain available. `reconcileContext` is refused: a changed
-business directory epoch requires re-establishing work under current authority.
-No trusted directory receipt poll or authority-retirement RPC gates native retirement.
+A changed business directory epoch requires re-establishing work under current
+authority. Native completion and state retirement use the retained SIP-state
+authority independently of controller business policy.
 
 The hello returns the controller application's SIP-owner lease receipt; contexts
 pin that stable lineage and term. Without the recovery capability, the existing
@@ -94,7 +89,7 @@ UNKNOWN cannot settle, expire into NOT_WRITTEN or free its retained obligation.
 
 Effect IDs are content-bound: fingerprint is lowercase SHA-256 of these ordered
 UTF-8 parts, each prefixed by eight lowercase hexadecimal byte-length digits and
-colon. ID is `e-` plus digest. Parts: `sipbridge-send-v2`; authority service,
+colon. ID is `e-` plus digest. Parts: `sipbridge-send-v1`; authority service,
 generation and primary ID; group ID, incarnation, Call-ID, decimal partition;
 context ID; application instance/epoch; pinned lease term; principal, binding,
 actual transport; decimal authority class; requested completion scope; decimal
@@ -135,8 +130,8 @@ The local nonce is the canonical unpadded base64url encoding of
 `l1.timestamp.random.signature`: ten Unix-second digits, 16 random bytes in
 lowercase hex and a complete HMAC-SHA256 signature encoded in unpadded base64url.
 It is exactly 120 characters, fitting within clients' 127-character nonce
-buffers. The signature includes the `l1.` prefix to prevent conversion into
-the other active compact `v2` format. Old unversioned nonces are not supported.
+buffers. The signature includes the `l1.` prefix, binding verification to this nonce
+format. Other nonce formats are refused.
 
 The local HMAC input is `sipbridge-digest-v1\n` + epoch + `\n` + scope + `\n` +
 `l1.timestamp.random`. Scope is the lowercase From URI host authority without
@@ -158,7 +153,7 @@ verifiable ACKs for those challenges. An authenticated retry's new CSeq routes
 normally. The bounded proof only identifies a rejected local transaction; it
 cannot authorize a SIP dialog or account, and does not create a resident FSM.
 
-The controller opens `/v2/control` and negotiates `sipbridge.control.json.v2`.
+The controller opens `/v1/control` and negotiates `sipbridge.control.json.v1`.
 TLS transport uses `wss:` and validates the server chain and endpoint DNS SAN.
 Default mTLS authentication also validates the client chain and exact allowed
 URI SAN; a trusted CA alone, common name or source address is insufficient.
@@ -200,7 +195,7 @@ For example, the initial session message is ordinary JSON; its attempt counter
 remains lossless beyond JavaScript's safe integer range:
 
 ```json
-{"correlationId":"hello-1","hello":{"controller":{"instanceId":"controller-a","epoch":"boot-a"},"connectionAttempt":"9007199254740993","major":2,"bounds":{"maxEnvelopeBytes":262144}}}
+{"correlationId":"hello-1","hello":{"controller":{"instanceId":"controller-a","epoch":"boot-a"},"connectionAttempt":"9007199254740993","major":1,"bounds":{"maxEnvelopeBytes":262144}}}
 ```
 
 An envelope contains a bounded correlation ID, a remaining deadline budget where
@@ -420,7 +415,7 @@ reports REGISTER success or replays the policy mutation. The database may alread
 name the new Contact, which remains unreachable until a fresh authenticated
 REGISTER reconciles policy and transport. One bounded version/ticket per account
 is retained, with no unbounded request history. Changed directory epochs refuse old business work; recovery establishes fresh
-authority without the retired reconciliation RPC.
+authority through current policy admission.
 
 An older outstanding candidate cannot overwrite a newer committed ticket, even
 if its policy call finishes later. Cached/replayed REGISTER, stale owner events,
@@ -494,8 +489,8 @@ Subscription Contact/expiry commits are separately defined below.
 
 The current `sip.v1` family carries actual `udp`/`tcp`/`tls` on FlowRef and native
 transport on snapshots. OpenUac carries an authorized registered binding or explicit
-URI/proxy/network target with opaque credential reference. Plain username/password
-fields remain decodable compatibility fields but are refused by the Redis service.
+URI/proxy/network target with an opaque credential reference. Credentials are
+resolved transiently through the original controller.
 Proxy selects next hop without replacing request URI. All output remains committed
 native effects; no UA can dial around physical admission. Empty/INVITE OpenUac creates
 a call; OPTIONS/MESSAGE/NOTIFY return standalone transaction results and retire.
@@ -516,13 +511,10 @@ SRF tunnel or arbitrary raw-wire interface.
 | flowClosed | Exact ingress flow invalidation; no effect on other flows or logical owner. |
 | inspect/result | Existing logical context/latest operation and positive retirement proof; no allocation or adoption. |
 
-Generated egress/sendPermit/deliverEffect/write/delivery/inspectEffect/settleEffect,
-retireAuthority, probeApplication/applicationStatus and directory-reconciliation
-families remain for compatible readers/fixtures. Current native producers do not
-emit trusted grant, physical relay, inspection, settlement or authority-retirement
-RPCs; subscription-controller probes retain their explicit business preflight.
-Decoding a historical family never authorizes its removed operation. Context inventory
-and drain generation messages are proposed requirements, not generated service APIs.
+The `probeApplication` / `applicationStatus` exchange checks application liveness
+before subscription-controller handoff. `controllerContexts` /
+`controllerContextsResult` provide authenticated owner-scoped recovery inventory.
+Global instance inventory and drain generation messages remain proposed requirements.
 
 Opening a new UAC uses a caller-allocated OperationRef and an exclusively claimed
 context identity before SIP is sent. A duplicate control request cannot create a
@@ -711,7 +703,7 @@ write is retained WRITTEN. It proves neither peer response nor ended snapshot;
 native transaction/timers continue and a terminal result may replace acceptance.
 UNKNOWN, NOT_WRITTEN or another BYE cannot prove it. Other in-dialog/standalone
 commands await their final result; initial INVITE UAC accepts before SIP answer.
-Controller readers must support both this and the preceding COMPLETED peer-result form.
+The controller handles this intermediate acceptance separately from the final peer result.
 
 Respond.authority supplies actual trusted directory epoch; initial INVITE 2xx also
 requires original policy-admitted scope. Native pins this receipt under the live
@@ -764,30 +756,15 @@ references on all error and shutdown paths.
 
 ## 11. Compatibility, reload and drain
 
-Major version identifies incompatible behavior. Within a major, additions are
-optional and capability-gated. Unknown optional JSON fields are tolerated;
-unknown operations/required enum values/capabilities are not guessed. Reserve
-removed field numbers/names and never rename a JSON key or enum value or change a
-field's meaning in place. New
-semantics require an explicit negotiated capability even if decoding still works.
-JSON names are part of the wire contract; protobuf field-number compatibility alone
-does not prove JSON compatibility.
+The initial control contract is major `1`, minor `0`. Session negotiation selects
+that version and the capabilities both peers support. Unknown optional JSON fields
+are tolerated; unknown operations and required enum values are refused. Optional
+behavior requires its negotiated capability. JSON field names and enum names are
+part of the wire contract, as are protobuf declarations and field numbers.
 
-Protocol v2 replaces the earlier controller field names and control endpoint;
-there are no old-name wire or CLI aliases. Upgrade consumers with the v2 schema,
-generated bindings and image receipt. Both directions of version skew must be
-tested before extending the supported v2 baseline. The supported rollout window is the active controller release and its
-immediate predecessor; schema/behavior compatibility fixtures are stored with the
-contract. An ordinary controller rollout cannot require the SIP process to restart.
-An incompatible peer stays ineligible with a precise diagnostic. Existing sessions
-do not renegotiate their contract midway through a call.
-
-controller release numbers do not advance the protocol or force a new sipbridge image.
-New controller releases must retain the baseline understood by the deployed SIP core;
-capability additions enable new behavior only where supported. The two-release
-window is a controller rolling-update test requirement, not permission to drop support
-for an older, still-deployed v2 sipbridge. A genuinely incompatible core upgrade
-requires an explicit migration and SIP maintenance decision.
+An ineligible peer receives a precise diagnostic and cannot claim a session.
+Established sessions retain their negotiated contract for their lifetime. An
+ordinary controller rollout can leave the SIP process and its sockets running.
 
 Validated certificate/key/trust reload applies to new handshakes and preserves
 established SIP/control sockets. Invalid files retain the last valid context and
@@ -849,7 +826,7 @@ Protocol grounding: native SIP transaction/dialog behavior remains governed by
 relay and fencing rules above are our service design, not claims that ordinary
 SIP clients implement this private protocol or support RFC 5626.
 
-## Controller attachment in v2
+## Controller attachment
 
 [Controller recovery](docs/controller-recovery.md) owns the opt-in recoverable
 owner, authentication and generation-fencing rules. A recovery hello authenticates

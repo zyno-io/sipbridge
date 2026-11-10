@@ -58,7 +58,7 @@ func newRecoveryControlFixture(t *testing.T, backend string) recoveryControlFixt
 		t.Fatal(err)
 	}
 	cfg := control.Config{Process: e.cfg.Process, Authenticator: auth, AllowPlain: true,
-		Capabilities: []string{Capability, control.StateCapability, control.DirectoryReconcileCapability, control.CompletionRelayCapability,
+		Capabilities: []string{Capability, control.StateCapability,
 			control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ControllerReattachCapability},
 		StateAuthority: e.StateAuthority(), HeartbeatInterval: time.Second, HeartbeatTimeout: 6 * time.Second,
 		OnControllerSession: e.ControllerSession, OnControllerRenew: e.ControllerRenew,
@@ -90,7 +90,7 @@ func newRecoveryControlFixture(t *testing.T, backend string) recoveryControlFixt
 			t.Error(err)
 		}
 	})
-	return recoveryControlFixture{owner: f, server: server, address: "ws://" + listener.Addr().String() + "/v2/control", token: token}
+	return recoveryControlFixture{owner: f, server: server, address: "ws://" + listener.Addr().String() + "/v1/control", token: token}
 }
 
 func (f recoveryControlFixture) connect(t *testing.T, process *pb.ProcessRef, attempt uint64, recovery *pb.ControllerRecovery) (*websocket.Conn, *pb.SessionHelloAck) {
@@ -103,8 +103,8 @@ func (f recoveryControlFixture) connect(t *testing.T, process *pb.ProcessRef, at
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { connection.CloseNow() })
-	recoverySend(t, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: process, ConnectionAttempt: attempt, Major: 2,
-		Capabilities: []string{Capability, control.StateCapability, control.DirectoryReconcileCapability, control.CompletionRelayCapability,
+	recoverySend(t, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: process, ConnectionAttempt: attempt, Major: 1,
+		Capabilities: []string{Capability, control.StateCapability,
 			control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ControllerReattachCapability}, Bounds: &pb.Bounds{MaxEnvelopeBytes: control.MaxEnvelope}, Recovery: recovery}}})
 	reply, err := recoveryRead(connection, "", "hello")
 	if err != nil || reply.GetHelloAck() == nil {
@@ -292,7 +292,7 @@ func testControllerReattachThroughControl(t *testing.T, backend string) {
 		t.Fatal(err)
 	}
 	defer bad.CloseNow()
-	recoverySend(t, bad, &pb.Envelope{CorrelationId: "wrong-proof", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: actual, ConnectionAttempt: 2, Major: 2, Capabilities: initial.Capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: control.MaxEnvelope},
+	recoverySend(t, bad, &pb.Envelope{CorrelationId: "wrong-proof", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: actual, ConnectionAttempt: 2, Major: 1, Capabilities: initial.Capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: control.MaxEnvelope},
 		Recovery: &pb.ControllerRecovery{Application: f.owner.app, Term: f.owner.term, Token: base64.RawURLEncoding.EncodeToString(make([]byte, 32)), AttemptId: uuid.NewString(), AttachmentGeneration: 1}}}})
 	if _, err := recoveryRead(bad, "", "wrong-proof"); err == nil {
 		t.Fatal("incorrect recovery token accepted")

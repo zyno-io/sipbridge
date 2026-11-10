@@ -74,13 +74,11 @@ The recovery part of a hello looks like this, using values from your saved handl
   "hello": {
     "controller": { "instanceId": "controller-b", "epoch": "new-process-epoch" },
     "connectionAttempt": "1",
-    "major": 2,
+    "major": 1,
     "capabilities": [
       "sip.v1",
       "sip.state.v1",
       "sip.native-completion.v1",
-      "sip.directory-reconcile.v1",
-      "sip.completion-relay.v1",
       "sip.controller-reattach.v1"
     ],
     "bounds": { "maxEnvelopeBytes": 1048576 },

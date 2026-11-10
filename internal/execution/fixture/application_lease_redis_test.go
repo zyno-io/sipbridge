@@ -24,7 +24,7 @@ func TestApplicationLeaseCommitExpiryReloadsSameInput(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			cfg := state.Config{Redis: state.RedisOptions{Address: address}, Prefix: "sipstate:test", Namespace: "lease-runtime-" + uuid.NewString(),
-				NamespaceKey: bytes.Repeat([]byte{7}, 32), Generation: "generation", Versions: state.Versions{Schema: "2", Reducer: "9", Timers: "1"}, Partitions: 2}
+				NamespaceKey: bytes.Repeat([]byte{7}, 32), Generation: "generation", Versions: state.Versions{Schema: "1", Reducer: "1", Timers: "1"}, Partitions: 2}
 			store, err := state.Open(ctx, cfg)
 			if err != nil {
 				t.Fatal(err)

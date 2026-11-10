@@ -151,13 +151,12 @@ func run() error {
 	var stateNative *engine.StateEngine
 	var ingress *engine.Ingress
 	capabilities := []string{engine.Capability, control.CommandBudgetCapability, engine.DialogContinuityCapability,
-		control.StateCapability, control.DirectoryReconcileCapability, control.CompletionRelayCapability,
-		control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ControllerReattachCapability}
+		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ControllerReattachCapability}
 	if authPolicy != nil {
 		capabilities = append(capabilities, engine.LocalChallengeCapability)
 	}
 	a := stateStore.Authority()
-	authority := &pb.StateAuthority{Service: stateStore.Namespace(), Generation: a.Generation, PrimaryId: a.RunID, SchemaVersion: 3}
+	authority := &pb.StateAuthority{Service: stateStore.Namespace(), Generation: a.Generation, PrimaryId: a.RunID, SchemaVersion: 1}
 	server, err := control.NewServer(control.Config{Process: process, TLS: controlSecurity.TLS, Authenticator: controlSecurity.Authenticator, AllowPlain: controlSecurity.AllowPlain, AllowedURIs: controlSecurity.AllowedURIs, Capabilities: capabilities, StateAuthority: authority, InboundAuthPolicy: authPolicy, OnMessage: func(peer *control.Peer, envelope *pb.Envelope) error {
 		if envelope.GetWrite() != nil {
 			return ingress.Write(peer, envelope)

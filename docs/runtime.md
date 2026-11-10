@@ -1,7 +1,7 @@
 # Service runtime contract
 
 This is the normative execution and bounds supplement to
-[ARCHITECTURE.md](../ARCHITECTURE.md). It describes the schema 3 / reducer 9 /
+[ARCHITECTURE.md](../ARCHITECTURE.md). It describes the schema 1 / reducer 1 /
 timers 1 CAS service. Historical claimed/relay execution is restricted to
 [test fixtures](fixtures.md); it is not a service configuration or recovery path.
 [PROTOCOL.md](../PROTOCOL.md) owns wire and business-admission semantics.
@@ -10,7 +10,7 @@ timers 1 CAS service. Historical claimed/relay execution is restricted to
 
 `SIPBRIDGE_STATE_BACKEND` defaults to `memory`; `redis` must be explicit. Unknown
 values fail startup. Selection is fixed for the process lifetime. Redis settings
-without explicit Redis selection are rejected to catch missed deployment migration.
+without explicit Redis selection are rejected as inconsistent configuration.
 Both adapters implement the same read/reduce/CAS, lease, effect and retirement
 contract. Historical claimed execution remains fixture-only.
 
@@ -324,10 +324,8 @@ changes. Public Cancel checks exact owner/live term without refreshing setup.
 
 Respond pins actual directory epoch; initial INVITE 2xx also pins original
 policy-admitted INVITE scope/origin and selected-dialog scope. A later response
-cannot replace that anchor. Changed epochs refuse business work; no reconcileContext,
-reconciliation barrier/receipt poll or trusted retirement RPC is supported. Native
-response/completion uses independent SIP-state scope without a trusted permit ledger.
-Compatibility capability labels do not restore removed operations.
+cannot replace that anchor. Changed epochs refuse business work. Native
+response/completion uses independent retained SIP-state authority.
 
 A public AD BYE's exact first WRITTEN outcome permits request-bearing ACCEPTED from
 retained native wire, with a fresh snapshot. It proves the write, not a peer response
@@ -335,8 +333,8 @@ or ended snapshot. The transaction/timers/final result continue. Only its curren
 command, exact original BYE and transaction qualify; an out-of-dialog OpenUac BYE,
 UNKNOWN or NOT_WRITTEN cannot. Later retransmission failure cannot revoke the proof;
 peer-final/terminal processing may replace the command result. Other commands await
-their normal final result. controller readers must support this and preceding COMPLETED
-peer-result forms before native early acceptance is enabled.
+their normal final result. The controller handles intermediate acceptance separately from the final
+peer result.
 
 The controller and its account backend own account-version registration mutation and ordered flow publication.
 No-op/older ambiguous unregister results preserve eligibility; explicit removal plus
@@ -374,8 +372,10 @@ the lease. Final completion/failure and NOTIFY 481 remove only that subscription
 
 ## Exact physical evidence and response recovery
 
-Every send retains immutable bytes and typed fingerprint. Reservation commits before
-socket I/O and returns only committed bytes; a terminal attempt cannot replay a
+Every send retains immutable bytes and typed fingerprint. A physical write request
+contains only the exact flow, effect and permit identities; bytes are loaded from
+the committed reservation. Reservation commits before socket I/O and returns only
+committed bytes; a terminal attempt cannot replay a
 reservation into another start. Only the exact Flow.ingress process runs the local
 Reserve/Complete writer. Other workers can compute/discover work, never use its socket.
 Native permits/reservation/settlement share the SIP effect record, without another
@@ -530,7 +530,7 @@ an already active context.
 
 Retirement requires native procedures/replay windows, timers and exact physical
 settlement complete; terminal application bits/time alone are insufficient. Native
-settlement is local SIP-state work, not a controller settlement/authority-retirement RPC.
+settlement is local SIP-state work.
 True UNKNOWN stays charged. Terminal compaction can remove duplicate wire/snapshots
 but preserves identity/hash/permit/outcome and causal written-ACK proof. Settled terminal
 physical and receiver-acknowledged nonphysical effects alone free slots. Expired obsolete
@@ -640,8 +640,8 @@ protect that compatibility, not a second state representation.
 Decoded fields never alias caller buffers, other fields or old receiver values. Owned
 RawMessage buffers transfer once; copy final value if spare capacity exceeds max(4,096,
 length/4), avoiding large duplicate-field retention. Failed decode is atomic; later decode
-cannot overwrite earlier returned buffers. Structured/opaque and legacy base64 readers
-remain compatible. Dispatch may select by native identity metadata, but the physical/
+cannot overwrite earlier returned buffers. Structured, opaque and base64 representations
+retain their exact decoding rules. Dispatch may select by native identity metadata, but the physical/
 control dispatcher validates the full retained body before I/O. No encoding optimization
 adds a resident cache, skips capacity checks or changes authority.
 

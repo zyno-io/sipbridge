@@ -77,12 +77,12 @@ func controlFixture(t *testing.T, process, application *pb.ProcessRef, status ..
 	}
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(certPEM)
-	connection, _, err := websocket.Dial(ctx, "wss://"+listener.Addr().String()+"/v2/control", &websocket.DialOptions{Subprotocols: []string{control.Subprotocol}, HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13}}}})
+	connection, _, err := websocket.Dial(ctx, "wss://"+listener.Addr().String()+"/v1/control", &websocket.DialOptions{Subprotocols: []string{control.Subprotocol}, HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { connection.CloseNow() })
-	writeControllerEnvelope(t, ctx, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: application, ConnectionAttempt: 1, Major: 2, Bounds: &pb.Bounds{MaxEnvelopeBytes: control.MaxEnvelope}, Capabilities: []string{Capability, DialogContinuityCapability}}}})
+	writeControllerEnvelope(t, ctx, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: application, ConnectionAttempt: 1, Major: 1, Bounds: &pb.Bounds{MaxEnvelopeBytes: control.MaxEnvelope}, Capabilities: []string{Capability, DialogContinuityCapability}}}})
 	hello := readControllerEnvelope(t, ctx, connection)
 	if hello.GetHelloAck() == nil {
 		t.Fatal("control hello was not acknowledged")
@@ -157,13 +157,13 @@ func publicationControllerPair(t *testing.T, process, first, second *pb.ProcessR
 	connect := func(process *pb.ProcessRef) publicationTestController {
 		ctx, stop := context.WithTimeout(serverCtx, 5*time.Second)
 		t.Cleanup(stop)
-		connection, _, err := websocket.Dial(ctx, "wss://"+listener.Addr().String()+"/v2/control", &websocket.DialOptions{Subprotocols: []string{control.Subprotocol}, HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}, MinVersion: tls.VersionTLS13}}}})
+		connection, _, err := websocket.Dial(ctx, "wss://"+listener.Addr().String()+"/v1/control", &websocket.DialOptions{Subprotocols: []string{control.Subprotocol}, HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}, MinVersion: tls.VersionTLS13}}}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { connection.CloseNow() })
 		writeControllerEnvelope(t, ctx, connection, &pb.Envelope{CorrelationId: "hello-" + process.InstanceId,
-			Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: process, ConnectionAttempt: 1, Major: 2,
+			Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: process, ConnectionAttempt: 1, Major: 1,
 				Bounds: &pb.Bounds{MaxEnvelopeBytes: control.MaxEnvelope}, Capabilities: []string{Capability, DialogContinuityCapability}}}})
 		hello := readControllerEnvelope(t, ctx, connection)
 		if hello.GetHelloAck() == nil {

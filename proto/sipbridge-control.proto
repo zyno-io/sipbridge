@@ -1,14 +1,13 @@
 syntax = "proto3";
 
-package sipbridge.control.v2;
+package sipbridge.control.v1;
 option go_package = "sipbridge/internal/controlpb";
 
 // Canonical control contract and source for generated JSON codecs/validation.
-// Wire transport is UTF-8 JSON text only (sipbridge.control.json.v2), with
+// Wire transport is UTF-8 JSON text only (sipbridge.control.json.v1), with
 // lowerCamelCase keys, symbolic enums, uint64 decimal strings and base64 bytes.
-// Application families require the explicitly
-// negotiated sip.v1 capability; the session-only
-// executable never admits SIP. PROTOCOL.md and ARCHITECTURE.md in sipbridge own
+// Application families require the explicitly negotiated sip.v1 capability.
+// PROTOCOL.md and ARCHITECTURE.md in sipbridge own
 // behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
 message Envelope {
   string correlation_id = 1;
@@ -40,14 +39,8 @@ message Envelope {
     CredentialResult credential_result = 37;
     // Reads existing physical attempt evidence only; never authorizes a write.
     FlowWrite inspect_effect = 38;
-    EffectSettlement settle_effect = 39;
-    // Native proof that all SIP procedures and delivery reconciliation have retired.
-    ContextSnapshot retire_authority = 40;
     ApplicationProbe probe_application = 41;
     ApplicationStatus application_status = 42;
-    ContextReconcile reconcile_context = 43;
-    AuthorityReconcile reconcile_authority = 44;
-    AuthorityReceipt authority_receipt = 45;
     ControllerContexts controller_contexts = 46;
     ControllerContextsResult controller_contexts_result = 47;
   }
@@ -199,7 +192,7 @@ message CredentialRef { string id = 1; string version = 2; }
 // protocol inputs/effects/receipts; the executor stores only derived digest data.
 message CredentialLookup { ContextRef context = 1; CredentialRef credential = 2; }
 message CredentialResult { string username = 1; string password = 2; string version = 3; string error = 4; }
-message NetworkTarget { string proxy = 1; string transport = 2; string username = 3; string password = 4; CredentialRef credential = 5; }
+message NetworkTarget { string proxy = 1; string transport = 2; CredentialRef credential = 5; }
 message OpenUac { string uri = 1; bytes body = 2; repeated Header headers = 3; string binding_id = 4; string principal_id = 5; NetworkTarget network = 6; string transport = 7; string method = 8; }
 message DialogRequest { string method = 1; bytes body = 2; repeated Header headers = 3; }
 message Cancel {}
@@ -234,15 +227,13 @@ message EffectAuthorization {
 }
 message SendPermit { EffectAuthorization authorization = 1; FlowRef flow = 2; string directory_epoch = 3; string ordering_proof = 4; string completion_scope = 5; }
 message EgressRequest { ContextSnapshot snapshot = 1; SipMessage message = 2; FlowRef return_flow = 3; EffectAuthorization authorization = 4; }
-message FlowWrite { FlowRef flow = 1; string binding_id = 2; uint64 binding_revision = 3; bytes wire = 4; StateEffectRef effect = 5; SendPermit permit = 6; }
+message FlowWrite { FlowRef flow = 1; StateEffectRef effect = 5; SendPermit permit = 6; }
 message DeliveryResult {
   enum Outcome { UNSPECIFIED = 0; WRITTEN = 1; NOT_WRITTEN = 2; UNKNOWN = 3; }
   Outcome outcome = 1; string error = 2; StateEffectRef effect = 3;
   // True only after the exact terminal physical outcome is committed in SIP state.
   bool recorded = 4;
 }
-// Historical reconciliation only; this message cannot start a physical write.
-message EffectSettlement { FlowWrite write = 1; DeliveryResult delivery = 2; }
 // Read-only proof from the current trusted directory; a control disconnect is not owner loss.
 message ApplicationProbe { ContextRef context = 1; ProcessRef application = 2; }
 message ApplicationStatus {
@@ -265,18 +256,3 @@ message FlowAdoptionRequest {
   FlowRef flow = 5; uint64 native_revision = 6; bool subscription = 7;
 }
 message FlowAdoptionResult { ContextDelivery receipt = 1; string error = 2; }
-
-// Explicit quiescent native barrier; never an implicit owner/permit reset.
-message ContextReconcile {
-  ContextRef context = 1; string from_directory_epoch = 2; string directory_epoch = 3;
-}
-message AuthorityReconcile {
-  ContextSnapshot snapshot = 1; string from_directory_epoch = 2; string directory_epoch = 3;
-  string token = 4; uint64 barrier_revision = 5; SipMessage origin = 6;
-  string completion_scope = 7; FlowRef flow = 8;
-}
-message AuthorityReceipt {
-  ContextRef context = 1; ProcessRef application = 2; string from_directory_epoch = 3;
-  string directory_epoch = 4; string token = 5; uint64 barrier_revision = 6;
-  string completion_scope = 7; ContextDelivery delivery = 8; bool owner_lost = 9;
-}

@@ -158,7 +158,7 @@ func TestStateScopedTLSAuthoritySurvivesRealSentinelPromotion(t *testing.T) {
 			return err == nil && len(raw) == 2
 		})
 	}
-	cfg := Config{Redis: RedisOptions{SentinelAddresses: endpoints, SentinelMaster: "fixture", SentinelUsername: "discovery", SentinelPassword: material.discovery, Username: "sipbridge", Password: material.state, TLS: material.config, DialTimeout: 300 * time.Millisecond, IOTimeout: 500 * time.Millisecond, PoolSize: 2}, Prefix: prefix, Namespace: namespace, NamespaceKey: bytes.Repeat([]byte{92}, 32), Partitions: 2, Generation: "retained-tls", Versions: Versions{Schema: "2", Reducer: "9", Timers: "1"}, ClaimTTL: 200 * time.Millisecond}
+	cfg := Config{Redis: RedisOptions{SentinelAddresses: endpoints, SentinelMaster: "fixture", SentinelUsername: "discovery", SentinelPassword: material.discovery, Username: "sipbridge", Password: material.state, TLS: material.config, DialTimeout: 300 * time.Millisecond, IOTimeout: 500 * time.Millisecond, PoolSize: 2}, Prefix: prefix, Namespace: namespace, NamespaceKey: bytes.Repeat([]byte{92}, 32), Partitions: 2, Generation: "retained-tls", Versions: Versions{Schema: "1", Reducer: "1", Timers: "1"}, ClaimTTL: 200 * time.Millisecond}
 	store, err := Open(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)

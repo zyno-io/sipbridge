@@ -105,7 +105,7 @@ func (i *Ingress) inspectCommitted(ctx context.Context, cmd *pb.FlowWrite) *pb.D
 	if cmd != nil {
 		result.Effect = cmd.Effect
 	}
-	if i.stateWriter == nil || cmd == nil || cmd.Effect == nil || cmd.Permit == nil || cmd.Flow == nil || !sameProcess(cmd.Flow.Ingress, i.process) || cmd.Effect.Id == "" || cmd.Effect.AttemptId == "" || len(cmd.Wire) != 0 {
+	if i.stateWriter == nil || cmd == nil || cmd.Effect == nil || cmd.Permit == nil || cmd.Flow == nil || !sameProcess(cmd.Flow.Ingress, i.process) || cmd.Effect.Id == "" || cmd.Effect.AttemptId == "" {
 		result.Error = "invalid physical evidence inspection"
 		return result
 	}
@@ -145,7 +145,7 @@ func (i *Ingress) committedResult(parent context.Context, cmd *pb.FlowWrite) *pb
 		result.Effect = cmd.Effect
 	}
 	if i.stateWriter == nil || cmd == nil || cmd.Effect == nil || cmd.Permit == nil || cmd.Flow == nil ||
-		!sameProcess(cmd.Flow.Ingress, i.process) || cmd.Effect.Id == "" || cmd.Effect.AttemptId == "" || len(cmd.Wire) != 0 {
+		!sameProcess(cmd.Flow.Ingress, i.process) || cmd.Effect.Id == "" || cmd.Effect.AttemptId == "" {
 		result.Error = "invalid committed physical write"
 		return result
 	}

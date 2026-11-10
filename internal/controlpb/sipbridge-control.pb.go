@@ -461,15 +461,14 @@ func (x DialogEvent_Kind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DialogEvent_Kind.Descriptor instead.
 func (DialogEvent_Kind) EnumDescriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{51, 0}
+	return file_sipbridge_control_proto_rawDescGZIP(), []int{50, 0}
 }
 
 // Canonical control contract and source for generated JSON codecs/validation.
-// Wire transport is UTF-8 JSON text only (sipbridge.control.json.v2), with
+// Wire transport is UTF-8 JSON text only (sipbridge.control.json.v1), with
 // lowerCamelCase keys, symbolic enums, uint64 decimal strings and base64 bytes.
-// Application families require the explicitly
-// negotiated sip.v1 capability; the session-only
-// executable never admits SIP. PROTOCOL.md and ARCHITECTURE.md in sipbridge own
+// Application families require the explicitly negotiated sip.v1 capability.
+// PROTOCOL.md and ARCHITECTURE.md in sipbridge own
 // behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
 type Envelope struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
@@ -502,13 +501,8 @@ type Envelope struct {
 	//	*Envelope_CredentialLookup
 	//	*Envelope_CredentialResult
 	//	*Envelope_InspectEffect
-	//	*Envelope_SettleEffect
-	//	*Envelope_RetireAuthority
 	//	*Envelope_ProbeApplication
 	//	*Envelope_ApplicationStatus
-	//	*Envelope_ReconcileContext
-	//	*Envelope_ReconcileAuthority
-	//	*Envelope_AuthorityReceipt
 	//	*Envelope_ControllerContexts
 	//	*Envelope_ControllerContextsResult
 	Payload       isEnvelope_Payload `protobuf_oneof:"payload"`
@@ -790,24 +784,6 @@ func (x *Envelope) GetInspectEffect() *FlowWrite {
 	return nil
 }
 
-func (x *Envelope) GetSettleEffect() *EffectSettlement {
-	if x != nil {
-		if x, ok := x.Payload.(*Envelope_SettleEffect); ok {
-			return x.SettleEffect
-		}
-	}
-	return nil
-}
-
-func (x *Envelope) GetRetireAuthority() *ContextSnapshot {
-	if x != nil {
-		if x, ok := x.Payload.(*Envelope_RetireAuthority); ok {
-			return x.RetireAuthority
-		}
-	}
-	return nil
-}
-
 func (x *Envelope) GetProbeApplication() *ApplicationProbe {
 	if x != nil {
 		if x, ok := x.Payload.(*Envelope_ProbeApplication); ok {
@@ -821,33 +797,6 @@ func (x *Envelope) GetApplicationStatus() *ApplicationStatus {
 	if x != nil {
 		if x, ok := x.Payload.(*Envelope_ApplicationStatus); ok {
 			return x.ApplicationStatus
-		}
-	}
-	return nil
-}
-
-func (x *Envelope) GetReconcileContext() *ContextReconcile {
-	if x != nil {
-		if x, ok := x.Payload.(*Envelope_ReconcileContext); ok {
-			return x.ReconcileContext
-		}
-	}
-	return nil
-}
-
-func (x *Envelope) GetReconcileAuthority() *AuthorityReconcile {
-	if x != nil {
-		if x, ok := x.Payload.(*Envelope_ReconcileAuthority); ok {
-			return x.ReconcileAuthority
-		}
-	}
-	return nil
-}
-
-func (x *Envelope) GetAuthorityReceipt() *AuthorityReceipt {
-	if x != nil {
-		if x, ok := x.Payload.(*Envelope_AuthorityReceipt); ok {
-			return x.AuthorityReceipt
 		}
 	}
 	return nil
@@ -972,33 +921,12 @@ type Envelope_InspectEffect struct {
 	InspectEffect *FlowWrite `protobuf:"bytes,38,opt,name=inspect_effect,json=inspectEffect,proto3,oneof"`
 }
 
-type Envelope_SettleEffect struct {
-	SettleEffect *EffectSettlement `protobuf:"bytes,39,opt,name=settle_effect,json=settleEffect,proto3,oneof"`
-}
-
-type Envelope_RetireAuthority struct {
-	// Native proof that all SIP procedures and delivery reconciliation have retired.
-	RetireAuthority *ContextSnapshot `protobuf:"bytes,40,opt,name=retire_authority,json=retireAuthority,proto3,oneof"`
-}
-
 type Envelope_ProbeApplication struct {
 	ProbeApplication *ApplicationProbe `protobuf:"bytes,41,opt,name=probe_application,json=probeApplication,proto3,oneof"`
 }
 
 type Envelope_ApplicationStatus struct {
 	ApplicationStatus *ApplicationStatus `protobuf:"bytes,42,opt,name=application_status,json=applicationStatus,proto3,oneof"`
-}
-
-type Envelope_ReconcileContext struct {
-	ReconcileContext *ContextReconcile `protobuf:"bytes,43,opt,name=reconcile_context,json=reconcileContext,proto3,oneof"`
-}
-
-type Envelope_ReconcileAuthority struct {
-	ReconcileAuthority *AuthorityReconcile `protobuf:"bytes,44,opt,name=reconcile_authority,json=reconcileAuthority,proto3,oneof"`
-}
-
-type Envelope_AuthorityReceipt struct {
-	AuthorityReceipt *AuthorityReceipt `protobuf:"bytes,45,opt,name=authority_receipt,json=authorityReceipt,proto3,oneof"`
 }
 
 type Envelope_ControllerContexts struct {
@@ -1057,19 +985,9 @@ func (*Envelope_CredentialResult) isEnvelope_Payload() {}
 
 func (*Envelope_InspectEffect) isEnvelope_Payload() {}
 
-func (*Envelope_SettleEffect) isEnvelope_Payload() {}
-
-func (*Envelope_RetireAuthority) isEnvelope_Payload() {}
-
 func (*Envelope_ProbeApplication) isEnvelope_Payload() {}
 
 func (*Envelope_ApplicationStatus) isEnvelope_Payload() {}
-
-func (*Envelope_ReconcileContext) isEnvelope_Payload() {}
-
-func (*Envelope_ReconcileAuthority) isEnvelope_Payload() {}
-
-func (*Envelope_AuthorityReceipt) isEnvelope_Payload() {}
 
 func (*Envelope_ControllerContexts) isEnvelope_Payload() {}
 
@@ -2773,7 +2691,7 @@ func (x *IngressReceived) GetContext() *ContextRef {
 
 type RouteResult struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Outcome       RouteResult_Outcome    `protobuf:"varint,1,opt,name=outcome,proto3,enum=sipbridge.control.v2.RouteResult_Outcome" json:"outcome,omitempty"`
+	Outcome       RouteResult_Outcome    `protobuf:"varint,1,opt,name=outcome,proto3,enum=sipbridge.control.v1.RouteResult_Outcome" json:"outcome,omitempty"`
 	Controller    *ProcessRef            `protobuf:"bytes,2,opt,name=controller,proto3" json:"controller,omitempty"`
 	SipStatus     uint32                 `protobuf:"varint,3,opt,name=sip_status,json=sipStatus,proto3" json:"sip_status,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2840,7 +2758,7 @@ type OwnerIngest struct {
 	BindingId     string                 `protobuf:"bytes,5,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
 	PrincipalId   string                 `protobuf:"bytes,6,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
 	Authenticated bool                   `protobuf:"varint,7,opt,name=authenticated,proto3" json:"authenticated,omitempty"`
-	Admission     OwnerIngest_Admission  `protobuf:"varint,8,opt,name=admission,proto3,enum=sipbridge.control.v2.OwnerIngest_Admission" json:"admission,omitempty"`
+	Admission     OwnerIngest_Admission  `protobuf:"varint,8,opt,name=admission,proto3,enum=sipbridge.control.v1.OwnerIngest_Admission" json:"admission,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2937,7 +2855,7 @@ type ContextSnapshot struct {
 	Application          *ProcessRef            `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
 	BindingId            string                 `protobuf:"bytes,3,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
 	PrincipalId          string                 `protobuf:"bytes,4,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
-	Kind                 ContextSnapshot_Kind   `protobuf:"varint,5,opt,name=kind,proto3,enum=sipbridge.control.v2.ContextSnapshot_Kind" json:"kind,omitempty"`
+	Kind                 ContextSnapshot_Kind   `protobuf:"varint,5,opt,name=kind,proto3,enum=sipbridge.control.v1.ContextSnapshot_Kind" json:"kind,omitempty"`
 	DialogId             string                 `protobuf:"bytes,6,opt,name=dialog_id,json=dialogId,proto3" json:"dialog_id,omitempty"`
 	CallId               string                 `protobuf:"bytes,7,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
 	LocalTag             string                 `protobuf:"bytes,8,opt,name=local_tag,json=localTag,proto3" json:"local_tag,omitempty"`
@@ -3567,8 +3485,6 @@ type NetworkTarget struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Proxy         string                 `protobuf:"bytes,1,opt,name=proxy,proto3" json:"proxy,omitempty"`
 	Transport     string                 `protobuf:"bytes,2,opt,name=transport,proto3" json:"transport,omitempty"`
-	Username      string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
-	Password      string                 `protobuf:"bytes,4,opt,name=password,proto3" json:"password,omitempty"`
 	Credential    *CredentialRef         `protobuf:"bytes,5,opt,name=credential,proto3" json:"credential,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3614,20 +3530,6 @@ func (x *NetworkTarget) GetProxy() string {
 func (x *NetworkTarget) GetTransport() string {
 	if x != nil {
 		return x.Transport
-	}
-	return ""
-}
-
-func (x *NetworkTarget) GetUsername() string {
-	if x != nil {
-		return x.Username
-	}
-	return ""
-}
-
-func (x *NetworkTarget) GetPassword() string {
-	if x != nil {
-		return x.Password
 	}
 	return ""
 }
@@ -4045,7 +3947,7 @@ func (*Command_Cancel) isCommand_Action() {}
 
 type OperationResult struct {
 	state           protoimpl.MessageState    `protogen:"open.v1"`
-	Certainty       OperationResult_Certainty `protobuf:"varint,1,opt,name=certainty,proto3,enum=sipbridge.control.v2.OperationResult_Certainty" json:"certainty,omitempty"`
+	Certainty       OperationResult_Certainty `protobuf:"varint,1,opt,name=certainty,proto3,enum=sipbridge.control.v1.OperationResult_Certainty" json:"certainty,omitempty"`
 	Error           string                    `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
 	SipStatus       uint32                    `protobuf:"varint,3,opt,name=sip_status,json=sipStatus,proto3" json:"sip_status,omitempty"`
 	Snapshot        *ContextSnapshot          `protobuf:"bytes,4,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
@@ -4141,7 +4043,7 @@ type ContextRetirementProof struct {
 	state         protoimpl.MessageState        `protogen:"open.v1"`
 	Context       *ContextRef                   `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
 	Authority     *StateAuthority               `protobuf:"bytes,2,opt,name=authority,proto3" json:"authority,omitempty"`
-	Reason        ContextRetirementProof_Reason `protobuf:"varint,3,opt,name=reason,proto3,enum=sipbridge.control.v2.ContextRetirementProof_Reason" json:"reason,omitempty"`
+	Reason        ContextRetirementProof_Reason `protobuf:"varint,3,opt,name=reason,proto3,enum=sipbridge.control.v1.ContextRetirementProof_Reason" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4260,7 +4162,7 @@ func (x *StateEffectRef) GetAttemptId() string {
 type EffectAuthorization struct {
 	state                protoimpl.MessageState    `protogen:"open.v1"`
 	Effect               *StateEffectRef           `protobuf:"bytes,1,opt,name=effect,proto3" json:"effect,omitempty"`
-	AuthorityClass       EffectAuthorization_Class `protobuf:"varint,2,opt,name=authority_class,json=authorityClass,proto3,enum=sipbridge.control.v2.EffectAuthorization_Class" json:"authority_class,omitempty"`
+	AuthorityClass       EffectAuthorization_Class `protobuf:"varint,2,opt,name=authority_class,json=authorityClass,proto3,enum=sipbridge.control.v1.EffectAuthorization_Class" json:"authority_class,omitempty"`
 	CompletionScope      string                    `protobuf:"bytes,3,opt,name=completion_scope,json=completionScope,proto3" json:"completion_scope,omitempty"`
 	Fingerprint          string                    `protobuf:"bytes,4,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
 	DeadlineMs           uint64                    `protobuf:"varint,5,opt,name=deadline_ms,json=deadlineMs,proto3" json:"deadline_ms,omitempty"`
@@ -4486,15 +4388,12 @@ func (x *EgressRequest) GetAuthorization() *EffectAuthorization {
 }
 
 type FlowWrite struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Flow            *FlowRef               `protobuf:"bytes,1,opt,name=flow,proto3" json:"flow,omitempty"`
-	BindingId       string                 `protobuf:"bytes,2,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
-	BindingRevision uint64                 `protobuf:"varint,3,opt,name=binding_revision,json=bindingRevision,proto3" json:"binding_revision,omitempty"`
-	Wire            []byte                 `protobuf:"bytes,4,opt,name=wire,proto3" json:"wire,omitempty"`
-	Effect          *StateEffectRef        `protobuf:"bytes,5,opt,name=effect,proto3" json:"effect,omitempty"`
-	Permit          *SendPermit            `protobuf:"bytes,6,opt,name=permit,proto3" json:"permit,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Flow          *FlowRef               `protobuf:"bytes,1,opt,name=flow,proto3" json:"flow,omitempty"`
+	Effect        *StateEffectRef        `protobuf:"bytes,5,opt,name=effect,proto3" json:"effect,omitempty"`
+	Permit        *SendPermit            `protobuf:"bytes,6,opt,name=permit,proto3" json:"permit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FlowWrite) Reset() {
@@ -4534,27 +4433,6 @@ func (x *FlowWrite) GetFlow() *FlowRef {
 	return nil
 }
 
-func (x *FlowWrite) GetBindingId() string {
-	if x != nil {
-		return x.BindingId
-	}
-	return ""
-}
-
-func (x *FlowWrite) GetBindingRevision() uint64 {
-	if x != nil {
-		return x.BindingRevision
-	}
-	return 0
-}
-
-func (x *FlowWrite) GetWire() []byte {
-	if x != nil {
-		return x.Wire
-	}
-	return nil
-}
-
 func (x *FlowWrite) GetEffect() *StateEffectRef {
 	if x != nil {
 		return x.Effect
@@ -4571,7 +4449,7 @@ func (x *FlowWrite) GetPermit() *SendPermit {
 
 type DeliveryResult struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
-	Outcome DeliveryResult_Outcome `protobuf:"varint,1,opt,name=outcome,proto3,enum=sipbridge.control.v2.DeliveryResult_Outcome" json:"outcome,omitempty"`
+	Outcome DeliveryResult_Outcome `protobuf:"varint,1,opt,name=outcome,proto3,enum=sipbridge.control.v1.DeliveryResult_Outcome" json:"outcome,omitempty"`
 	Error   string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
 	Effect  *StateEffectRef        `protobuf:"bytes,3,opt,name=effect,proto3" json:"effect,omitempty"`
 	// True only after the exact terminal physical outcome is committed in SIP state.
@@ -4638,59 +4516,6 @@ func (x *DeliveryResult) GetRecorded() bool {
 	return false
 }
 
-// Historical reconciliation only; this message cannot start a physical write.
-type EffectSettlement struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Write         *FlowWrite             `protobuf:"bytes,1,opt,name=write,proto3" json:"write,omitempty"`
-	Delivery      *DeliveryResult        `protobuf:"bytes,2,opt,name=delivery,proto3" json:"delivery,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *EffectSettlement) Reset() {
-	*x = EffectSettlement{}
-	mi := &file_sipbridge_control_proto_msgTypes[47]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *EffectSettlement) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*EffectSettlement) ProtoMessage() {}
-
-func (x *EffectSettlement) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[47]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use EffectSettlement.ProtoReflect.Descriptor instead.
-func (*EffectSettlement) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{47}
-}
-
-func (x *EffectSettlement) GetWrite() *FlowWrite {
-	if x != nil {
-		return x.Write
-	}
-	return nil
-}
-
-func (x *EffectSettlement) GetDelivery() *DeliveryResult {
-	if x != nil {
-		return x.Delivery
-	}
-	return nil
-}
-
 // Read-only proof from the current trusted directory; a control disconnect is not owner loss.
 type ApplicationProbe struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -4702,7 +4527,7 @@ type ApplicationProbe struct {
 
 func (x *ApplicationProbe) Reset() {
 	*x = ApplicationProbe{}
-	mi := &file_sipbridge_control_proto_msgTypes[48]
+	mi := &file_sipbridge_control_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4714,7 +4539,7 @@ func (x *ApplicationProbe) String() string {
 func (*ApplicationProbe) ProtoMessage() {}
 
 func (x *ApplicationProbe) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[48]
+	mi := &file_sipbridge_control_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4727,7 +4552,7 @@ func (x *ApplicationProbe) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplicationProbe.ProtoReflect.Descriptor instead.
 func (*ApplicationProbe) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{48}
+	return file_sipbridge_control_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *ApplicationProbe) GetContext() *ContextRef {
@@ -4757,7 +4582,7 @@ type ApplicationStatus struct {
 
 func (x *ApplicationStatus) Reset() {
 	*x = ApplicationStatus{}
-	mi := &file_sipbridge_control_proto_msgTypes[49]
+	mi := &file_sipbridge_control_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4769,7 +4594,7 @@ func (x *ApplicationStatus) String() string {
 func (*ApplicationStatus) ProtoMessage() {}
 
 func (x *ApplicationStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[49]
+	mi := &file_sipbridge_control_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4782,7 +4607,7 @@ func (x *ApplicationStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplicationStatus.ProtoReflect.Descriptor instead.
 func (*ApplicationStatus) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{49}
+	return file_sipbridge_control_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ApplicationStatus) GetContext() *ContextRef {
@@ -4829,7 +4654,7 @@ type FlowClosed struct {
 
 func (x *FlowClosed) Reset() {
 	*x = FlowClosed{}
-	mi := &file_sipbridge_control_proto_msgTypes[50]
+	mi := &file_sipbridge_control_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4841,7 +4666,7 @@ func (x *FlowClosed) String() string {
 func (*FlowClosed) ProtoMessage() {}
 
 func (x *FlowClosed) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[50]
+	mi := &file_sipbridge_control_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4854,7 +4679,7 @@ func (x *FlowClosed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowClosed.ProtoReflect.Descriptor instead.
 func (*FlowClosed) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{50}
+	return file_sipbridge_control_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *FlowClosed) GetFlow() *FlowRef {
@@ -4866,7 +4691,7 @@ func (x *FlowClosed) GetFlow() *FlowRef {
 
 type DialogEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          DialogEvent_Kind       `protobuf:"varint,1,opt,name=kind,proto3,enum=sipbridge.control.v2.DialogEvent_Kind" json:"kind,omitempty"`
+	Kind          DialogEvent_Kind       `protobuf:"varint,1,opt,name=kind,proto3,enum=sipbridge.control.v1.DialogEvent_Kind" json:"kind,omitempty"`
 	Snapshot      *ContextSnapshot       `protobuf:"bytes,2,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
 	Message       *SipMessage            `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
 	OperationId   string                 `protobuf:"bytes,4,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
@@ -4877,7 +4702,7 @@ type DialogEvent struct {
 
 func (x *DialogEvent) Reset() {
 	*x = DialogEvent{}
-	mi := &file_sipbridge_control_proto_msgTypes[51]
+	mi := &file_sipbridge_control_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4889,7 +4714,7 @@ func (x *DialogEvent) String() string {
 func (*DialogEvent) ProtoMessage() {}
 
 func (x *DialogEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[51]
+	mi := &file_sipbridge_control_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4902,7 +4727,7 @@ func (x *DialogEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DialogEvent.ProtoReflect.Descriptor instead.
 func (*DialogEvent) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{51}
+	return file_sipbridge_control_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *DialogEvent) GetKind() DialogEvent_Kind {
@@ -4949,7 +4774,7 @@ type ContextInspect struct {
 
 func (x *ContextInspect) Reset() {
 	*x = ContextInspect{}
-	mi := &file_sipbridge_control_proto_msgTypes[52]
+	mi := &file_sipbridge_control_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4961,7 +4786,7 @@ func (x *ContextInspect) String() string {
 func (*ContextInspect) ProtoMessage() {}
 
 func (x *ContextInspect) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[52]
+	mi := &file_sipbridge_control_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4974,7 +4799,7 @@ func (x *ContextInspect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContextInspect.ProtoReflect.Descriptor instead.
 func (*ContextInspect) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{52}
+	return file_sipbridge_control_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ContextInspect) GetContext() *ContextRef {
@@ -4997,7 +4822,7 @@ type ContextDelivery struct {
 
 func (x *ContextDelivery) Reset() {
 	*x = ContextDelivery{}
-	mi := &file_sipbridge_control_proto_msgTypes[53]
+	mi := &file_sipbridge_control_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5009,7 +4834,7 @@ func (x *ContextDelivery) String() string {
 func (*ContextDelivery) ProtoMessage() {}
 
 func (x *ContextDelivery) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[53]
+	mi := &file_sipbridge_control_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5022,7 +4847,7 @@ func (x *ContextDelivery) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContextDelivery.ProtoReflect.Descriptor instead.
 func (*ContextDelivery) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{53}
+	return file_sipbridge_control_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *ContextDelivery) GetFlow() *FlowRef {
@@ -5068,7 +4893,7 @@ type FlowAdoptionRequest struct {
 
 func (x *FlowAdoptionRequest) Reset() {
 	*x = FlowAdoptionRequest{}
-	mi := &file_sipbridge_control_proto_msgTypes[54]
+	mi := &file_sipbridge_control_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5080,7 +4905,7 @@ func (x *FlowAdoptionRequest) String() string {
 func (*FlowAdoptionRequest) ProtoMessage() {}
 
 func (x *FlowAdoptionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[54]
+	mi := &file_sipbridge_control_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5093,7 +4918,7 @@ func (x *FlowAdoptionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowAdoptionRequest.ProtoReflect.Descriptor instead.
 func (*FlowAdoptionRequest) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{54}
+	return file_sipbridge_control_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *FlowAdoptionRequest) GetContext() *ContextRef {
@@ -5155,7 +4980,7 @@ type FlowAdoptionResult struct {
 
 func (x *FlowAdoptionResult) Reset() {
 	*x = FlowAdoptionResult{}
-	mi := &file_sipbridge_control_proto_msgTypes[55]
+	mi := &file_sipbridge_control_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5167,7 +4992,7 @@ func (x *FlowAdoptionResult) String() string {
 func (*FlowAdoptionResult) ProtoMessage() {}
 
 func (x *FlowAdoptionResult) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[55]
+	mi := &file_sipbridge_control_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5180,7 +5005,7 @@ func (x *FlowAdoptionResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowAdoptionResult.ProtoReflect.Descriptor instead.
 func (*FlowAdoptionResult) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{55}
+	return file_sipbridge_control_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *FlowAdoptionResult) GetReceipt() *ContextDelivery {
@@ -5197,321 +5022,47 @@ func (x *FlowAdoptionResult) GetError() string {
 	return ""
 }
 
-// Explicit quiescent native barrier; never an implicit owner/permit reset.
-type ContextReconcile struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	Context            *ContextRef            `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
-	FromDirectoryEpoch string                 `protobuf:"bytes,2,opt,name=from_directory_epoch,json=fromDirectoryEpoch,proto3" json:"from_directory_epoch,omitempty"`
-	DirectoryEpoch     string                 `protobuf:"bytes,3,opt,name=directory_epoch,json=directoryEpoch,proto3" json:"directory_epoch,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
-}
-
-func (x *ContextReconcile) Reset() {
-	*x = ContextReconcile{}
-	mi := &file_sipbridge_control_proto_msgTypes[56]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ContextReconcile) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ContextReconcile) ProtoMessage() {}
-
-func (x *ContextReconcile) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[56]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ContextReconcile.ProtoReflect.Descriptor instead.
-func (*ContextReconcile) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{56}
-}
-
-func (x *ContextReconcile) GetContext() *ContextRef {
-	if x != nil {
-		return x.Context
-	}
-	return nil
-}
-
-func (x *ContextReconcile) GetFromDirectoryEpoch() string {
-	if x != nil {
-		return x.FromDirectoryEpoch
-	}
-	return ""
-}
-
-func (x *ContextReconcile) GetDirectoryEpoch() string {
-	if x != nil {
-		return x.DirectoryEpoch
-	}
-	return ""
-}
-
-type AuthorityReconcile struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	Snapshot           *ContextSnapshot       `protobuf:"bytes,1,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
-	FromDirectoryEpoch string                 `protobuf:"bytes,2,opt,name=from_directory_epoch,json=fromDirectoryEpoch,proto3" json:"from_directory_epoch,omitempty"`
-	DirectoryEpoch     string                 `protobuf:"bytes,3,opt,name=directory_epoch,json=directoryEpoch,proto3" json:"directory_epoch,omitempty"`
-	Token              string                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
-	BarrierRevision    uint64                 `protobuf:"varint,5,opt,name=barrier_revision,json=barrierRevision,proto3" json:"barrier_revision,omitempty"`
-	Origin             *SipMessage            `protobuf:"bytes,6,opt,name=origin,proto3" json:"origin,omitempty"`
-	CompletionScope    string                 `protobuf:"bytes,7,opt,name=completion_scope,json=completionScope,proto3" json:"completion_scope,omitempty"`
-	Flow               *FlowRef               `protobuf:"bytes,8,opt,name=flow,proto3" json:"flow,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
-}
-
-func (x *AuthorityReconcile) Reset() {
-	*x = AuthorityReconcile{}
-	mi := &file_sipbridge_control_proto_msgTypes[57]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AuthorityReconcile) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AuthorityReconcile) ProtoMessage() {}
-
-func (x *AuthorityReconcile) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[57]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AuthorityReconcile.ProtoReflect.Descriptor instead.
-func (*AuthorityReconcile) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{57}
-}
-
-func (x *AuthorityReconcile) GetSnapshot() *ContextSnapshot {
-	if x != nil {
-		return x.Snapshot
-	}
-	return nil
-}
-
-func (x *AuthorityReconcile) GetFromDirectoryEpoch() string {
-	if x != nil {
-		return x.FromDirectoryEpoch
-	}
-	return ""
-}
-
-func (x *AuthorityReconcile) GetDirectoryEpoch() string {
-	if x != nil {
-		return x.DirectoryEpoch
-	}
-	return ""
-}
-
-func (x *AuthorityReconcile) GetToken() string {
-	if x != nil {
-		return x.Token
-	}
-	return ""
-}
-
-func (x *AuthorityReconcile) GetBarrierRevision() uint64 {
-	if x != nil {
-		return x.BarrierRevision
-	}
-	return 0
-}
-
-func (x *AuthorityReconcile) GetOrigin() *SipMessage {
-	if x != nil {
-		return x.Origin
-	}
-	return nil
-}
-
-func (x *AuthorityReconcile) GetCompletionScope() string {
-	if x != nil {
-		return x.CompletionScope
-	}
-	return ""
-}
-
-func (x *AuthorityReconcile) GetFlow() *FlowRef {
-	if x != nil {
-		return x.Flow
-	}
-	return nil
-}
-
-type AuthorityReceipt struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	Context            *ContextRef            `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
-	Application        *ProcessRef            `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
-	FromDirectoryEpoch string                 `protobuf:"bytes,3,opt,name=from_directory_epoch,json=fromDirectoryEpoch,proto3" json:"from_directory_epoch,omitempty"`
-	DirectoryEpoch     string                 `protobuf:"bytes,4,opt,name=directory_epoch,json=directoryEpoch,proto3" json:"directory_epoch,omitempty"`
-	Token              string                 `protobuf:"bytes,5,opt,name=token,proto3" json:"token,omitempty"`
-	BarrierRevision    uint64                 `protobuf:"varint,6,opt,name=barrier_revision,json=barrierRevision,proto3" json:"barrier_revision,omitempty"`
-	CompletionScope    string                 `protobuf:"bytes,7,opt,name=completion_scope,json=completionScope,proto3" json:"completion_scope,omitempty"`
-	Delivery           *ContextDelivery       `protobuf:"bytes,8,opt,name=delivery,proto3" json:"delivery,omitempty"`
-	OwnerLost          bool                   `protobuf:"varint,9,opt,name=owner_lost,json=ownerLost,proto3" json:"owner_lost,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
-}
-
-func (x *AuthorityReceipt) Reset() {
-	*x = AuthorityReceipt{}
-	mi := &file_sipbridge_control_proto_msgTypes[58]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AuthorityReceipt) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AuthorityReceipt) ProtoMessage() {}
-
-func (x *AuthorityReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_sipbridge_control_proto_msgTypes[58]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AuthorityReceipt.ProtoReflect.Descriptor instead.
-func (*AuthorityReceipt) Descriptor() ([]byte, []int) {
-	return file_sipbridge_control_proto_rawDescGZIP(), []int{58}
-}
-
-func (x *AuthorityReceipt) GetContext() *ContextRef {
-	if x != nil {
-		return x.Context
-	}
-	return nil
-}
-
-func (x *AuthorityReceipt) GetApplication() *ProcessRef {
-	if x != nil {
-		return x.Application
-	}
-	return nil
-}
-
-func (x *AuthorityReceipt) GetFromDirectoryEpoch() string {
-	if x != nil {
-		return x.FromDirectoryEpoch
-	}
-	return ""
-}
-
-func (x *AuthorityReceipt) GetDirectoryEpoch() string {
-	if x != nil {
-		return x.DirectoryEpoch
-	}
-	return ""
-}
-
-func (x *AuthorityReceipt) GetToken() string {
-	if x != nil {
-		return x.Token
-	}
-	return ""
-}
-
-func (x *AuthorityReceipt) GetBarrierRevision() uint64 {
-	if x != nil {
-		return x.BarrierRevision
-	}
-	return 0
-}
-
-func (x *AuthorityReceipt) GetCompletionScope() string {
-	if x != nil {
-		return x.CompletionScope
-	}
-	return ""
-}
-
-func (x *AuthorityReceipt) GetDelivery() *ContextDelivery {
-	if x != nil {
-		return x.Delivery
-	}
-	return nil
-}
-
-func (x *AuthorityReceipt) GetOwnerLost() bool {
-	if x != nil {
-		return x.OwnerLost
-	}
-	return false
-}
-
 var File_sipbridge_control_proto protoreflect.FileDescriptor
 
 const file_sipbridge_control_proto_rawDesc = "" +
 	"\n" +
-	"\x17sipbridge-control.proto\x12\x14sipbridge.control.v2\"\xb0\x14\n" +
+	"\x17sipbridge-control.proto\x12\x14sipbridge.control.v1\"\x82\x11\n" +
 	"\bEnvelope\x12%\n" +
 	"\x0ecorrelation_id\x18\x01 \x01(\tR\rcorrelationId\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x02 \x01(\tR\tsessionId\x12.\n" +
 	"\x13remaining_budget_ms\x18\x03 \x01(\rR\x11remainingBudgetMs\x12:\n" +
 	"\x05hello\x18\n" +
-	" \x01(\v2\".sipbridge.control.v2.SessionHelloH\x00R\x05hello\x12D\n" +
-	"\thello_ack\x18\v \x01(\v2%.sipbridge.control.v2.SessionHelloAckH\x00R\bhelloAck\x12=\n" +
-	"\x06status\x18\f \x01(\v2#.sipbridge.control.v2.SessionStatusH\x00R\x06status\x125\n" +
-	"\x04ping\x18\r \x01(\v2\x1f.sipbridge.control.v2.HeartbeatH\x00R\x04ping\x125\n" +
-	"\x04pong\x18\x0e \x01(\v2\x1f.sipbridge.control.v2.HeartbeatH\x00R\x04pong\x12A\n" +
-	"\aingress\x18\x14 \x01(\v2%.sipbridge.control.v2.IngressReceivedH\x00R\aingress\x12F\n" +
-	"\froute_result\x18\x15 \x01(\v2!.sipbridge.control.v2.RouteResultH\x00R\vrouteResult\x12;\n" +
-	"\x06ingest\x18\x16 \x01(\v2!.sipbridge.control.v2.OwnerIngestH\x00R\x06ingest\x12B\n" +
-	"\arequest\x18\x17 \x01(\v2&.sipbridge.control.v2.RequestPresentedH\x00R\arequest\x129\n" +
-	"\acommand\x18\x18 \x01(\v2\x1d.sipbridge.control.v2.CommandH\x00R\acommand\x12?\n" +
-	"\x06result\x18\x19 \x01(\v2%.sipbridge.control.v2.OperationResultH\x00R\x06result\x12=\n" +
-	"\x06egress\x18\x1a \x01(\v2#.sipbridge.control.v2.EgressRequestH\x00R\x06egress\x127\n" +
-	"\x05write\x18\x1b \x01(\v2\x1f.sipbridge.control.v2.FlowWriteH\x00R\x05write\x12B\n" +
-	"\bdelivery\x18\x1c \x01(\v2$.sipbridge.control.v2.DeliveryResultH\x00R\bdelivery\x12C\n" +
-	"\vflow_closed\x18\x1d \x01(\v2 .sipbridge.control.v2.FlowClosedH\x00R\n" +
+	" \x01(\v2\".sipbridge.control.v1.SessionHelloH\x00R\x05hello\x12D\n" +
+	"\thello_ack\x18\v \x01(\v2%.sipbridge.control.v1.SessionHelloAckH\x00R\bhelloAck\x12=\n" +
+	"\x06status\x18\f \x01(\v2#.sipbridge.control.v1.SessionStatusH\x00R\x06status\x125\n" +
+	"\x04ping\x18\r \x01(\v2\x1f.sipbridge.control.v1.HeartbeatH\x00R\x04ping\x125\n" +
+	"\x04pong\x18\x0e \x01(\v2\x1f.sipbridge.control.v1.HeartbeatH\x00R\x04pong\x12A\n" +
+	"\aingress\x18\x14 \x01(\v2%.sipbridge.control.v1.IngressReceivedH\x00R\aingress\x12F\n" +
+	"\froute_result\x18\x15 \x01(\v2!.sipbridge.control.v1.RouteResultH\x00R\vrouteResult\x12;\n" +
+	"\x06ingest\x18\x16 \x01(\v2!.sipbridge.control.v1.OwnerIngestH\x00R\x06ingest\x12B\n" +
+	"\arequest\x18\x17 \x01(\v2&.sipbridge.control.v1.RequestPresentedH\x00R\arequest\x129\n" +
+	"\acommand\x18\x18 \x01(\v2\x1d.sipbridge.control.v1.CommandH\x00R\acommand\x12?\n" +
+	"\x06result\x18\x19 \x01(\v2%.sipbridge.control.v1.OperationResultH\x00R\x06result\x12=\n" +
+	"\x06egress\x18\x1a \x01(\v2#.sipbridge.control.v1.EgressRequestH\x00R\x06egress\x127\n" +
+	"\x05write\x18\x1b \x01(\v2\x1f.sipbridge.control.v1.FlowWriteH\x00R\x05write\x12B\n" +
+	"\bdelivery\x18\x1c \x01(\v2$.sipbridge.control.v1.DeliveryResultH\x00R\bdelivery\x12C\n" +
+	"\vflow_closed\x18\x1d \x01(\v2 .sipbridge.control.v1.FlowClosedH\x00R\n" +
 	"flowClosed\x12F\n" +
-	"\fdialog_event\x18\x1e \x01(\v2!.sipbridge.control.v2.DialogEventH\x00R\vdialogEvent\x12@\n" +
-	"\ainspect\x18\x1f \x01(\v2$.sipbridge.control.v2.ContextInspectH\x00R\ainspect\x12P\n" +
-	"\rflow_adoption\x18  \x01(\v2).sipbridge.control.v2.FlowAdoptionRequestH\x00R\fflowAdoption\x12\\\n" +
-	"\x14flow_adoption_result\x18! \x01(\v2(.sipbridge.control.v2.FlowAdoptionResultH\x00R\x12flowAdoptionResult\x12C\n" +
-	"\vsend_permit\x18\" \x01(\v2 .sipbridge.control.v2.SendPermitH\x00R\n" +
+	"\fdialog_event\x18\x1e \x01(\v2!.sipbridge.control.v1.DialogEventH\x00R\vdialogEvent\x12@\n" +
+	"\ainspect\x18\x1f \x01(\v2$.sipbridge.control.v1.ContextInspectH\x00R\ainspect\x12P\n" +
+	"\rflow_adoption\x18  \x01(\v2).sipbridge.control.v1.FlowAdoptionRequestH\x00R\fflowAdoption\x12\\\n" +
+	"\x14flow_adoption_result\x18! \x01(\v2(.sipbridge.control.v1.FlowAdoptionResultH\x00R\x12flowAdoptionResult\x12C\n" +
+	"\vsend_permit\x18\" \x01(\v2 .sipbridge.control.v1.SendPermitH\x00R\n" +
 	"sendPermit\x12H\n" +
-	"\x0edeliver_effect\x18# \x01(\v2\x1f.sipbridge.control.v2.FlowWriteH\x00R\rdeliverEffect\x12U\n" +
-	"\x11credential_lookup\x18$ \x01(\v2&.sipbridge.control.v2.CredentialLookupH\x00R\x10credentialLookup\x12U\n" +
-	"\x11credential_result\x18% \x01(\v2&.sipbridge.control.v2.CredentialResultH\x00R\x10credentialResult\x12H\n" +
-	"\x0einspect_effect\x18& \x01(\v2\x1f.sipbridge.control.v2.FlowWriteH\x00R\rinspectEffect\x12M\n" +
-	"\rsettle_effect\x18' \x01(\v2&.sipbridge.control.v2.EffectSettlementH\x00R\fsettleEffect\x12R\n" +
-	"\x10retire_authority\x18( \x01(\v2%.sipbridge.control.v2.ContextSnapshotH\x00R\x0fretireAuthority\x12U\n" +
-	"\x11probe_application\x18) \x01(\v2&.sipbridge.control.v2.ApplicationProbeH\x00R\x10probeApplication\x12X\n" +
-	"\x12application_status\x18* \x01(\v2'.sipbridge.control.v2.ApplicationStatusH\x00R\x11applicationStatus\x12U\n" +
-	"\x11reconcile_context\x18+ \x01(\v2&.sipbridge.control.v2.ContextReconcileH\x00R\x10reconcileContext\x12[\n" +
-	"\x13reconcile_authority\x18, \x01(\v2(.sipbridge.control.v2.AuthorityReconcileH\x00R\x12reconcileAuthority\x12U\n" +
-	"\x11authority_receipt\x18- \x01(\v2&.sipbridge.control.v2.AuthorityReceiptH\x00R\x10authorityReceipt\x12[\n" +
-	"\x13controller_contexts\x18. \x01(\v2(.sipbridge.control.v2.ControllerContextsH\x00R\x12controllerContexts\x12n\n" +
-	"\x1acontroller_contexts_result\x18/ \x01(\v2..sipbridge.control.v2.ControllerContextsResultH\x00R\x18controllerContextsResultB\t\n" +
+	"\x0edeliver_effect\x18# \x01(\v2\x1f.sipbridge.control.v1.FlowWriteH\x00R\rdeliverEffect\x12U\n" +
+	"\x11credential_lookup\x18$ \x01(\v2&.sipbridge.control.v1.CredentialLookupH\x00R\x10credentialLookup\x12U\n" +
+	"\x11credential_result\x18% \x01(\v2&.sipbridge.control.v1.CredentialResultH\x00R\x10credentialResult\x12H\n" +
+	"\x0einspect_effect\x18& \x01(\v2\x1f.sipbridge.control.v1.FlowWriteH\x00R\rinspectEffect\x12U\n" +
+	"\x11probe_application\x18) \x01(\v2&.sipbridge.control.v1.ApplicationProbeH\x00R\x10probeApplication\x12X\n" +
+	"\x12application_status\x18* \x01(\v2'.sipbridge.control.v1.ApplicationStatusH\x00R\x11applicationStatus\x12[\n" +
+	"\x13controller_contexts\x18. \x01(\v2(.sipbridge.control.v1.ControllerContextsH\x00R\x12controllerContexts\x12n\n" +
+	"\x1acontroller_contexts_result\x18/ \x01(\v2..sipbridge.control.v1.ControllerContextsResultH\x00R\x18controllerContextsResultB\t\n" +
 	"\apayload\"C\n" +
 	"\n" +
 	"ProcessRef\x12\x1f\n" +
@@ -5522,17 +5073,17 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x12max_envelope_bytes\x18\x01 \x01(\rR\x10maxEnvelopeBytes\"\xef\x02\n" +
 	"\fSessionHello\x12@\n" +
 	"\n" +
-	"controller\x18\x01 \x01(\v2 .sipbridge.control.v2.ProcessRefR\n" +
+	"controller\x18\x01 \x01(\v2 .sipbridge.control.v1.ProcessRefR\n" +
 	"controller\x12-\n" +
 	"\x12connection_attempt\x18\x02 \x01(\x04R\x11connectionAttempt\x12\x14\n" +
 	"\x05major\x18\x03 \x01(\rR\x05major\x12\x1b\n" +
 	"\tmin_minor\x18\x04 \x01(\rR\bminMinor\x12\x1b\n" +
 	"\tmax_minor\x18\x05 \x01(\rR\bmaxMinor\x12\"\n" +
 	"\fcapabilities\x18\x06 \x03(\tR\fcapabilities\x124\n" +
-	"\x06bounds\x18\a \x01(\v2\x1c.sipbridge.control.v2.BoundsR\x06bounds\x12D\n" +
-	"\brecovery\x18\b \x01(\v2(.sipbridge.control.v2.ControllerRecoveryR\brecovery\"\xd6\x01\n" +
+	"\x06bounds\x18\a \x01(\v2\x1c.sipbridge.control.v1.BoundsR\x06bounds\x12D\n" +
+	"\brecovery\x18\b \x01(\v2(.sipbridge.control.v1.ControllerRecoveryR\brecovery\"\xd6\x01\n" +
 	"\x12ControllerRecovery\x12B\n" +
-	"\vapplication\x18\x01 \x01(\v2 .sipbridge.control.v2.ProcessRefR\vapplication\x12\x12\n" +
+	"\vapplication\x18\x01 \x01(\v2 .sipbridge.control.v1.ProcessRefR\vapplication\x12\x12\n" +
 	"\x04term\x18\x02 \x01(\tR\x04term\x12\x14\n" +
 	"\x05token\x18\x03 \x01(\tR\x05token\x12\x1d\n" +
 	"\n" +
@@ -5542,30 +5093,30 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x06cursor\x18\x01 \x01(\tR\x06cursor\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\"p\n" +
 	"\x18ControllerContextsResult\x12<\n" +
-	"\bcontexts\x18\x01 \x03(\v2 .sipbridge.control.v2.ContextRefR\bcontexts\x12\x16\n" +
+	"\bcontexts\x18\x01 \x03(\v2 .sipbridge.control.v1.ContextRefR\bcontexts\x12\x16\n" +
 	"\x06cursor\x18\x02 \x01(\tR\x06cursor\"\xd9\x04\n" +
 	"\x0fSessionHelloAck\x12>\n" +
-	"\tsipbridge\x18\x01 \x01(\v2 .sipbridge.control.v2.ProcessRefR\tsipbridge\x12\x1d\n" +
+	"\tsipbridge\x18\x01 \x01(\v2 .sipbridge.control.v1.ProcessRefR\tsipbridge\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x14\n" +
 	"\x05major\x18\x03 \x01(\rR\x05major\x12\x14\n" +
 	"\x05minor\x18\x04 \x01(\rR\x05minor\x12\"\n" +
 	"\fcapabilities\x18\x05 \x03(\tR\fcapabilities\x124\n" +
-	"\x06bounds\x18\x06 \x01(\v2\x1c.sipbridge.control.v2.BoundsR\x06bounds\x122\n" +
+	"\x06bounds\x18\x06 \x01(\v2\x1c.sipbridge.control.v1.BoundsR\x06bounds\x122\n" +
 	"\x15heartbeat_interval_ms\x18\a \x01(\rR\x13heartbeatIntervalMs\x120\n" +
 	"\x14heartbeat_timeout_ms\x18\b \x01(\rR\x12heartbeatTimeoutMs\x12M\n" +
-	"\x0fstate_authority\x18\t \x01(\v2$.sipbridge.control.v2.StateAuthorityR\x0estateAuthority\x12S\n" +
+	"\x0fstate_authority\x18\t \x01(\v2$.sipbridge.control.v1.StateAuthorityR\x0estateAuthority\x12S\n" +
 	"\x11application_lease\x18\n" +
-	" \x01(\v2&.sipbridge.control.v2.ApplicationLeaseR\x10applicationLease\x12W\n" +
-	"\x13inbound_auth_policy\x18\v \x01(\v2'.sipbridge.control.v2.InboundAuthPolicyR\x11inboundAuthPolicy\"\x94\x04\n" +
+	" \x01(\v2&.sipbridge.control.v1.ApplicationLeaseR\x10applicationLease\x12W\n" +
+	"\x13inbound_auth_policy\x18\v \x01(\v2'.sipbridge.control.v1.InboundAuthPolicyR\x11inboundAuthPolicy\"\x94\x04\n" +
 	"\x10ApplicationLease\x12B\n" +
-	"\vapplication\x18\x01 \x01(\v2 .sipbridge.control.v2.ProcessRefR\vapplication\x12B\n" +
-	"\tauthority\x18\x02 \x01(\v2$.sipbridge.control.v2.StateAuthorityR\tauthority\x12\x12\n" +
+	"\vapplication\x18\x01 \x01(\v2 .sipbridge.control.v1.ProcessRefR\vapplication\x12B\n" +
+	"\tauthority\x18\x02 \x01(\v2$.sipbridge.control.v1.StateAuthorityR\tauthority\x12\x12\n" +
 	"\x04term\x18\x03 \x01(\tR\x04term\x12\"\n" +
 	"\rchecked_at_ms\x18\x04 \x01(\x04R\vcheckedAtMs\x12\"\n" +
 	"\rexpires_at_ms\x18\x05 \x01(\x04R\vexpiresAtMs\x12%\n" +
 	"\x0erecovery_token\x18\x06 \x01(\tR\rrecoveryToken\x128\n" +
-	"\x06holder\x18\a \x01(\v2 .sipbridge.control.v2.ProcessRefR\x06holder\x123\n" +
+	"\x06holder\x18\a \x01(\v2 .sipbridge.control.v1.ProcessRefR\x06holder\x123\n" +
 	"\x15attachment_generation\x18\b \x01(\x04R\x14attachmentGeneration\x12*\n" +
 	"\x11reattach_until_ms\x18\t \x01(\x04R\x0freattachUntilMs\x12*\n" +
 	"\x11lease_lifetime_ms\x18\n" +
@@ -5578,7 +5129,7 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x13admit_subscriptions\x18\x03 \x01(\bR\x12admitSubscriptions\x12%\n" +
 	"\x0ebindings_ready\x18\x04 \x01(\bR\rbindingsReady\x12\x1a\n" +
 	"\bdraining\x18\x05 \x01(\bR\bdraining\x12c\n" +
-	"\x17digest_challenge_policy\x18\x06 \x01(\v2+.sipbridge.control.v2.DigestChallengePolicyR\x15digestChallengePolicy\"\x92\x01\n" +
+	"\x17digest_challenge_policy\x18\x06 \x01(\v2+.sipbridge.control.v1.DigestChallengePolicyR\x15digestChallengePolicy\"\x92\x01\n" +
 	"\x11InboundAuthPolicy\x12)\n" +
 	"\x10require_register\x18\x01 \x01(\bR\x0frequireRegister\x12%\n" +
 	"\x0erequire_invite\x18\x02 \x01(\bR\rrequireInvite\x12+\n" +
@@ -5592,7 +5143,7 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\tHeartbeat\x12\x14\n" +
 	"\x05nonce\x18\x01 \x01(\tR\x05nonce\"\xe2\x01\n" +
 	"\aFlowRef\x12:\n" +
-	"\aingress\x18\x01 \x01(\v2 .sipbridge.control.v2.ProcessRefR\aingress\x12#\n" +
+	"\aingress\x18\x01 \x01(\v2 .sipbridge.control.v1.ProcessRefR\aingress\x12#\n" +
 	"\rconnection_id\x18\x02 \x01(\tR\fconnectionId\x12\x1b\n" +
 	"\tsource_ip\x18\x03 \x01(\tR\bsourceIp\x12\x1f\n" +
 	"\vsource_port\x18\x04 \x01(\rR\n" +
@@ -5608,33 +5159,33 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"primary_id\x18\x03 \x01(\tR\tprimaryId\x12%\n" +
 	"\x0eschema_version\x18\x04 \x01(\rR\rschemaVersion\"\xc2\x01\n" +
 	"\bStateRef\x12B\n" +
-	"\tauthority\x18\x01 \x01(\v2$.sipbridge.control.v2.StateAuthorityR\tauthority\x12\x19\n" +
+	"\tauthority\x18\x01 \x01(\v2$.sipbridge.control.v1.StateAuthorityR\tauthority\x12\x19\n" +
 	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12 \n" +
 	"\vincarnation\x18\x03 \x01(\tR\vincarnation\x12\x17\n" +
 	"\acall_id\x18\x04 \x01(\tR\x06callId\x12\x1c\n" +
 	"\tpartition\x18\x05 \x01(\rR\tpartition\"\x8a\x01\n" +
 	"\n" +
 	"ContextRef\x126\n" +
-	"\x05owner\x18\x01 \x01(\v2 .sipbridge.control.v2.ProcessRefR\x05owner\x12\x0e\n" +
+	"\x05owner\x18\x01 \x01(\v2 .sipbridge.control.v1.ProcessRefR\x05owner\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x124\n" +
-	"\x05state\x18\x03 \x01(\v2\x1e.sipbridge.control.v2.StateRefR\x05state\"2\n" +
+	"\x05state\x18\x03 \x01(\v2\x1e.sipbridge.control.v1.StateRefR\x05state\"2\n" +
 	"\x06Header\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"\xad\x01\n" +
 	"\aAddress\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03uri\x18\x02 \x01(\tR\x03uri\x12A\n" +
-	"\x06params\x18\x03 \x03(\v2).sipbridge.control.v2.Address.ParamsEntryR\x06params\x1a9\n" +
+	"\x06params\x18\x03 \x03(\v2).sipbridge.control.v1.Address.ParamsEntryR\x06params\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"D\n" +
 	"\vAddressList\x125\n" +
-	"\x06values\x18\x01 \x03(\v2\x1d.sipbridge.control.v2.AddressR\x06values\"\xc3\x01\n" +
+	"\x06values\x18\x01 \x03(\v2\x1d.sipbridge.control.v1.AddressR\x06values\"\xc3\x01\n" +
 	"\x03Via\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\rR\x04port\x12=\n" +
-	"\x06params\x18\x04 \x03(\v2%.sipbridge.control.v2.Via.ParamsEntryR\x06params\x1a9\n" +
+	"\x06params\x18\x04 \x03(\v2%.sipbridge.control.v1.Via.ParamsEntryR\x06params\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe1\x01\n" +
@@ -5656,23 +5207,23 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x06status\x18\x04 \x01(\rR\x06status\x12\x16\n" +
 	"\x06reason\x18\x05 \x01(\tR\x06reason\x12\x12\n" +
 	"\x04body\x18\x06 \x01(\fR\x04body\x126\n" +
-	"\aheaders\x18\a \x03(\v2\x1c.sipbridge.control.v2.HeaderR\aheaders\x12M\n" +
-	"\taddresses\x18\b \x03(\v2/.sipbridge.control.v2.SipMessage.AddressesEntryR\taddresses\x12-\n" +
-	"\x04vias\x18\t \x03(\v2\x19.sipbridge.control.v2.ViaR\x04vias\x12\x1c\n" +
+	"\aheaders\x18\a \x03(\v2\x1c.sipbridge.control.v1.HeaderR\aheaders\x12M\n" +
+	"\taddresses\x18\b \x03(\v2/.sipbridge.control.v1.SipMessage.AddressesEntryR\taddresses\x12-\n" +
+	"\x04vias\x18\t \x03(\v2\x19.sipbridge.control.v1.ViaR\x04vias\x12\x1c\n" +
 	"\tselectors\x18\n" +
 	" \x03(\tR\tselectors\x12M\n" +
-	"\rauthorization\x18\v \x01(\v2'.sipbridge.control.v2.DigestCredentialsR\rauthorization\x1a_\n" +
+	"\rauthorization\x18\v \x01(\v2'.sipbridge.control.v1.DigestCredentialsR\rauthorization\x1a_\n" +
 	"\x0eAddressesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x127\n" +
-	"\x05value\x18\x02 \x01(\v2!.sipbridge.control.v2.AddressListR\x05value:\x028\x01\"\xbc\x01\n" +
+	"\x05value\x18\x02 \x01(\v2!.sipbridge.control.v1.AddressListR\x05value:\x028\x01\"\xbc\x01\n" +
 	"\x0fIngressReceived\x121\n" +
-	"\x04flow\x18\x01 \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\x04flow\x12:\n" +
-	"\amessage\x18\x02 \x01(\v2 .sipbridge.control.v2.SipMessageR\amessage\x12:\n" +
-	"\acontext\x18\x03 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\"\x8a\x02\n" +
+	"\x04flow\x18\x01 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\x12:\n" +
+	"\amessage\x18\x02 \x01(\v2 .sipbridge.control.v1.SipMessageR\amessage\x12:\n" +
+	"\acontext\x18\x03 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\"\x8a\x02\n" +
 	"\vRouteResult\x12C\n" +
-	"\aoutcome\x18\x01 \x01(\x0e2).sipbridge.control.v2.RouteResult.OutcomeR\aoutcome\x12@\n" +
+	"\aoutcome\x18\x01 \x01(\x0e2).sipbridge.control.v1.RouteResult.OutcomeR\aoutcome\x12@\n" +
 	"\n" +
-	"controller\x18\x02 \x01(\v2 .sipbridge.control.v2.ProcessRefR\n" +
+	"controller\x18\x02 \x01(\v2 .sipbridge.control.v1.ProcessRefR\n" +
 	"controller\x12\x1d\n" +
 	"\n" +
 	"sip_status\x18\x03 \x01(\rR\tsipStatus\"U\n" +
@@ -5683,15 +5234,15 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\bREJECTED\x10\x03\x12\x0f\n" +
 	"\vUNAVAILABLE\x10\x04\"\x8f\x04\n" +
 	"\vOwnerIngest\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x12B\n" +
-	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v2.ProcessRefR\vapplication\x121\n" +
-	"\x04flow\x18\x03 \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\x04flow\x12\x12\n" +
+	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12B\n" +
+	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v1.ProcessRefR\vapplication\x121\n" +
+	"\x04flow\x18\x03 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\x12\x12\n" +
 	"\x04wire\x18\x04 \x01(\fR\x04wire\x12\x1d\n" +
 	"\n" +
 	"binding_id\x18\x05 \x01(\tR\tbindingId\x12!\n" +
 	"\fprincipal_id\x18\x06 \x01(\tR\vprincipalId\x12$\n" +
 	"\rauthenticated\x18\a \x01(\bR\rauthenticated\x12I\n" +
-	"\tadmission\x18\b \x01(\x0e2+.sipbridge.control.v2.OwnerIngest.AdmissionR\tadmission\"\x85\x01\n" +
+	"\tadmission\x18\b \x01(\x0e2+.sipbridge.control.v1.OwnerIngest.AdmissionR\tadmission\"\x85\x01\n" +
 	"\tAdmission\x12\x0f\n" +
 	"\vUNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rEXISTING_FLOW\x10\x01\x12\x19\n" +
@@ -5699,12 +5250,12 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x15TLS_DIALOG_CONTINUITY\x10\x03\x12\x1e\n" +
 	"\x1aTLS_TRANSACTION_CONTINUITY\x10\x04\"\xd7\b\n" +
 	"\x0fContextSnapshot\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x12B\n" +
-	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v2.ProcessRefR\vapplication\x12\x1d\n" +
+	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12B\n" +
+	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v1.ProcessRefR\vapplication\x12\x1d\n" +
 	"\n" +
 	"binding_id\x18\x03 \x01(\tR\tbindingId\x12!\n" +
 	"\fprincipal_id\x18\x04 \x01(\tR\vprincipalId\x12>\n" +
-	"\x04kind\x18\x05 \x01(\x0e2*.sipbridge.control.v2.ContextSnapshot.KindR\x04kind\x12\x1b\n" +
+	"\x04kind\x18\x05 \x01(\x0e2*.sipbridge.control.v1.ContextSnapshot.KindR\x04kind\x12\x1b\n" +
 	"\tdialog_id\x18\x06 \x01(\tR\bdialogId\x12\x17\n" +
 	"\acall_id\x18\a \x01(\tR\x06callId\x12\x1b\n" +
 	"\tlocal_tag\x18\b \x01(\tR\blocalTag\x12\x1d\n" +
@@ -5726,8 +5277,8 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x10command_sequence\x18\x13 \x01(\x04R\x0fcommandSequence\x12\x1c\n" +
 	"\tselectors\x18\x14 \x03(\tR\tselectors\x12\x1c\n" +
 	"\ttransport\x18\x15 \x01(\tR\ttransport\x12A\n" +
-	"\bdelivery\x18\x16 \x01(\v2%.sipbridge.control.v2.ContextDeliveryR\bdelivery\x12<\n" +
-	"\bexecutor\x18\x17 \x01(\v2 .sipbridge.control.v2.ProcessRefR\bexecutor\x12'\n" +
+	"\bdelivery\x18\x16 \x01(\v2%.sipbridge.control.v1.ContextDeliveryR\bdelivery\x12<\n" +
+	"\bexecutor\x18\x17 \x01(\v2 .sipbridge.control.v1.ProcessRefR\bexecutor\x12'\n" +
 	"\x0fdirectory_epoch\x18\x18 \x01(\tR\x0edirectoryEpoch\x124\n" +
 	"\x16application_lease_term\x18\x19 \x01(\tR\x14applicationLeaseTerm\x123\n" +
 	"\x15attachment_generation\x18\x1a \x01(\x04R\x14attachmentGeneration\"H\n" +
@@ -5738,11 +5289,11 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x03UAC\x10\x03\x12\x10\n" +
 	"\fSUBSCRIPTION\x10\x04\"\xe3\x01\n" +
 	"\x10RequestPresented\x12A\n" +
-	"\bsnapshot\x18\x01 \x01(\v2%.sipbridge.control.v2.ContextSnapshotR\bsnapshot\x12\x1d\n" +
+	"\bsnapshot\x18\x01 \x01(\v2%.sipbridge.control.v1.ContextSnapshotR\bsnapshot\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x12:\n" +
-	"\amessage\x18\x03 \x01(\v2 .sipbridge.control.v2.SipMessageR\amessage\x121\n" +
-	"\x04flow\x18\x04 \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\x04flow\"g\n" +
+	"\amessage\x18\x03 \x01(\v2 .sipbridge.control.v1.SipMessageR\amessage\x121\n" +
+	"\x04flow\x18\x04 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\"g\n" +
 	"\x11ResponseAuthority\x12'\n" +
 	"\x0fdirectory_epoch\x18\x01 \x01(\tR\x0edirectoryEpoch\x12)\n" +
 	"\x10completion_scope\x18\x02 \x01(\tR\x0fcompletionScope\"\x95\x02\n" +
@@ -5750,72 +5301,70 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\rR\x06status\x126\n" +
-	"\aheaders\x18\x03 \x03(\v2\x1c.sipbridge.control.v2.HeaderR\aheaders\x12\x12\n" +
+	"\aheaders\x18\x03 \x03(\v2\x1c.sipbridge.control.v1.HeaderR\aheaders\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\fR\x04body\x12!\n" +
 	"\fprincipal_id\x18\x05 \x01(\tR\vprincipalId\x12\x1d\n" +
 	"\n" +
 	"binding_id\x18\x06 \x01(\tR\tbindingId\x12E\n" +
-	"\tauthority\x18\a \x01(\v2'.sipbridge.control.v2.ResponseAuthorityR\tauthority\"9\n" +
+	"\tauthority\x18\a \x01(\v2'.sipbridge.control.v1.ResponseAuthorityR\tauthority\"9\n" +
 	"\rCredentialRef\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\"\x93\x01\n" +
 	"\x10CredentialLookup\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x12C\n" +
+	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12C\n" +
 	"\n" +
-	"credential\x18\x02 \x01(\v2#.sipbridge.control.v2.CredentialRefR\n" +
+	"credential\x18\x02 \x01(\v2#.sipbridge.control.v1.CredentialRefR\n" +
 	"credential\"z\n" +
 	"\x10CredentialResult\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error\"\xc0\x01\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\"\x88\x01\n" +
 	"\rNetworkTarget\x12\x14\n" +
 	"\x05proxy\x18\x01 \x01(\tR\x05proxy\x12\x1c\n" +
-	"\ttransport\x18\x02 \x01(\tR\ttransport\x12\x1a\n" +
-	"\busername\x18\x03 \x01(\tR\busername\x12\x1a\n" +
-	"\bpassword\x18\x04 \x01(\tR\bpassword\x12C\n" +
+	"\ttransport\x18\x02 \x01(\tR\ttransport\x12C\n" +
 	"\n" +
-	"credential\x18\x05 \x01(\v2#.sipbridge.control.v2.CredentialRefR\n" +
+	"credential\x18\x05 \x01(\v2#.sipbridge.control.v1.CredentialRefR\n" +
 	"credential\"\x9e\x02\n" +
 	"\aOpenUac\x12\x10\n" +
 	"\x03uri\x18\x01 \x01(\tR\x03uri\x12\x12\n" +
 	"\x04body\x18\x02 \x01(\fR\x04body\x126\n" +
-	"\aheaders\x18\x03 \x03(\v2\x1c.sipbridge.control.v2.HeaderR\aheaders\x12\x1d\n" +
+	"\aheaders\x18\x03 \x03(\v2\x1c.sipbridge.control.v1.HeaderR\aheaders\x12\x1d\n" +
 	"\n" +
 	"binding_id\x18\x04 \x01(\tR\tbindingId\x12!\n" +
 	"\fprincipal_id\x18\x05 \x01(\tR\vprincipalId\x12=\n" +
-	"\anetwork\x18\x06 \x01(\v2#.sipbridge.control.v2.NetworkTargetR\anetwork\x12\x1c\n" +
+	"\anetwork\x18\x06 \x01(\v2#.sipbridge.control.v1.NetworkTargetR\anetwork\x12\x1c\n" +
 	"\ttransport\x18\a \x01(\tR\ttransport\x12\x16\n" +
 	"\x06method\x18\b \x01(\tR\x06method\"s\n" +
 	"\rDialogRequest\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
 	"\x04body\x18\x02 \x01(\fR\x04body\x126\n" +
-	"\aheaders\x18\x03 \x03(\v2\x1c.sipbridge.control.v2.HeaderR\aheaders\"\b\n" +
+	"\aheaders\x18\x03 \x03(\v2\x1c.sipbridge.control.v1.HeaderR\aheaders\"\b\n" +
 	"\x06Cancel\"\xf7\x01\n" +
 	"\x10CommandAdmission\x12'\n" +
 	"\x0fdirectory_epoch\x18\x01 \x01(\tR\x0edirectoryEpoch\x12\"\n" +
 	"\rexpires_at_ms\x18\x02 \x01(\x04R\vexpiresAtMs\x12B\n" +
-	"\rselected_flow\x18\x03 \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\fselectedFlow\x12R\n" +
-	"\x11expected_delivery\x18\x04 \x01(\v2%.sipbridge.control.v2.ContextDeliveryR\x10expectedDelivery\"\xae\x03\n" +
+	"\rselected_flow\x18\x03 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\fselectedFlow\x12R\n" +
+	"\x11expected_delivery\x18\x04 \x01(\v2%.sipbridge.control.v1.ContextDeliveryR\x10expectedDelivery\"\xae\x03\n" +
 	"\aCommand\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x12\x1a\n" +
+	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\x04R\bsequence\x12D\n" +
-	"\tadmission\x18\x03 \x01(\v2&.sipbridge.control.v2.CommandAdmissionR\tadmission\x129\n" +
+	"\tadmission\x18\x03 \x01(\v2&.sipbridge.control.v1.CommandAdmissionR\tadmission\x129\n" +
 	"\arespond\x18\n" +
-	" \x01(\v2\x1d.sipbridge.control.v2.RespondH\x00R\arespond\x12:\n" +
-	"\bopen_uac\x18\v \x01(\v2\x1d.sipbridge.control.v2.OpenUacH\x00R\aopenUac\x12L\n" +
-	"\x0edialog_request\x18\f \x01(\v2#.sipbridge.control.v2.DialogRequestH\x00R\rdialogRequest\x126\n" +
-	"\x06cancel\x18\r \x01(\v2\x1c.sipbridge.control.v2.CancelH\x00R\x06cancelB\b\n" +
+	" \x01(\v2\x1d.sipbridge.control.v1.RespondH\x00R\arespond\x12:\n" +
+	"\bopen_uac\x18\v \x01(\v2\x1d.sipbridge.control.v1.OpenUacH\x00R\aopenUac\x12L\n" +
+	"\x0edialog_request\x18\f \x01(\v2#.sipbridge.control.v1.DialogRequestH\x00R\rdialogRequest\x126\n" +
+	"\x06cancel\x18\r \x01(\v2\x1c.sipbridge.control.v1.CancelH\x00R\x06cancelB\b\n" +
 	"\x06action\"\x85\x04\n" +
 	"\x0fOperationResult\x12M\n" +
-	"\tcertainty\x18\x01 \x01(\x0e2/.sipbridge.control.v2.OperationResult.CertaintyR\tcertainty\x12\x14\n" +
+	"\tcertainty\x18\x01 \x01(\x0e2/.sipbridge.control.v1.OperationResult.CertaintyR\tcertainty\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12\x1d\n" +
 	"\n" +
 	"sip_status\x18\x03 \x01(\rR\tsipStatus\x12A\n" +
-	"\bsnapshot\x18\x04 \x01(\v2%.sipbridge.control.v2.ContextSnapshotR\bsnapshot\x12:\n" +
-	"\arequest\x18\x05 \x01(\v2 .sipbridge.control.v2.SipMessageR\arequest\x12<\n" +
-	"\bresponse\x18\x06 \x01(\v2 .sipbridge.control.v2.SipMessageR\bresponse\x12W\n" +
-	"\x10retirement_proof\x18\a \x01(\v2,.sipbridge.control.v2.ContextRetirementProofR\x0fretirementProof\"X\n" +
+	"\bsnapshot\x18\x04 \x01(\v2%.sipbridge.control.v1.ContextSnapshotR\bsnapshot\x12:\n" +
+	"\arequest\x18\x05 \x01(\v2 .sipbridge.control.v1.SipMessageR\arequest\x12<\n" +
+	"\bresponse\x18\x06 \x01(\v2 .sipbridge.control.v1.SipMessageR\bresponse\x12W\n" +
+	"\x10retirement_proof\x18\a \x01(\v2,.sipbridge.control.v1.ContextRetirementProofR\x0fretirementProof\"X\n" +
 	"\tCertainty\x12\x0f\n" +
 	"\vUNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fNOT_ACCEPTED\x10\x01\x12\f\n" +
@@ -5823,22 +5372,22 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\tCOMPLETED\x10\x03\x12\v\n" +
 	"\aUNKNOWN\x10\x04\"\xc0\x02\n" +
 	"\x16ContextRetirementProof\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x12B\n" +
-	"\tauthority\x18\x02 \x01(\v2$.sipbridge.control.v2.StateAuthorityR\tauthority\x12K\n" +
-	"\x06reason\x18\x03 \x01(\x0e23.sipbridge.control.v2.ContextRetirementProof.ReasonR\x06reason\"Y\n" +
+	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12B\n" +
+	"\tauthority\x18\x02 \x01(\v2$.sipbridge.control.v1.StateAuthorityR\tauthority\x12K\n" +
+	"\x06reason\x18\x03 \x01(\x0e23.sipbridge.control.v1.ContextRetirementProof.ReasonR\x06reason\"Y\n" +
 	"\x06Reason\x12\x0f\n" +
 	"\vUNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fGROUP_ABSENT\x10\x01\x12\x18\n" +
 	"\x14OBSOLETE_INCARNATION\x10\x02\x12\x12\n" +
 	"\x0eCONTEXT_ABSENT\x10\x03\"{\n" +
 	"\x0eStateEffectRef\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x12\x0e\n" +
+	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
 	"attempt_id\x18\x03 \x01(\tR\tattemptId\"\xb7\x03\n" +
 	"\x13EffectAuthorization\x12<\n" +
-	"\x06effect\x18\x01 \x01(\v2$.sipbridge.control.v2.StateEffectRefR\x06effect\x12X\n" +
-	"\x0fauthority_class\x18\x02 \x01(\x0e2/.sipbridge.control.v2.EffectAuthorization.ClassR\x0eauthorityClass\x12)\n" +
+	"\x06effect\x18\x01 \x01(\v2$.sipbridge.control.v1.StateEffectRefR\x06effect\x12X\n" +
+	"\x0fauthority_class\x18\x02 \x01(\x0e2/.sipbridge.control.v1.EffectAuthorization.ClassR\x0eauthorityClass\x12)\n" +
 	"\x10completion_scope\x18\x03 \x01(\tR\x0fcompletionScope\x12 \n" +
 	"\vfingerprint\x18\x04 \x01(\tR\vfingerprint\x12\x1f\n" +
 	"\vdeadline_ms\x18\x05 \x01(\x04R\n" +
@@ -5852,54 +5401,47 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\bRESPONSE\x10\x04\"\x8b\x02\n" +
 	"\n" +
 	"SendPermit\x12O\n" +
-	"\rauthorization\x18\x01 \x01(\v2).sipbridge.control.v2.EffectAuthorizationR\rauthorization\x121\n" +
-	"\x04flow\x18\x02 \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\x04flow\x12'\n" +
+	"\rauthorization\x18\x01 \x01(\v2).sipbridge.control.v1.EffectAuthorizationR\rauthorization\x121\n" +
+	"\x04flow\x18\x02 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\x12'\n" +
 	"\x0fdirectory_epoch\x18\x03 \x01(\tR\x0edirectoryEpoch\x12%\n" +
 	"\x0eordering_proof\x18\x04 \x01(\tR\rorderingProof\x12)\n" +
 	"\x10completion_scope\x18\x05 \x01(\tR\x0fcompletionScope\"\x9f\x02\n" +
 	"\rEgressRequest\x12A\n" +
-	"\bsnapshot\x18\x01 \x01(\v2%.sipbridge.control.v2.ContextSnapshotR\bsnapshot\x12:\n" +
-	"\amessage\x18\x02 \x01(\v2 .sipbridge.control.v2.SipMessageR\amessage\x12>\n" +
-	"\vreturn_flow\x18\x03 \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\n" +
+	"\bsnapshot\x18\x01 \x01(\v2%.sipbridge.control.v1.ContextSnapshotR\bsnapshot\x12:\n" +
+	"\amessage\x18\x02 \x01(\v2 .sipbridge.control.v1.SipMessageR\amessage\x12>\n" +
+	"\vreturn_flow\x18\x03 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\n" +
 	"returnFlow\x12O\n" +
-	"\rauthorization\x18\x04 \x01(\v2).sipbridge.control.v2.EffectAuthorizationR\rauthorization\"\x94\x02\n" +
+	"\rauthorization\x18\x04 \x01(\v2).sipbridge.control.v1.EffectAuthorizationR\rauthorization\"\xb6\x01\n" +
 	"\tFlowWrite\x121\n" +
-	"\x04flow\x18\x01 \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\x04flow\x12\x1d\n" +
-	"\n" +
-	"binding_id\x18\x02 \x01(\tR\tbindingId\x12)\n" +
-	"\x10binding_revision\x18\x03 \x01(\x04R\x0fbindingRevision\x12\x12\n" +
-	"\x04wire\x18\x04 \x01(\fR\x04wire\x12<\n" +
-	"\x06effect\x18\x05 \x01(\v2$.sipbridge.control.v2.StateEffectRefR\x06effect\x128\n" +
-	"\x06permit\x18\x06 \x01(\v2 .sipbridge.control.v2.SendPermitR\x06permit\"\x8f\x02\n" +
+	"\x04flow\x18\x01 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\x12<\n" +
+	"\x06effect\x18\x05 \x01(\v2$.sipbridge.control.v1.StateEffectRefR\x06effect\x128\n" +
+	"\x06permit\x18\x06 \x01(\v2 .sipbridge.control.v1.SendPermitR\x06permit\"\x8f\x02\n" +
 	"\x0eDeliveryResult\x12F\n" +
-	"\aoutcome\x18\x01 \x01(\x0e2,.sipbridge.control.v2.DeliveryResult.OutcomeR\aoutcome\x12\x14\n" +
+	"\aoutcome\x18\x01 \x01(\x0e2,.sipbridge.control.v1.DeliveryResult.OutcomeR\aoutcome\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12<\n" +
-	"\x06effect\x18\x03 \x01(\v2$.sipbridge.control.v2.StateEffectRefR\x06effect\x12\x1a\n" +
+	"\x06effect\x18\x03 \x01(\v2$.sipbridge.control.v1.StateEffectRefR\x06effect\x12\x1a\n" +
 	"\brecorded\x18\x04 \x01(\bR\brecorded\"E\n" +
 	"\aOutcome\x12\x0f\n" +
 	"\vUNSPECIFIED\x10\x00\x12\v\n" +
 	"\aWRITTEN\x10\x01\x12\x0f\n" +
 	"\vNOT_WRITTEN\x10\x02\x12\v\n" +
-	"\aUNKNOWN\x10\x03\"\x8b\x01\n" +
-	"\x10EffectSettlement\x125\n" +
-	"\x05write\x18\x01 \x01(\v2\x1f.sipbridge.control.v2.FlowWriteR\x05write\x12@\n" +
-	"\bdelivery\x18\x02 \x01(\v2$.sipbridge.control.v2.DeliveryResultR\bdelivery\"\x92\x01\n" +
+	"\aUNKNOWN\x10\x03\"\x92\x01\n" +
 	"\x10ApplicationProbe\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x12B\n" +
-	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v2.ProcessRefR\vapplication\"\xf4\x01\n" +
+	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12B\n" +
+	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v1.ProcessRefR\vapplication\"\xf4\x01\n" +
 	"\x11ApplicationStatus\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x12B\n" +
-	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v2.ProcessRefR\vapplication\x12'\n" +
+	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12B\n" +
+	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v1.ProcessRefR\vapplication\x12'\n" +
 	"\x0fdirectory_epoch\x18\x03 \x01(\tR\x0edirectoryEpoch\x12\x12\n" +
 	"\x04live\x18\x04 \x01(\bR\x04live\x12\"\n" +
 	"\rchecked_at_ms\x18\x05 \x01(\x04R\vcheckedAtMs\"?\n" +
 	"\n" +
 	"FlowClosed\x121\n" +
-	"\x04flow\x18\x01 \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\x04flow\"\x8c\x03\n" +
+	"\x04flow\x18\x01 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\"\x8c\x03\n" +
 	"\vDialogEvent\x12:\n" +
-	"\x04kind\x18\x01 \x01(\x0e2&.sipbridge.control.v2.DialogEvent.KindR\x04kind\x12A\n" +
-	"\bsnapshot\x18\x02 \x01(\v2%.sipbridge.control.v2.ContextSnapshotR\bsnapshot\x12:\n" +
-	"\amessage\x18\x03 \x01(\v2 .sipbridge.control.v2.SipMessageR\amessage\x12!\n" +
+	"\x04kind\x18\x01 \x01(\x0e2&.sipbridge.control.v1.DialogEvent.KindR\x04kind\x12A\n" +
+	"\bsnapshot\x18\x02 \x01(\v2%.sipbridge.control.v1.ContextSnapshotR\bsnapshot\x12:\n" +
+	"\amessage\x18\x03 \x01(\v2 .sipbridge.control.v1.SipMessageR\amessage\x12!\n" +
 	"\foperation_id\x18\x04 \x01(\tR\voperationId\x12\x14\n" +
 	"\x05error\x18\x05 \x01(\tR\x05error\"\x88\x01\n" +
 	"\x04Kind\x12\x0f\n" +
@@ -5913,48 +5455,24 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x06FAILED\x10\x06\x12\x18\n" +
 	"\x14SUBSCRIPTION_EXPIRED\x10\a\"L\n" +
 	"\x0eContextInspect\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\"\xc7\x01\n" +
+	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\"\xc7\x01\n" +
 	"\x0fContextDelivery\x121\n" +
-	"\x04flow\x18\x01 \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\x04flow\x12'\n" +
+	"\x04flow\x18\x01 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\x12'\n" +
 	"\x0fnative_revision\x18\x02 \x01(\x04R\x0enativeRevision\x12'\n" +
 	"\x0fdirectory_epoch\x18\x03 \x01(\tR\x0edirectoryEpoch\x12/\n" +
 	"\x13registration_ticket\x18\x04 \x01(\tR\x12registrationTicket\"\xd7\x02\n" +
 	"\x13FlowAdoptionRequest\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x12B\n" +
-	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v2.ProcessRefR\vapplication\x12!\n" +
+	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12B\n" +
+	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v1.ProcessRefR\vapplication\x12!\n" +
 	"\fprincipal_id\x18\x03 \x01(\tR\vprincipalId\x12\x1d\n" +
 	"\n" +
 	"binding_id\x18\x04 \x01(\tR\tbindingId\x121\n" +
-	"\x04flow\x18\x05 \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\x04flow\x12'\n" +
+	"\x04flow\x18\x05 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\x12'\n" +
 	"\x0fnative_revision\x18\x06 \x01(\x04R\x0enativeRevision\x12\"\n" +
 	"\fsubscription\x18\a \x01(\bR\fsubscription\"k\n" +
 	"\x12FlowAdoptionResult\x12?\n" +
-	"\areceipt\x18\x01 \x01(\v2%.sipbridge.control.v2.ContextDeliveryR\areceipt\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xa9\x01\n" +
-	"\x10ContextReconcile\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x120\n" +
-	"\x14from_directory_epoch\x18\x02 \x01(\tR\x12fromDirectoryEpoch\x12'\n" +
-	"\x0fdirectory_epoch\x18\x03 \x01(\tR\x0edirectoryEpoch\"\x8b\x03\n" +
-	"\x12AuthorityReconcile\x12A\n" +
-	"\bsnapshot\x18\x01 \x01(\v2%.sipbridge.control.v2.ContextSnapshotR\bsnapshot\x120\n" +
-	"\x14from_directory_epoch\x18\x02 \x01(\tR\x12fromDirectoryEpoch\x12'\n" +
-	"\x0fdirectory_epoch\x18\x03 \x01(\tR\x0edirectoryEpoch\x12\x14\n" +
-	"\x05token\x18\x04 \x01(\tR\x05token\x12)\n" +
-	"\x10barrier_revision\x18\x05 \x01(\x04R\x0fbarrierRevision\x128\n" +
-	"\x06origin\x18\x06 \x01(\v2 .sipbridge.control.v2.SipMessageR\x06origin\x12)\n" +
-	"\x10completion_scope\x18\a \x01(\tR\x0fcompletionScope\x121\n" +
-	"\x04flow\x18\b \x01(\v2\x1d.sipbridge.control.v2.FlowRefR\x04flow\"\xbb\x03\n" +
-	"\x10AuthorityReceipt\x12:\n" +
-	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v2.ContextRefR\acontext\x12B\n" +
-	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v2.ProcessRefR\vapplication\x120\n" +
-	"\x14from_directory_epoch\x18\x03 \x01(\tR\x12fromDirectoryEpoch\x12'\n" +
-	"\x0fdirectory_epoch\x18\x04 \x01(\tR\x0edirectoryEpoch\x12\x14\n" +
-	"\x05token\x18\x05 \x01(\tR\x05token\x12)\n" +
-	"\x10barrier_revision\x18\x06 \x01(\x04R\x0fbarrierRevision\x12)\n" +
-	"\x10completion_scope\x18\a \x01(\tR\x0fcompletionScope\x12A\n" +
-	"\bdelivery\x18\b \x01(\v2%.sipbridge.control.v2.ContextDeliveryR\bdelivery\x12\x1d\n" +
-	"\n" +
-	"owner_lost\x18\t \x01(\bR\townerLostB\x1eZ\x1csipbridge/internal/controlpbb\x06proto3"
+	"\areceipt\x18\x01 \x01(\v2%.sipbridge.control.v1.ContextDeliveryR\areceipt\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05errorB\x1eZ\x1csipbridge/internal/controlpbb\x06proto3"
 
 var (
 	file_sipbridge_control_proto_rawDescOnce sync.Once
@@ -5969,222 +5487,204 @@ func file_sipbridge_control_proto_rawDescGZIP() []byte {
 }
 
 var file_sipbridge_control_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_sipbridge_control_proto_msgTypes = make([]protoimpl.MessageInfo, 62)
+var file_sipbridge_control_proto_msgTypes = make([]protoimpl.MessageInfo, 58)
 var file_sipbridge_control_proto_goTypes = []any{
-	(RouteResult_Outcome)(0),           // 0: sipbridge.control.v2.RouteResult.Outcome
-	(OwnerIngest_Admission)(0),         // 1: sipbridge.control.v2.OwnerIngest.Admission
-	(ContextSnapshot_Kind)(0),          // 2: sipbridge.control.v2.ContextSnapshot.Kind
-	(OperationResult_Certainty)(0),     // 3: sipbridge.control.v2.OperationResult.Certainty
-	(ContextRetirementProof_Reason)(0), // 4: sipbridge.control.v2.ContextRetirementProof.Reason
-	(EffectAuthorization_Class)(0),     // 5: sipbridge.control.v2.EffectAuthorization.Class
-	(DeliveryResult_Outcome)(0),        // 6: sipbridge.control.v2.DeliveryResult.Outcome
-	(DialogEvent_Kind)(0),              // 7: sipbridge.control.v2.DialogEvent.Kind
-	(*Envelope)(nil),                   // 8: sipbridge.control.v2.Envelope
-	(*ProcessRef)(nil),                 // 9: sipbridge.control.v2.ProcessRef
-	(*Bounds)(nil),                     // 10: sipbridge.control.v2.Bounds
-	(*SessionHello)(nil),               // 11: sipbridge.control.v2.SessionHello
-	(*ControllerRecovery)(nil),         // 12: sipbridge.control.v2.ControllerRecovery
-	(*ControllerContexts)(nil),         // 13: sipbridge.control.v2.ControllerContexts
-	(*ControllerContextsResult)(nil),   // 14: sipbridge.control.v2.ControllerContextsResult
-	(*SessionHelloAck)(nil),            // 15: sipbridge.control.v2.SessionHelloAck
-	(*ApplicationLease)(nil),           // 16: sipbridge.control.v2.ApplicationLease
-	(*SessionStatus)(nil),              // 17: sipbridge.control.v2.SessionStatus
-	(*InboundAuthPolicy)(nil),          // 18: sipbridge.control.v2.InboundAuthPolicy
-	(*DigestChallengePolicy)(nil),      // 19: sipbridge.control.v2.DigestChallengePolicy
-	(*Heartbeat)(nil),                  // 20: sipbridge.control.v2.Heartbeat
-	(*FlowRef)(nil),                    // 21: sipbridge.control.v2.FlowRef
-	(*StateAuthority)(nil),             // 22: sipbridge.control.v2.StateAuthority
-	(*StateRef)(nil),                   // 23: sipbridge.control.v2.StateRef
-	(*ContextRef)(nil),                 // 24: sipbridge.control.v2.ContextRef
-	(*Header)(nil),                     // 25: sipbridge.control.v2.Header
-	(*Address)(nil),                    // 26: sipbridge.control.v2.Address
-	(*AddressList)(nil),                // 27: sipbridge.control.v2.AddressList
-	(*Via)(nil),                        // 28: sipbridge.control.v2.Via
-	(*DigestCredentials)(nil),          // 29: sipbridge.control.v2.DigestCredentials
-	(*SipMessage)(nil),                 // 30: sipbridge.control.v2.SipMessage
-	(*IngressReceived)(nil),            // 31: sipbridge.control.v2.IngressReceived
-	(*RouteResult)(nil),                // 32: sipbridge.control.v2.RouteResult
-	(*OwnerIngest)(nil),                // 33: sipbridge.control.v2.OwnerIngest
-	(*ContextSnapshot)(nil),            // 34: sipbridge.control.v2.ContextSnapshot
-	(*RequestPresented)(nil),           // 35: sipbridge.control.v2.RequestPresented
-	(*ResponseAuthority)(nil),          // 36: sipbridge.control.v2.ResponseAuthority
-	(*Respond)(nil),                    // 37: sipbridge.control.v2.Respond
-	(*CredentialRef)(nil),              // 38: sipbridge.control.v2.CredentialRef
-	(*CredentialLookup)(nil),           // 39: sipbridge.control.v2.CredentialLookup
-	(*CredentialResult)(nil),           // 40: sipbridge.control.v2.CredentialResult
-	(*NetworkTarget)(nil),              // 41: sipbridge.control.v2.NetworkTarget
-	(*OpenUac)(nil),                    // 42: sipbridge.control.v2.OpenUac
-	(*DialogRequest)(nil),              // 43: sipbridge.control.v2.DialogRequest
-	(*Cancel)(nil),                     // 44: sipbridge.control.v2.Cancel
-	(*CommandAdmission)(nil),           // 45: sipbridge.control.v2.CommandAdmission
-	(*Command)(nil),                    // 46: sipbridge.control.v2.Command
-	(*OperationResult)(nil),            // 47: sipbridge.control.v2.OperationResult
-	(*ContextRetirementProof)(nil),     // 48: sipbridge.control.v2.ContextRetirementProof
-	(*StateEffectRef)(nil),             // 49: sipbridge.control.v2.StateEffectRef
-	(*EffectAuthorization)(nil),        // 50: sipbridge.control.v2.EffectAuthorization
-	(*SendPermit)(nil),                 // 51: sipbridge.control.v2.SendPermit
-	(*EgressRequest)(nil),              // 52: sipbridge.control.v2.EgressRequest
-	(*FlowWrite)(nil),                  // 53: sipbridge.control.v2.FlowWrite
-	(*DeliveryResult)(nil),             // 54: sipbridge.control.v2.DeliveryResult
-	(*EffectSettlement)(nil),           // 55: sipbridge.control.v2.EffectSettlement
-	(*ApplicationProbe)(nil),           // 56: sipbridge.control.v2.ApplicationProbe
-	(*ApplicationStatus)(nil),          // 57: sipbridge.control.v2.ApplicationStatus
-	(*FlowClosed)(nil),                 // 58: sipbridge.control.v2.FlowClosed
-	(*DialogEvent)(nil),                // 59: sipbridge.control.v2.DialogEvent
-	(*ContextInspect)(nil),             // 60: sipbridge.control.v2.ContextInspect
-	(*ContextDelivery)(nil),            // 61: sipbridge.control.v2.ContextDelivery
-	(*FlowAdoptionRequest)(nil),        // 62: sipbridge.control.v2.FlowAdoptionRequest
-	(*FlowAdoptionResult)(nil),         // 63: sipbridge.control.v2.FlowAdoptionResult
-	(*ContextReconcile)(nil),           // 64: sipbridge.control.v2.ContextReconcile
-	(*AuthorityReconcile)(nil),         // 65: sipbridge.control.v2.AuthorityReconcile
-	(*AuthorityReceipt)(nil),           // 66: sipbridge.control.v2.AuthorityReceipt
-	nil,                                // 67: sipbridge.control.v2.Address.ParamsEntry
-	nil,                                // 68: sipbridge.control.v2.Via.ParamsEntry
-	nil,                                // 69: sipbridge.control.v2.SipMessage.AddressesEntry
+	(RouteResult_Outcome)(0),           // 0: sipbridge.control.v1.RouteResult.Outcome
+	(OwnerIngest_Admission)(0),         // 1: sipbridge.control.v1.OwnerIngest.Admission
+	(ContextSnapshot_Kind)(0),          // 2: sipbridge.control.v1.ContextSnapshot.Kind
+	(OperationResult_Certainty)(0),     // 3: sipbridge.control.v1.OperationResult.Certainty
+	(ContextRetirementProof_Reason)(0), // 4: sipbridge.control.v1.ContextRetirementProof.Reason
+	(EffectAuthorization_Class)(0),     // 5: sipbridge.control.v1.EffectAuthorization.Class
+	(DeliveryResult_Outcome)(0),        // 6: sipbridge.control.v1.DeliveryResult.Outcome
+	(DialogEvent_Kind)(0),              // 7: sipbridge.control.v1.DialogEvent.Kind
+	(*Envelope)(nil),                   // 8: sipbridge.control.v1.Envelope
+	(*ProcessRef)(nil),                 // 9: sipbridge.control.v1.ProcessRef
+	(*Bounds)(nil),                     // 10: sipbridge.control.v1.Bounds
+	(*SessionHello)(nil),               // 11: sipbridge.control.v1.SessionHello
+	(*ControllerRecovery)(nil),         // 12: sipbridge.control.v1.ControllerRecovery
+	(*ControllerContexts)(nil),         // 13: sipbridge.control.v1.ControllerContexts
+	(*ControllerContextsResult)(nil),   // 14: sipbridge.control.v1.ControllerContextsResult
+	(*SessionHelloAck)(nil),            // 15: sipbridge.control.v1.SessionHelloAck
+	(*ApplicationLease)(nil),           // 16: sipbridge.control.v1.ApplicationLease
+	(*SessionStatus)(nil),              // 17: sipbridge.control.v1.SessionStatus
+	(*InboundAuthPolicy)(nil),          // 18: sipbridge.control.v1.InboundAuthPolicy
+	(*DigestChallengePolicy)(nil),      // 19: sipbridge.control.v1.DigestChallengePolicy
+	(*Heartbeat)(nil),                  // 20: sipbridge.control.v1.Heartbeat
+	(*FlowRef)(nil),                    // 21: sipbridge.control.v1.FlowRef
+	(*StateAuthority)(nil),             // 22: sipbridge.control.v1.StateAuthority
+	(*StateRef)(nil),                   // 23: sipbridge.control.v1.StateRef
+	(*ContextRef)(nil),                 // 24: sipbridge.control.v1.ContextRef
+	(*Header)(nil),                     // 25: sipbridge.control.v1.Header
+	(*Address)(nil),                    // 26: sipbridge.control.v1.Address
+	(*AddressList)(nil),                // 27: sipbridge.control.v1.AddressList
+	(*Via)(nil),                        // 28: sipbridge.control.v1.Via
+	(*DigestCredentials)(nil),          // 29: sipbridge.control.v1.DigestCredentials
+	(*SipMessage)(nil),                 // 30: sipbridge.control.v1.SipMessage
+	(*IngressReceived)(nil),            // 31: sipbridge.control.v1.IngressReceived
+	(*RouteResult)(nil),                // 32: sipbridge.control.v1.RouteResult
+	(*OwnerIngest)(nil),                // 33: sipbridge.control.v1.OwnerIngest
+	(*ContextSnapshot)(nil),            // 34: sipbridge.control.v1.ContextSnapshot
+	(*RequestPresented)(nil),           // 35: sipbridge.control.v1.RequestPresented
+	(*ResponseAuthority)(nil),          // 36: sipbridge.control.v1.ResponseAuthority
+	(*Respond)(nil),                    // 37: sipbridge.control.v1.Respond
+	(*CredentialRef)(nil),              // 38: sipbridge.control.v1.CredentialRef
+	(*CredentialLookup)(nil),           // 39: sipbridge.control.v1.CredentialLookup
+	(*CredentialResult)(nil),           // 40: sipbridge.control.v1.CredentialResult
+	(*NetworkTarget)(nil),              // 41: sipbridge.control.v1.NetworkTarget
+	(*OpenUac)(nil),                    // 42: sipbridge.control.v1.OpenUac
+	(*DialogRequest)(nil),              // 43: sipbridge.control.v1.DialogRequest
+	(*Cancel)(nil),                     // 44: sipbridge.control.v1.Cancel
+	(*CommandAdmission)(nil),           // 45: sipbridge.control.v1.CommandAdmission
+	(*Command)(nil),                    // 46: sipbridge.control.v1.Command
+	(*OperationResult)(nil),            // 47: sipbridge.control.v1.OperationResult
+	(*ContextRetirementProof)(nil),     // 48: sipbridge.control.v1.ContextRetirementProof
+	(*StateEffectRef)(nil),             // 49: sipbridge.control.v1.StateEffectRef
+	(*EffectAuthorization)(nil),        // 50: sipbridge.control.v1.EffectAuthorization
+	(*SendPermit)(nil),                 // 51: sipbridge.control.v1.SendPermit
+	(*EgressRequest)(nil),              // 52: sipbridge.control.v1.EgressRequest
+	(*FlowWrite)(nil),                  // 53: sipbridge.control.v1.FlowWrite
+	(*DeliveryResult)(nil),             // 54: sipbridge.control.v1.DeliveryResult
+	(*ApplicationProbe)(nil),           // 55: sipbridge.control.v1.ApplicationProbe
+	(*ApplicationStatus)(nil),          // 56: sipbridge.control.v1.ApplicationStatus
+	(*FlowClosed)(nil),                 // 57: sipbridge.control.v1.FlowClosed
+	(*DialogEvent)(nil),                // 58: sipbridge.control.v1.DialogEvent
+	(*ContextInspect)(nil),             // 59: sipbridge.control.v1.ContextInspect
+	(*ContextDelivery)(nil),            // 60: sipbridge.control.v1.ContextDelivery
+	(*FlowAdoptionRequest)(nil),        // 61: sipbridge.control.v1.FlowAdoptionRequest
+	(*FlowAdoptionResult)(nil),         // 62: sipbridge.control.v1.FlowAdoptionResult
+	nil,                                // 63: sipbridge.control.v1.Address.ParamsEntry
+	nil,                                // 64: sipbridge.control.v1.Via.ParamsEntry
+	nil,                                // 65: sipbridge.control.v1.SipMessage.AddressesEntry
 }
 var file_sipbridge_control_proto_depIdxs = []int32{
-	11,  // 0: sipbridge.control.v2.Envelope.hello:type_name -> sipbridge.control.v2.SessionHello
-	15,  // 1: sipbridge.control.v2.Envelope.hello_ack:type_name -> sipbridge.control.v2.SessionHelloAck
-	17,  // 2: sipbridge.control.v2.Envelope.status:type_name -> sipbridge.control.v2.SessionStatus
-	20,  // 3: sipbridge.control.v2.Envelope.ping:type_name -> sipbridge.control.v2.Heartbeat
-	20,  // 4: sipbridge.control.v2.Envelope.pong:type_name -> sipbridge.control.v2.Heartbeat
-	31,  // 5: sipbridge.control.v2.Envelope.ingress:type_name -> sipbridge.control.v2.IngressReceived
-	32,  // 6: sipbridge.control.v2.Envelope.route_result:type_name -> sipbridge.control.v2.RouteResult
-	33,  // 7: sipbridge.control.v2.Envelope.ingest:type_name -> sipbridge.control.v2.OwnerIngest
-	35,  // 8: sipbridge.control.v2.Envelope.request:type_name -> sipbridge.control.v2.RequestPresented
-	46,  // 9: sipbridge.control.v2.Envelope.command:type_name -> sipbridge.control.v2.Command
-	47,  // 10: sipbridge.control.v2.Envelope.result:type_name -> sipbridge.control.v2.OperationResult
-	52,  // 11: sipbridge.control.v2.Envelope.egress:type_name -> sipbridge.control.v2.EgressRequest
-	53,  // 12: sipbridge.control.v2.Envelope.write:type_name -> sipbridge.control.v2.FlowWrite
-	54,  // 13: sipbridge.control.v2.Envelope.delivery:type_name -> sipbridge.control.v2.DeliveryResult
-	58,  // 14: sipbridge.control.v2.Envelope.flow_closed:type_name -> sipbridge.control.v2.FlowClosed
-	59,  // 15: sipbridge.control.v2.Envelope.dialog_event:type_name -> sipbridge.control.v2.DialogEvent
-	60,  // 16: sipbridge.control.v2.Envelope.inspect:type_name -> sipbridge.control.v2.ContextInspect
-	62,  // 17: sipbridge.control.v2.Envelope.flow_adoption:type_name -> sipbridge.control.v2.FlowAdoptionRequest
-	63,  // 18: sipbridge.control.v2.Envelope.flow_adoption_result:type_name -> sipbridge.control.v2.FlowAdoptionResult
-	51,  // 19: sipbridge.control.v2.Envelope.send_permit:type_name -> sipbridge.control.v2.SendPermit
-	53,  // 20: sipbridge.control.v2.Envelope.deliver_effect:type_name -> sipbridge.control.v2.FlowWrite
-	39,  // 21: sipbridge.control.v2.Envelope.credential_lookup:type_name -> sipbridge.control.v2.CredentialLookup
-	40,  // 22: sipbridge.control.v2.Envelope.credential_result:type_name -> sipbridge.control.v2.CredentialResult
-	53,  // 23: sipbridge.control.v2.Envelope.inspect_effect:type_name -> sipbridge.control.v2.FlowWrite
-	55,  // 24: sipbridge.control.v2.Envelope.settle_effect:type_name -> sipbridge.control.v2.EffectSettlement
-	34,  // 25: sipbridge.control.v2.Envelope.retire_authority:type_name -> sipbridge.control.v2.ContextSnapshot
-	56,  // 26: sipbridge.control.v2.Envelope.probe_application:type_name -> sipbridge.control.v2.ApplicationProbe
-	57,  // 27: sipbridge.control.v2.Envelope.application_status:type_name -> sipbridge.control.v2.ApplicationStatus
-	64,  // 28: sipbridge.control.v2.Envelope.reconcile_context:type_name -> sipbridge.control.v2.ContextReconcile
-	65,  // 29: sipbridge.control.v2.Envelope.reconcile_authority:type_name -> sipbridge.control.v2.AuthorityReconcile
-	66,  // 30: sipbridge.control.v2.Envelope.authority_receipt:type_name -> sipbridge.control.v2.AuthorityReceipt
-	13,  // 31: sipbridge.control.v2.Envelope.controller_contexts:type_name -> sipbridge.control.v2.ControllerContexts
-	14,  // 32: sipbridge.control.v2.Envelope.controller_contexts_result:type_name -> sipbridge.control.v2.ControllerContextsResult
-	9,   // 33: sipbridge.control.v2.SessionHello.controller:type_name -> sipbridge.control.v2.ProcessRef
-	10,  // 34: sipbridge.control.v2.SessionHello.bounds:type_name -> sipbridge.control.v2.Bounds
-	12,  // 35: sipbridge.control.v2.SessionHello.recovery:type_name -> sipbridge.control.v2.ControllerRecovery
-	9,   // 36: sipbridge.control.v2.ControllerRecovery.application:type_name -> sipbridge.control.v2.ProcessRef
-	24,  // 37: sipbridge.control.v2.ControllerContextsResult.contexts:type_name -> sipbridge.control.v2.ContextRef
-	9,   // 38: sipbridge.control.v2.SessionHelloAck.sipbridge:type_name -> sipbridge.control.v2.ProcessRef
-	10,  // 39: sipbridge.control.v2.SessionHelloAck.bounds:type_name -> sipbridge.control.v2.Bounds
-	22,  // 40: sipbridge.control.v2.SessionHelloAck.state_authority:type_name -> sipbridge.control.v2.StateAuthority
-	16,  // 41: sipbridge.control.v2.SessionHelloAck.application_lease:type_name -> sipbridge.control.v2.ApplicationLease
-	18,  // 42: sipbridge.control.v2.SessionHelloAck.inbound_auth_policy:type_name -> sipbridge.control.v2.InboundAuthPolicy
-	9,   // 43: sipbridge.control.v2.ApplicationLease.application:type_name -> sipbridge.control.v2.ProcessRef
-	22,  // 44: sipbridge.control.v2.ApplicationLease.authority:type_name -> sipbridge.control.v2.StateAuthority
-	9,   // 45: sipbridge.control.v2.ApplicationLease.holder:type_name -> sipbridge.control.v2.ProcessRef
-	19,  // 46: sipbridge.control.v2.SessionStatus.digest_challenge_policy:type_name -> sipbridge.control.v2.DigestChallengePolicy
-	9,   // 47: sipbridge.control.v2.FlowRef.ingress:type_name -> sipbridge.control.v2.ProcessRef
-	22,  // 48: sipbridge.control.v2.StateRef.authority:type_name -> sipbridge.control.v2.StateAuthority
-	9,   // 49: sipbridge.control.v2.ContextRef.owner:type_name -> sipbridge.control.v2.ProcessRef
-	23,  // 50: sipbridge.control.v2.ContextRef.state:type_name -> sipbridge.control.v2.StateRef
-	67,  // 51: sipbridge.control.v2.Address.params:type_name -> sipbridge.control.v2.Address.ParamsEntry
-	26,  // 52: sipbridge.control.v2.AddressList.values:type_name -> sipbridge.control.v2.Address
-	68,  // 53: sipbridge.control.v2.Via.params:type_name -> sipbridge.control.v2.Via.ParamsEntry
-	25,  // 54: sipbridge.control.v2.SipMessage.headers:type_name -> sipbridge.control.v2.Header
-	69,  // 55: sipbridge.control.v2.SipMessage.addresses:type_name -> sipbridge.control.v2.SipMessage.AddressesEntry
-	28,  // 56: sipbridge.control.v2.SipMessage.vias:type_name -> sipbridge.control.v2.Via
-	29,  // 57: sipbridge.control.v2.SipMessage.authorization:type_name -> sipbridge.control.v2.DigestCredentials
-	21,  // 58: sipbridge.control.v2.IngressReceived.flow:type_name -> sipbridge.control.v2.FlowRef
-	30,  // 59: sipbridge.control.v2.IngressReceived.message:type_name -> sipbridge.control.v2.SipMessage
-	24,  // 60: sipbridge.control.v2.IngressReceived.context:type_name -> sipbridge.control.v2.ContextRef
-	0,   // 61: sipbridge.control.v2.RouteResult.outcome:type_name -> sipbridge.control.v2.RouteResult.Outcome
-	9,   // 62: sipbridge.control.v2.RouteResult.controller:type_name -> sipbridge.control.v2.ProcessRef
-	24,  // 63: sipbridge.control.v2.OwnerIngest.context:type_name -> sipbridge.control.v2.ContextRef
-	9,   // 64: sipbridge.control.v2.OwnerIngest.application:type_name -> sipbridge.control.v2.ProcessRef
-	21,  // 65: sipbridge.control.v2.OwnerIngest.flow:type_name -> sipbridge.control.v2.FlowRef
-	1,   // 66: sipbridge.control.v2.OwnerIngest.admission:type_name -> sipbridge.control.v2.OwnerIngest.Admission
-	24,  // 67: sipbridge.control.v2.ContextSnapshot.context:type_name -> sipbridge.control.v2.ContextRef
-	9,   // 68: sipbridge.control.v2.ContextSnapshot.application:type_name -> sipbridge.control.v2.ProcessRef
-	2,   // 69: sipbridge.control.v2.ContextSnapshot.kind:type_name -> sipbridge.control.v2.ContextSnapshot.Kind
-	61,  // 70: sipbridge.control.v2.ContextSnapshot.delivery:type_name -> sipbridge.control.v2.ContextDelivery
-	9,   // 71: sipbridge.control.v2.ContextSnapshot.executor:type_name -> sipbridge.control.v2.ProcessRef
-	34,  // 72: sipbridge.control.v2.RequestPresented.snapshot:type_name -> sipbridge.control.v2.ContextSnapshot
-	30,  // 73: sipbridge.control.v2.RequestPresented.message:type_name -> sipbridge.control.v2.SipMessage
-	21,  // 74: sipbridge.control.v2.RequestPresented.flow:type_name -> sipbridge.control.v2.FlowRef
-	25,  // 75: sipbridge.control.v2.Respond.headers:type_name -> sipbridge.control.v2.Header
-	36,  // 76: sipbridge.control.v2.Respond.authority:type_name -> sipbridge.control.v2.ResponseAuthority
-	24,  // 77: sipbridge.control.v2.CredentialLookup.context:type_name -> sipbridge.control.v2.ContextRef
-	38,  // 78: sipbridge.control.v2.CredentialLookup.credential:type_name -> sipbridge.control.v2.CredentialRef
-	38,  // 79: sipbridge.control.v2.NetworkTarget.credential:type_name -> sipbridge.control.v2.CredentialRef
-	25,  // 80: sipbridge.control.v2.OpenUac.headers:type_name -> sipbridge.control.v2.Header
-	41,  // 81: sipbridge.control.v2.OpenUac.network:type_name -> sipbridge.control.v2.NetworkTarget
-	25,  // 82: sipbridge.control.v2.DialogRequest.headers:type_name -> sipbridge.control.v2.Header
-	21,  // 83: sipbridge.control.v2.CommandAdmission.selected_flow:type_name -> sipbridge.control.v2.FlowRef
-	61,  // 84: sipbridge.control.v2.CommandAdmission.expected_delivery:type_name -> sipbridge.control.v2.ContextDelivery
-	24,  // 85: sipbridge.control.v2.Command.context:type_name -> sipbridge.control.v2.ContextRef
-	45,  // 86: sipbridge.control.v2.Command.admission:type_name -> sipbridge.control.v2.CommandAdmission
-	37,  // 87: sipbridge.control.v2.Command.respond:type_name -> sipbridge.control.v2.Respond
-	42,  // 88: sipbridge.control.v2.Command.open_uac:type_name -> sipbridge.control.v2.OpenUac
-	43,  // 89: sipbridge.control.v2.Command.dialog_request:type_name -> sipbridge.control.v2.DialogRequest
-	44,  // 90: sipbridge.control.v2.Command.cancel:type_name -> sipbridge.control.v2.Cancel
-	3,   // 91: sipbridge.control.v2.OperationResult.certainty:type_name -> sipbridge.control.v2.OperationResult.Certainty
-	34,  // 92: sipbridge.control.v2.OperationResult.snapshot:type_name -> sipbridge.control.v2.ContextSnapshot
-	30,  // 93: sipbridge.control.v2.OperationResult.request:type_name -> sipbridge.control.v2.SipMessage
-	30,  // 94: sipbridge.control.v2.OperationResult.response:type_name -> sipbridge.control.v2.SipMessage
-	48,  // 95: sipbridge.control.v2.OperationResult.retirement_proof:type_name -> sipbridge.control.v2.ContextRetirementProof
-	24,  // 96: sipbridge.control.v2.ContextRetirementProof.context:type_name -> sipbridge.control.v2.ContextRef
-	22,  // 97: sipbridge.control.v2.ContextRetirementProof.authority:type_name -> sipbridge.control.v2.StateAuthority
-	4,   // 98: sipbridge.control.v2.ContextRetirementProof.reason:type_name -> sipbridge.control.v2.ContextRetirementProof.Reason
-	24,  // 99: sipbridge.control.v2.StateEffectRef.context:type_name -> sipbridge.control.v2.ContextRef
-	49,  // 100: sipbridge.control.v2.EffectAuthorization.effect:type_name -> sipbridge.control.v2.StateEffectRef
-	5,   // 101: sipbridge.control.v2.EffectAuthorization.authority_class:type_name -> sipbridge.control.v2.EffectAuthorization.Class
-	50,  // 102: sipbridge.control.v2.SendPermit.authorization:type_name -> sipbridge.control.v2.EffectAuthorization
-	21,  // 103: sipbridge.control.v2.SendPermit.flow:type_name -> sipbridge.control.v2.FlowRef
-	34,  // 104: sipbridge.control.v2.EgressRequest.snapshot:type_name -> sipbridge.control.v2.ContextSnapshot
-	30,  // 105: sipbridge.control.v2.EgressRequest.message:type_name -> sipbridge.control.v2.SipMessage
-	21,  // 106: sipbridge.control.v2.EgressRequest.return_flow:type_name -> sipbridge.control.v2.FlowRef
-	50,  // 107: sipbridge.control.v2.EgressRequest.authorization:type_name -> sipbridge.control.v2.EffectAuthorization
-	21,  // 108: sipbridge.control.v2.FlowWrite.flow:type_name -> sipbridge.control.v2.FlowRef
-	49,  // 109: sipbridge.control.v2.FlowWrite.effect:type_name -> sipbridge.control.v2.StateEffectRef
-	51,  // 110: sipbridge.control.v2.FlowWrite.permit:type_name -> sipbridge.control.v2.SendPermit
-	6,   // 111: sipbridge.control.v2.DeliveryResult.outcome:type_name -> sipbridge.control.v2.DeliveryResult.Outcome
-	49,  // 112: sipbridge.control.v2.DeliveryResult.effect:type_name -> sipbridge.control.v2.StateEffectRef
-	53,  // 113: sipbridge.control.v2.EffectSettlement.write:type_name -> sipbridge.control.v2.FlowWrite
-	54,  // 114: sipbridge.control.v2.EffectSettlement.delivery:type_name -> sipbridge.control.v2.DeliveryResult
-	24,  // 115: sipbridge.control.v2.ApplicationProbe.context:type_name -> sipbridge.control.v2.ContextRef
-	9,   // 116: sipbridge.control.v2.ApplicationProbe.application:type_name -> sipbridge.control.v2.ProcessRef
-	24,  // 117: sipbridge.control.v2.ApplicationStatus.context:type_name -> sipbridge.control.v2.ContextRef
-	9,   // 118: sipbridge.control.v2.ApplicationStatus.application:type_name -> sipbridge.control.v2.ProcessRef
-	21,  // 119: sipbridge.control.v2.FlowClosed.flow:type_name -> sipbridge.control.v2.FlowRef
-	7,   // 120: sipbridge.control.v2.DialogEvent.kind:type_name -> sipbridge.control.v2.DialogEvent.Kind
-	34,  // 121: sipbridge.control.v2.DialogEvent.snapshot:type_name -> sipbridge.control.v2.ContextSnapshot
-	30,  // 122: sipbridge.control.v2.DialogEvent.message:type_name -> sipbridge.control.v2.SipMessage
-	24,  // 123: sipbridge.control.v2.ContextInspect.context:type_name -> sipbridge.control.v2.ContextRef
-	21,  // 124: sipbridge.control.v2.ContextDelivery.flow:type_name -> sipbridge.control.v2.FlowRef
-	24,  // 125: sipbridge.control.v2.FlowAdoptionRequest.context:type_name -> sipbridge.control.v2.ContextRef
-	9,   // 126: sipbridge.control.v2.FlowAdoptionRequest.application:type_name -> sipbridge.control.v2.ProcessRef
-	21,  // 127: sipbridge.control.v2.FlowAdoptionRequest.flow:type_name -> sipbridge.control.v2.FlowRef
-	61,  // 128: sipbridge.control.v2.FlowAdoptionResult.receipt:type_name -> sipbridge.control.v2.ContextDelivery
-	24,  // 129: sipbridge.control.v2.ContextReconcile.context:type_name -> sipbridge.control.v2.ContextRef
-	34,  // 130: sipbridge.control.v2.AuthorityReconcile.snapshot:type_name -> sipbridge.control.v2.ContextSnapshot
-	30,  // 131: sipbridge.control.v2.AuthorityReconcile.origin:type_name -> sipbridge.control.v2.SipMessage
-	21,  // 132: sipbridge.control.v2.AuthorityReconcile.flow:type_name -> sipbridge.control.v2.FlowRef
-	24,  // 133: sipbridge.control.v2.AuthorityReceipt.context:type_name -> sipbridge.control.v2.ContextRef
-	9,   // 134: sipbridge.control.v2.AuthorityReceipt.application:type_name -> sipbridge.control.v2.ProcessRef
-	61,  // 135: sipbridge.control.v2.AuthorityReceipt.delivery:type_name -> sipbridge.control.v2.ContextDelivery
-	27,  // 136: sipbridge.control.v2.SipMessage.AddressesEntry.value:type_name -> sipbridge.control.v2.AddressList
-	137, // [137:137] is the sub-list for method output_type
-	137, // [137:137] is the sub-list for method input_type
-	137, // [137:137] is the sub-list for extension type_name
-	137, // [137:137] is the sub-list for extension extendee
-	0,   // [0:137] is the sub-list for field type_name
+	11,  // 0: sipbridge.control.v1.Envelope.hello:type_name -> sipbridge.control.v1.SessionHello
+	15,  // 1: sipbridge.control.v1.Envelope.hello_ack:type_name -> sipbridge.control.v1.SessionHelloAck
+	17,  // 2: sipbridge.control.v1.Envelope.status:type_name -> sipbridge.control.v1.SessionStatus
+	20,  // 3: sipbridge.control.v1.Envelope.ping:type_name -> sipbridge.control.v1.Heartbeat
+	20,  // 4: sipbridge.control.v1.Envelope.pong:type_name -> sipbridge.control.v1.Heartbeat
+	31,  // 5: sipbridge.control.v1.Envelope.ingress:type_name -> sipbridge.control.v1.IngressReceived
+	32,  // 6: sipbridge.control.v1.Envelope.route_result:type_name -> sipbridge.control.v1.RouteResult
+	33,  // 7: sipbridge.control.v1.Envelope.ingest:type_name -> sipbridge.control.v1.OwnerIngest
+	35,  // 8: sipbridge.control.v1.Envelope.request:type_name -> sipbridge.control.v1.RequestPresented
+	46,  // 9: sipbridge.control.v1.Envelope.command:type_name -> sipbridge.control.v1.Command
+	47,  // 10: sipbridge.control.v1.Envelope.result:type_name -> sipbridge.control.v1.OperationResult
+	52,  // 11: sipbridge.control.v1.Envelope.egress:type_name -> sipbridge.control.v1.EgressRequest
+	53,  // 12: sipbridge.control.v1.Envelope.write:type_name -> sipbridge.control.v1.FlowWrite
+	54,  // 13: sipbridge.control.v1.Envelope.delivery:type_name -> sipbridge.control.v1.DeliveryResult
+	57,  // 14: sipbridge.control.v1.Envelope.flow_closed:type_name -> sipbridge.control.v1.FlowClosed
+	58,  // 15: sipbridge.control.v1.Envelope.dialog_event:type_name -> sipbridge.control.v1.DialogEvent
+	59,  // 16: sipbridge.control.v1.Envelope.inspect:type_name -> sipbridge.control.v1.ContextInspect
+	61,  // 17: sipbridge.control.v1.Envelope.flow_adoption:type_name -> sipbridge.control.v1.FlowAdoptionRequest
+	62,  // 18: sipbridge.control.v1.Envelope.flow_adoption_result:type_name -> sipbridge.control.v1.FlowAdoptionResult
+	51,  // 19: sipbridge.control.v1.Envelope.send_permit:type_name -> sipbridge.control.v1.SendPermit
+	53,  // 20: sipbridge.control.v1.Envelope.deliver_effect:type_name -> sipbridge.control.v1.FlowWrite
+	39,  // 21: sipbridge.control.v1.Envelope.credential_lookup:type_name -> sipbridge.control.v1.CredentialLookup
+	40,  // 22: sipbridge.control.v1.Envelope.credential_result:type_name -> sipbridge.control.v1.CredentialResult
+	53,  // 23: sipbridge.control.v1.Envelope.inspect_effect:type_name -> sipbridge.control.v1.FlowWrite
+	55,  // 24: sipbridge.control.v1.Envelope.probe_application:type_name -> sipbridge.control.v1.ApplicationProbe
+	56,  // 25: sipbridge.control.v1.Envelope.application_status:type_name -> sipbridge.control.v1.ApplicationStatus
+	13,  // 26: sipbridge.control.v1.Envelope.controller_contexts:type_name -> sipbridge.control.v1.ControllerContexts
+	14,  // 27: sipbridge.control.v1.Envelope.controller_contexts_result:type_name -> sipbridge.control.v1.ControllerContextsResult
+	9,   // 28: sipbridge.control.v1.SessionHello.controller:type_name -> sipbridge.control.v1.ProcessRef
+	10,  // 29: sipbridge.control.v1.SessionHello.bounds:type_name -> sipbridge.control.v1.Bounds
+	12,  // 30: sipbridge.control.v1.SessionHello.recovery:type_name -> sipbridge.control.v1.ControllerRecovery
+	9,   // 31: sipbridge.control.v1.ControllerRecovery.application:type_name -> sipbridge.control.v1.ProcessRef
+	24,  // 32: sipbridge.control.v1.ControllerContextsResult.contexts:type_name -> sipbridge.control.v1.ContextRef
+	9,   // 33: sipbridge.control.v1.SessionHelloAck.sipbridge:type_name -> sipbridge.control.v1.ProcessRef
+	10,  // 34: sipbridge.control.v1.SessionHelloAck.bounds:type_name -> sipbridge.control.v1.Bounds
+	22,  // 35: sipbridge.control.v1.SessionHelloAck.state_authority:type_name -> sipbridge.control.v1.StateAuthority
+	16,  // 36: sipbridge.control.v1.SessionHelloAck.application_lease:type_name -> sipbridge.control.v1.ApplicationLease
+	18,  // 37: sipbridge.control.v1.SessionHelloAck.inbound_auth_policy:type_name -> sipbridge.control.v1.InboundAuthPolicy
+	9,   // 38: sipbridge.control.v1.ApplicationLease.application:type_name -> sipbridge.control.v1.ProcessRef
+	22,  // 39: sipbridge.control.v1.ApplicationLease.authority:type_name -> sipbridge.control.v1.StateAuthority
+	9,   // 40: sipbridge.control.v1.ApplicationLease.holder:type_name -> sipbridge.control.v1.ProcessRef
+	19,  // 41: sipbridge.control.v1.SessionStatus.digest_challenge_policy:type_name -> sipbridge.control.v1.DigestChallengePolicy
+	9,   // 42: sipbridge.control.v1.FlowRef.ingress:type_name -> sipbridge.control.v1.ProcessRef
+	22,  // 43: sipbridge.control.v1.StateRef.authority:type_name -> sipbridge.control.v1.StateAuthority
+	9,   // 44: sipbridge.control.v1.ContextRef.owner:type_name -> sipbridge.control.v1.ProcessRef
+	23,  // 45: sipbridge.control.v1.ContextRef.state:type_name -> sipbridge.control.v1.StateRef
+	63,  // 46: sipbridge.control.v1.Address.params:type_name -> sipbridge.control.v1.Address.ParamsEntry
+	26,  // 47: sipbridge.control.v1.AddressList.values:type_name -> sipbridge.control.v1.Address
+	64,  // 48: sipbridge.control.v1.Via.params:type_name -> sipbridge.control.v1.Via.ParamsEntry
+	25,  // 49: sipbridge.control.v1.SipMessage.headers:type_name -> sipbridge.control.v1.Header
+	65,  // 50: sipbridge.control.v1.SipMessage.addresses:type_name -> sipbridge.control.v1.SipMessage.AddressesEntry
+	28,  // 51: sipbridge.control.v1.SipMessage.vias:type_name -> sipbridge.control.v1.Via
+	29,  // 52: sipbridge.control.v1.SipMessage.authorization:type_name -> sipbridge.control.v1.DigestCredentials
+	21,  // 53: sipbridge.control.v1.IngressReceived.flow:type_name -> sipbridge.control.v1.FlowRef
+	30,  // 54: sipbridge.control.v1.IngressReceived.message:type_name -> sipbridge.control.v1.SipMessage
+	24,  // 55: sipbridge.control.v1.IngressReceived.context:type_name -> sipbridge.control.v1.ContextRef
+	0,   // 56: sipbridge.control.v1.RouteResult.outcome:type_name -> sipbridge.control.v1.RouteResult.Outcome
+	9,   // 57: sipbridge.control.v1.RouteResult.controller:type_name -> sipbridge.control.v1.ProcessRef
+	24,  // 58: sipbridge.control.v1.OwnerIngest.context:type_name -> sipbridge.control.v1.ContextRef
+	9,   // 59: sipbridge.control.v1.OwnerIngest.application:type_name -> sipbridge.control.v1.ProcessRef
+	21,  // 60: sipbridge.control.v1.OwnerIngest.flow:type_name -> sipbridge.control.v1.FlowRef
+	1,   // 61: sipbridge.control.v1.OwnerIngest.admission:type_name -> sipbridge.control.v1.OwnerIngest.Admission
+	24,  // 62: sipbridge.control.v1.ContextSnapshot.context:type_name -> sipbridge.control.v1.ContextRef
+	9,   // 63: sipbridge.control.v1.ContextSnapshot.application:type_name -> sipbridge.control.v1.ProcessRef
+	2,   // 64: sipbridge.control.v1.ContextSnapshot.kind:type_name -> sipbridge.control.v1.ContextSnapshot.Kind
+	60,  // 65: sipbridge.control.v1.ContextSnapshot.delivery:type_name -> sipbridge.control.v1.ContextDelivery
+	9,   // 66: sipbridge.control.v1.ContextSnapshot.executor:type_name -> sipbridge.control.v1.ProcessRef
+	34,  // 67: sipbridge.control.v1.RequestPresented.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
+	30,  // 68: sipbridge.control.v1.RequestPresented.message:type_name -> sipbridge.control.v1.SipMessage
+	21,  // 69: sipbridge.control.v1.RequestPresented.flow:type_name -> sipbridge.control.v1.FlowRef
+	25,  // 70: sipbridge.control.v1.Respond.headers:type_name -> sipbridge.control.v1.Header
+	36,  // 71: sipbridge.control.v1.Respond.authority:type_name -> sipbridge.control.v1.ResponseAuthority
+	24,  // 72: sipbridge.control.v1.CredentialLookup.context:type_name -> sipbridge.control.v1.ContextRef
+	38,  // 73: sipbridge.control.v1.CredentialLookup.credential:type_name -> sipbridge.control.v1.CredentialRef
+	38,  // 74: sipbridge.control.v1.NetworkTarget.credential:type_name -> sipbridge.control.v1.CredentialRef
+	25,  // 75: sipbridge.control.v1.OpenUac.headers:type_name -> sipbridge.control.v1.Header
+	41,  // 76: sipbridge.control.v1.OpenUac.network:type_name -> sipbridge.control.v1.NetworkTarget
+	25,  // 77: sipbridge.control.v1.DialogRequest.headers:type_name -> sipbridge.control.v1.Header
+	21,  // 78: sipbridge.control.v1.CommandAdmission.selected_flow:type_name -> sipbridge.control.v1.FlowRef
+	60,  // 79: sipbridge.control.v1.CommandAdmission.expected_delivery:type_name -> sipbridge.control.v1.ContextDelivery
+	24,  // 80: sipbridge.control.v1.Command.context:type_name -> sipbridge.control.v1.ContextRef
+	45,  // 81: sipbridge.control.v1.Command.admission:type_name -> sipbridge.control.v1.CommandAdmission
+	37,  // 82: sipbridge.control.v1.Command.respond:type_name -> sipbridge.control.v1.Respond
+	42,  // 83: sipbridge.control.v1.Command.open_uac:type_name -> sipbridge.control.v1.OpenUac
+	43,  // 84: sipbridge.control.v1.Command.dialog_request:type_name -> sipbridge.control.v1.DialogRequest
+	44,  // 85: sipbridge.control.v1.Command.cancel:type_name -> sipbridge.control.v1.Cancel
+	3,   // 86: sipbridge.control.v1.OperationResult.certainty:type_name -> sipbridge.control.v1.OperationResult.Certainty
+	34,  // 87: sipbridge.control.v1.OperationResult.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
+	30,  // 88: sipbridge.control.v1.OperationResult.request:type_name -> sipbridge.control.v1.SipMessage
+	30,  // 89: sipbridge.control.v1.OperationResult.response:type_name -> sipbridge.control.v1.SipMessage
+	48,  // 90: sipbridge.control.v1.OperationResult.retirement_proof:type_name -> sipbridge.control.v1.ContextRetirementProof
+	24,  // 91: sipbridge.control.v1.ContextRetirementProof.context:type_name -> sipbridge.control.v1.ContextRef
+	22,  // 92: sipbridge.control.v1.ContextRetirementProof.authority:type_name -> sipbridge.control.v1.StateAuthority
+	4,   // 93: sipbridge.control.v1.ContextRetirementProof.reason:type_name -> sipbridge.control.v1.ContextRetirementProof.Reason
+	24,  // 94: sipbridge.control.v1.StateEffectRef.context:type_name -> sipbridge.control.v1.ContextRef
+	49,  // 95: sipbridge.control.v1.EffectAuthorization.effect:type_name -> sipbridge.control.v1.StateEffectRef
+	5,   // 96: sipbridge.control.v1.EffectAuthorization.authority_class:type_name -> sipbridge.control.v1.EffectAuthorization.Class
+	50,  // 97: sipbridge.control.v1.SendPermit.authorization:type_name -> sipbridge.control.v1.EffectAuthorization
+	21,  // 98: sipbridge.control.v1.SendPermit.flow:type_name -> sipbridge.control.v1.FlowRef
+	34,  // 99: sipbridge.control.v1.EgressRequest.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
+	30,  // 100: sipbridge.control.v1.EgressRequest.message:type_name -> sipbridge.control.v1.SipMessage
+	21,  // 101: sipbridge.control.v1.EgressRequest.return_flow:type_name -> sipbridge.control.v1.FlowRef
+	50,  // 102: sipbridge.control.v1.EgressRequest.authorization:type_name -> sipbridge.control.v1.EffectAuthorization
+	21,  // 103: sipbridge.control.v1.FlowWrite.flow:type_name -> sipbridge.control.v1.FlowRef
+	49,  // 104: sipbridge.control.v1.FlowWrite.effect:type_name -> sipbridge.control.v1.StateEffectRef
+	51,  // 105: sipbridge.control.v1.FlowWrite.permit:type_name -> sipbridge.control.v1.SendPermit
+	6,   // 106: sipbridge.control.v1.DeliveryResult.outcome:type_name -> sipbridge.control.v1.DeliveryResult.Outcome
+	49,  // 107: sipbridge.control.v1.DeliveryResult.effect:type_name -> sipbridge.control.v1.StateEffectRef
+	24,  // 108: sipbridge.control.v1.ApplicationProbe.context:type_name -> sipbridge.control.v1.ContextRef
+	9,   // 109: sipbridge.control.v1.ApplicationProbe.application:type_name -> sipbridge.control.v1.ProcessRef
+	24,  // 110: sipbridge.control.v1.ApplicationStatus.context:type_name -> sipbridge.control.v1.ContextRef
+	9,   // 111: sipbridge.control.v1.ApplicationStatus.application:type_name -> sipbridge.control.v1.ProcessRef
+	21,  // 112: sipbridge.control.v1.FlowClosed.flow:type_name -> sipbridge.control.v1.FlowRef
+	7,   // 113: sipbridge.control.v1.DialogEvent.kind:type_name -> sipbridge.control.v1.DialogEvent.Kind
+	34,  // 114: sipbridge.control.v1.DialogEvent.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
+	30,  // 115: sipbridge.control.v1.DialogEvent.message:type_name -> sipbridge.control.v1.SipMessage
+	24,  // 116: sipbridge.control.v1.ContextInspect.context:type_name -> sipbridge.control.v1.ContextRef
+	21,  // 117: sipbridge.control.v1.ContextDelivery.flow:type_name -> sipbridge.control.v1.FlowRef
+	24,  // 118: sipbridge.control.v1.FlowAdoptionRequest.context:type_name -> sipbridge.control.v1.ContextRef
+	9,   // 119: sipbridge.control.v1.FlowAdoptionRequest.application:type_name -> sipbridge.control.v1.ProcessRef
+	21,  // 120: sipbridge.control.v1.FlowAdoptionRequest.flow:type_name -> sipbridge.control.v1.FlowRef
+	60,  // 121: sipbridge.control.v1.FlowAdoptionResult.receipt:type_name -> sipbridge.control.v1.ContextDelivery
+	27,  // 122: sipbridge.control.v1.SipMessage.AddressesEntry.value:type_name -> sipbridge.control.v1.AddressList
+	123, // [123:123] is the sub-list for method output_type
+	123, // [123:123] is the sub-list for method input_type
+	123, // [123:123] is the sub-list for extension type_name
+	123, // [123:123] is the sub-list for extension extendee
+	0,   // [0:123] is the sub-list for field type_name
 }
 
 func init() { file_sipbridge_control_proto_init() }
@@ -6217,13 +5717,8 @@ func file_sipbridge_control_proto_init() {
 		(*Envelope_CredentialLookup)(nil),
 		(*Envelope_CredentialResult)(nil),
 		(*Envelope_InspectEffect)(nil),
-		(*Envelope_SettleEffect)(nil),
-		(*Envelope_RetireAuthority)(nil),
 		(*Envelope_ProbeApplication)(nil),
 		(*Envelope_ApplicationStatus)(nil),
-		(*Envelope_ReconcileContext)(nil),
-		(*Envelope_ReconcileAuthority)(nil),
-		(*Envelope_AuthorityReceipt)(nil),
 		(*Envelope_ControllerContexts)(nil),
 		(*Envelope_ControllerContextsResult)(nil),
 	}
@@ -6239,7 +5734,7 @@ func file_sipbridge_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sipbridge_control_proto_rawDesc), len(file_sipbridge_control_proto_rawDesc)),
 			NumEnums:      8,
-			NumMessages:   62,
+			NumMessages:   58,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

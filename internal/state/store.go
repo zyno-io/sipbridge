@@ -81,7 +81,7 @@ func commonDefaults(cfg *Config) error {
 		cfg.Generation = "default"
 	}
 	if cfg.Prefix == "" {
-		cfg.Prefix = "sipstate:v2"
+		cfg.Prefix = "sipstate:v1"
 	}
 	if cfg.Partitions == 0 {
 		cfg.Partitions = 64

@@ -141,12 +141,9 @@ Nonce construction and key derivation are specified in
 ## Not yet available
 
 The protocol has no way to drain a sipbridge instance or list every owner's
-contexts globally. Recovery exposes only the authenticated owner's bounded list. PROTOCOL.md proposes messages for both, but they are not in the schema
-or the service yet, so plan restarts as described in
+contexts globally. Recovery exposes only the authenticated owner's bounded
+list. Plan restarts as described in
 [Deployment](./deployment.md#replacing-a-process).
 
-The schema also contains older message types such as `sendPermit`,
-`deliverEffect`, `settleEffect` and `retireAuthority`. They remain so that older
-software can still decode them, but the service no longer acts on them. Build
-against the current messages listed in
-[Message Families](../protocol/messages.md).
+Use the messages listed in [Message Families](../protocol/messages.md) when
+building a controller.

@@ -13,7 +13,7 @@ import (
 
 func TestNativeLeaseReceiptAndPinnedRenewal(t *testing.T) {
 	application := &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}
-	authority := &pb.StateAuthority{Service: "edge", Generation: "generation", PrimaryId: "primary", SchemaVersion: 3}
+	authority := &pb.StateAuthority{Service: "edge", Generation: "generation", PrimaryId: "primary", SchemaVersion: 1}
 	lease := &pb.ApplicationLease{Application: application, Authority: authority, Term: "term", CheckedAtMs: 1000, ExpiresAtMs: 31000}
 	for _, duration := range []uint64{30000, 30250, 30500} {
 		candidate := proto.Clone(lease).(*pb.ApplicationLease)
@@ -62,8 +62,8 @@ func TestNativeLeaseReceiptAndPinnedRenewal(t *testing.T) {
 
 func TestNativeCompletionNegotiatesLeaseBeforeBusinessTraffic(t *testing.T) {
 	pki := newPKI(t)
-	authority := &pb.StateAuthority{Service: "edge", Generation: "generation", PrimaryId: "primary", SchemaVersion: 3}
-	caps := []string{"sip.v1", StateCapability, DirectoryReconcileCapability, CompletionRelayCapability, NativeCompletionCapability}
+	authority := &pb.StateAuthority{Service: "edge", Generation: "generation", PrimaryId: "primary", SchemaVersion: 1}
+	caps := []string{"sip.v1", StateCapability, NativeCompletionCapability}
 	server, address := testServer(t, pki, 8, func(cfg *Config) {
 		cfg.Capabilities, cfg.StateAuthority = caps, authority
 		cfg.HeartbeatInterval, cfg.HeartbeatTimeout = time.Second, 6*time.Second
@@ -80,7 +80,7 @@ func TestNativeCompletionNegotiatesLeaseBeforeBusinessTraffic(t *testing.T) {
 	}
 	defer conn.CloseNow()
 	app := &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}
-	send(t, conn, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: app, ConnectionAttempt: 1, Major: 2, Capabilities: caps, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}})
+	send(t, conn, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: app, ConnectionAttempt: 1, Major: 1, Capabilities: caps, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}})
 	reply, err := receive(conn)
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestNativeCompletionNegotiatesLeaseBeforeBusinessTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer old.CloseNow()
-	send(t, old, &pb.Envelope{CorrelationId: "old", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: app, ConnectionAttempt: 2, Major: 2, Capabilities: caps[:len(caps)-1], Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}})
+	send(t, old, &pb.Envelope{CorrelationId: "old", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: app, ConnectionAttempt: 2, Major: 1, Capabilities: caps[:len(caps)-1], Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}})
 	if response, err := receive(old); err == nil {
 		t.Fatalf("incompatible peer displaced owner: %v", response)
 	}
@@ -113,8 +113,8 @@ func TestNativeCompletionNegotiatesLeaseBeforeBusinessTraffic(t *testing.T) {
 
 func TestNativeControlHeartbeatsSurviveLeaseStoreOutage(t *testing.T) {
 	pki := newPKI(t)
-	authority := &pb.StateAuthority{Service: "edge", Generation: "generation", PrimaryId: "logical", SchemaVersion: 3}
-	caps := []string{"sip.v1", StateCapability, DirectoryReconcileCapability, CompletionRelayCapability, NativeCompletionCapability}
+	authority := &pb.StateAuthority{Service: "edge", Generation: "generation", PrimaryId: "logical", SchemaVersion: 1}
+	caps := []string{"sip.v1", StateCapability, NativeCompletionCapability}
 	var failures atomic.Uint64
 	var recovered atomic.Bool
 	server, address := testServer(t, pki, 8, func(cfg *Config) {
@@ -134,7 +134,7 @@ func TestNativeControlHeartbeatsSurviveLeaseStoreOutage(t *testing.T) {
 	}
 	defer connection.CloseNow()
 	application := &pb.ProcessRef{InstanceId: "controller", Epoch: "surviving-process"}
-	send(t, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: application, ConnectionAttempt: 1, Major: 2, Capabilities: caps, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}})
+	send(t, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: application, ConnectionAttempt: 1, Major: 1, Capabilities: caps, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}})
 	reply, err := receive(connection)
 	if err != nil {
 		t.Fatal(err)

@@ -48,7 +48,7 @@ func SendFingerprint(snapshot *pb.ContextSnapshot, message *pb.SipMessage, auth 
 	authority := state.Authority
 	wireDigest := sha256.Sum256(message.Wire)
 	parts := []string{
-		"sipbridge-send-v2", authority.Service, authority.Generation, authority.PrimaryId,
+		"sipbridge-send-v1", authority.Service, authority.Generation, authority.PrimaryId,
 		state.GroupId, state.Incarnation, state.CallId, strconv.FormatUint(uint64(state.Partition), 10),
 		snapshot.Context.Id, snapshot.Application.InstanceId, snapshot.Application.Epoch, auth.ApplicationLeaseTerm,
 		snapshot.PrincipalId, snapshot.BindingId, snapshot.Transport,

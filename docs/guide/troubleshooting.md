@@ -62,10 +62,10 @@ established, sipbridge answers with an HTTP error:
 | Response | Cause |
 | --- | --- |
 | TLS handshake failure | Client certificate missing, or not issued by `--client-ca`. |
-| `403` authentication refusal | Missing or invalid configured authentication: verified mTLS identity or bearer token/principal. A TLS handshake may fail before HTTP in mTLS mode. |
-| `403 workload identity denied` | No client URI SAN exactly matches `--allowed-client-uri`. Compare the full URI string. |
-| `404` | Path is not exactly `/v2/control`, a query string is present, or the method is not `GET`. |
-| `400 unsupported control upgrade` | An `Origin` header was sent, or the `sipbridge.control.json.v2` subprotocol was not offered. |
+| `401 control authentication failed` | The bearer token is missing or invalid. Check the token file used by the controller. |
+| `403 control authentication failed` | The client has no verified URI SAN matching `--allowed-client-uri`. Compare the full URI string; mTLS chain failures can happen before HTTP. |
+| `404` | Path is not exactly `/v1/control`, a query string is present, or the method is not `GET`. |
+| `400 unsupported control upgrade` | An `Origin` header was sent, or the `sipbridge.control.json.v1` subprotocol was not offered. |
 | `503 control session capacity` | 64 sessions are already active. |
 
 Once the WebSocket is open, a problem with `hello` or a later message closes it
@@ -74,10 +74,10 @@ with status `1008` (policy violation) and one of these reasons:
 | Close reason | Cause |
 | --- | --- |
 | `hello required` | First message was not a valid envelope within 5 seconds. |
-| `unsupported hello` | `sessionId` or `remainingBudgetMs` set; missing or invalid `controller`; `connectionAttempt` is `0`; `major` is not `2`; `minMinor` is not `0` or exceeds `maxMinor`; `maxEnvelopeBytes` outside 512 to 1,048,576; more than 32 capabilities. |
+| `unsupported hello` | `sessionId` or `remainingBudgetMs` set; missing or invalid `controller`; `connectionAttempt` is `0`; `major` is not `1`; `minMinor` is not `0` or exceeds `maxMinor`; `maxEnvelopeBytes` outside 512 to 1,048,576; more than 32 capabilities. |
 | `invalid capabilities` | A duplicate or malformed capability string. |
 | `state runtime requires sip.v1 and a compatible state capability` | `sip.v1` or `sip.state.v1` not offered. |
-| `state runtime requires sip.directory-reconcile.v1` / `...sip.completion-relay.v1` / `...sip.native-completion.v1` | A required capability is missing from `hello`. See [Capabilities](../protocol/capabilities.md). |
+| `state runtime requires sip.native-completion.v1` | `sip.native-completion.v1` not offered. See [Capabilities](../protocol/capabilities.md). |
 | `configured initial authentication requires sip.local-challenge.v1` | `--require-auth-methods` is set and the controller did not offer the capability. |
 | `stale connection attempt` | Same instance and epoch reconnected with a `connectionAttempt` that is not higher than the last accepted one. |
 | `active epoch collision` | Another epoch of the same instance ID still has an active session. |

@@ -13,7 +13,7 @@ import (
 // newStateForFixture keeps the retired 1/7 runtime available only to historical
 // protocol assertions. Native process tests still construct the public engine.
 func newStateForFixture(ctx context.Context, cfg Config, store *state.Store, server *control.Server, mode string) (*StateEngine, error) {
-	if store != nil && store.Versions() == (state.Versions{Schema: "3", Reducer: "9", Timers: "1"}) {
+	if store != nil && store.Versions() == NativeStateVersions() {
 		return NewState(ctx, cfg, store, server)
 	}
 	if cfg.Process == nil || cfg.AdvertiseAddress == "" || cfg.ContactURI == "" || len(cfg.StateIdentityKey) < 32 || store == nil || server == nil || store.Versions() != (state.Versions{Schema: "1", Reducer: "7", Timers: "1"}) {

@@ -44,7 +44,7 @@ func newNativeOwnerFixtureBackend(t *testing.T, backend string) nativeOwnerFixtu
 	}
 	ctx := context.Background()
 	cfg := state.Config{Redis: state.RedisOptions{Address: address}, Prefix: "sipstate:native-owner-test", Namespace: "test-" + uuid.NewString(),
-		NamespaceKey: bytes.Repeat([]byte{31}, 32), Partitions: 1, Generation: "generation", Versions: state.Versions{Schema: "3", Reducer: "9", Timers: "1"}}
+		NamespaceKey: bytes.Repeat([]byte{31}, 32), Partitions: 1, Generation: "generation", Versions: NativeStateVersions()}
 	var store state.Backend
 	var err error
 	if backend == state.MemoryBackend {

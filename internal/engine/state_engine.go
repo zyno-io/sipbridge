@@ -94,8 +94,8 @@ func NewState(ctx context.Context, cfg Config, store state.Backend, server *cont
 	if cfg.Process == nil || cfg.AdvertiseAddress == "" || cfg.ContactURI == "" || len(cfg.StateIdentityKey) < 32 || store == nil || server == nil {
 		return nil, errors.New("engine identity, store, key and control required")
 	}
-	if store.Versions() != (state.Versions{Schema: "3", Reducer: "9", Timers: "1"}) {
-		return nil, errors.New("unsupported SIP state profile: require 3/9/1")
+	if store.Versions() != NativeStateVersions() {
+		return nil, errors.New("unsupported SIP state profile: require 1/1/1")
 	}
 	validation := &StateEngine{cfg: cfg}
 	for _, transport := range []string{"tls", "udp", "tcp"} {
@@ -424,7 +424,7 @@ func (e *StateEngine) rejectionContextID(flow *pb.FlowRef, message *pb.SipMessag
 	if err != nil {
 		return "", err
 	}
-	return "reject-" + e.id("rejection-v2", string(encoded), string(message.Wire))[:40], nil
+	return "reject-" + e.id("rejection-v1", string(encoded), string(message.Wire))[:40], nil
 }
 
 // Reject commits an isolated exact-flow refusal before ingest. It never borrows
@@ -563,9 +563,6 @@ func (e *StateEngine) handle(ctx context.Context, peer *control.Peer, envelope *
 		in.Kind = "command"
 		in.Command = body.Command
 		ref = body.Command.GetContext()
-		if target := body.Command.GetOpenUac().GetNetwork(); target != nil && (target.Password != "" || target.Username != "") {
-			return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "credential reference required"}, nil
-		}
 		if ref != nil && ref.State == nil && body.Command.GetOpenUac() != nil {
 			group, err := e.bootstrapGroup(peer.Application(), ref)
 			if err != nil {
@@ -584,8 +581,6 @@ func (e *StateEngine) handle(ctx context.Context, peer *control.Peer, envelope *
 		}
 	case *pb.Envelope_Inspect:
 		return e.inspectContext(ctx, peer.Application(), body.Inspect.GetContext())
-	case *pb.Envelope_ReconcileContext:
-		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "directory reconciliation retired; re-establish context"}, nil
 	default:
 		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "unsupported state engine message"}, nil
 	}
@@ -667,7 +662,6 @@ func (e *StateEngine) Reserve(ctx context.Context, write *pb.FlowWrite) (*Commit
 		}
 	}
 	copy := proto.Clone(write).(*pb.FlowWrite)
-	copy.Wire = nil
 	deadline := time.Now().Add(2 * time.Second)
 	if write.Permit.GetAuthorization().GetDeadlineMs() > 0 {
 		deadline = time.UnixMilli(int64(write.Permit.Authorization.DeadlineMs))
@@ -702,7 +696,6 @@ func (e *StateEngine) Complete(ctx context.Context, write *pb.FlowWrite, deliver
 		return err
 	}
 	copy := proto.Clone(write).(*pb.FlowWrite)
-	copy.Wire = nil
 	physical := proto.Clone(delivery).(*pb.DeliveryResult)
 	physical.Recorded = false // A transport acknowledgement is not part of the retained physical fact.
 	result, committed, err := e.applyCommitted(ctx, ref, e.id("completion", write.Effect.Id, write.Effect.AttemptId, physical.Outcome.String()), stateEngineInput{Kind: "complete", Context: write.Effect.Context, Executor: e.cfg.Process, Write: copy, Delivery: physical, Effect: write.Effect.Id}, time.Now().Add(2*time.Second), false)
@@ -865,43 +858,6 @@ func (e *StateEngine) dispatchPrepared(ref state.Ref, effects []state.Effect) {
 	e.dispatchWork(func() { e.dispatchEffects(ref, effects) })
 }
 
-// A transport reply is not write evidence. Reload only the exact delivered
-// effect after releasing its RPC guard, and chain its recorded settlement only.
-func (e *StateEngine) dispatchRecordedSettlement(ref state.Ref, effectID string) {
-	e.dispatchWork(func() {
-		record, err := e.store.Load(e.ctx, ref)
-		if err != nil {
-			return
-		}
-		var settlement state.Effect
-		for _, effect := range record.Payload.Effects {
-			if effect.ID == effectID {
-				settlement, _ = stateSettlementEffect(effect)
-				break
-			}
-		}
-		ref = record.Ref
-		record = state.Record{}
-		if settlement.ID != "" {
-			e.dispatchEffect(ref, settlement)
-		}
-	})
-}
-
-// Keep only the bounded metadata needed for a no-write ledger settlement.
-func stateSettlementEffect(effect state.Effect) (state.Effect, bool) {
-	if effect.Kind != "deliver" || effect.Status != state.EffectWritten && effect.Status != state.EffectNotWritten {
-		return state.Effect{}, false
-	}
-	var body stateEngineEffect
-	if body.UnmarshalJSON(effect.Payload) != nil || body.Settled || body.Permit == nil || body.Authorization == nil {
-		return state.Effect{}, false
-	}
-	body.Wire, body.Envelope = nil, nil
-	effect.Payload, _ = json.Marshal(body)
-	return effect, true
-}
-
 func (e *StateEngine) dispatchWork(work func()) {
 	e.lifecycleMu.Lock()
 	if e.closed {
@@ -948,15 +904,20 @@ func stateTrustedRelayEffect(effect state.Effect) bool {
 	}
 }
 
-func stateRetiredMetadataEffect(kind string) bool {
-	return kind == "retire" || kind == "reconcile"
+func stateSupportedEffectKind(kind string) bool {
+	switch kind {
+	case "present", "event", "adopt", "open", "credential", "owner", "wire", "deliver":
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *StateEngine) dispatchableEffects(effects []state.Effect, now int64) []state.Effect {
 	eligible := stateDispatchableEffects(effects, now)
 	filtered := eligible[:0]
 	for _, effect := range eligible {
-		if stateRetiredMetadataEffect(effect.Kind) || e.autonomousCompletion() && stateTrustedRelayEffect(effect) {
+		if e.autonomousCompletion() && stateTrustedRelayEffect(effect) {
 			continue
 		}
 		filtered = append(filtered, effect)
@@ -967,7 +928,7 @@ func (e *StateEngine) dispatchableEffects(effects []state.Effect, now int64) []s
 func stateDispatchableEffects(effects []state.Effect, now int64) []state.Effect {
 	var eligible []state.Effect
 	for _, effect := range effects {
-		if stateRetiredMetadataEffect(effect.Kind) || effect.Kind == "owner" && effect.Status == state.EffectUnknown {
+		if !stateSupportedEffectKind(effect.Kind) || effect.Kind == "owner" && effect.Status == state.EffectUnknown {
 			continue
 		}
 		known := effect.Kind == "deliver" && (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten)
@@ -1026,7 +987,7 @@ func (e *StateEngine) dispatchEffectWithin(parent context.Context, ref state.Ref
 	if body.UnmarshalJSON(effect.Payload) != nil {
 		return
 	}
-	if stateRetiredMetadataEffect(effect.Kind) || e.autonomousCompletion() && (effect.Kind == "wire" || effect.Kind == "deliver" && !body.Native) {
+	if !stateSupportedEffectKind(effect.Kind) || e.autonomousCompletion() && (effect.Kind == "wire" || effect.Kind == "deliver" && !body.Native) {
 		return
 	}
 	if effect.Kind == "wire" && body.Cancelled && effect.DeadlineMS > time.Now().UnixMilli() {
@@ -1185,37 +1146,7 @@ func (e *StateEngine) dispatchEffectWithin(parent context.Context, ref state.Ref
 		}
 		write := &pb.FlowWrite{Flow: body.Permit.Flow, Effect: body.Authorization.Effect, Permit: body.Permit}
 		if effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten {
-			outcome := pb.DeliveryResult_WRITTEN
-			if effect.Status == state.EffectNotWritten {
-				outcome = pb.DeliveryResult_NOT_WRITTEN
-			}
-			delivery := &pb.DeliveryResult{Outcome: outcome, Effect: body.Authorization.Effect, Recorded: true}
-			request := &pb.Envelope{CorrelationId: e.id("settle", effect.ID), RemainingBudgetMs: 2000, Payload: &pb.Envelope_SettleEffect{SettleEffect: &pb.EffectSettlement{Write: write, Delivery: delivery}}}
-			if until, ok := ctx.Deadline(); ok {
-				remaining := time.Until(until).Milliseconds()
-				if remaining <= 0 {
-					return
-				}
-				request.RemainingBudgetMs = uint32(min(2000, remaining))
-			}
-			reply, callErr := peer.Call(ctx, request)
-			if callErr == nil {
-				in := stateEngineInput{Kind: "effect-result", Effect: effect.ID, Reply: stateCanonicalReply(reply), Delivery: delivery}
-				resultContext, resultDeadline := e.ctx, time.Now().Add(2*time.Second)
-				if !chain {
-					resultContext = ctx
-					if until, ok := ctx.Deadline(); ok && until.Before(resultDeadline) {
-						resultDeadline = until
-					}
-				}
-				if _, committed, err := e.applyCommitted(resultContext, ref, stateEffectResultID(e, "settled", effect.ID, in), in, resultDeadline, false); err == nil {
-					release()
-					if chain {
-						e.dispatchCommitted(ref, committed, effect.ID, effect.Kind)
-					}
-				}
-			}
-			return
+			return // Terminal physical evidence cannot start another delivery.
 		}
 		request := &pb.Envelope{CorrelationId: e.id("deliver", effect.ID), RemainingBudgetMs: 2000, Payload: &pb.Envelope_DeliverEffect{DeliverEffect: write}}
 		if recovery || effect.DeadlineMS <= time.Now().UnixMilli() {
@@ -1224,7 +1155,6 @@ func (e *StateEngine) dispatchEffectWithin(parent context.Context, ref state.Ref
 		}
 		_, _ = peer.Call(ctx, request)
 		release()
-		e.dispatchRecordedSettlement(ref, effect.ID)
 		return
 	}
 	// Presentation and lifecycle effects use stable IDs. The result receipt is a

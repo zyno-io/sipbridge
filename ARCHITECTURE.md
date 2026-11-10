@@ -40,7 +40,7 @@ throughout these documents.
 | Application controller | Call behavior, authorization, registration policy, subscription content and trusted routing directory | Your application |
 | Account backend | Account-scoped registration/business mutation, where the application uses one | Application-owned service |
 
-`cmd/sipbridge` runs one schema 3 / reducer 9 / timers 1 CAS execution path.
+`cmd/sipbridge` runs one schema 1 / reducer 1 / timers 1 CAS execution path.
 `SIPBRIDGE_STATE_BACKEND` selects `memory` (the default) or explicit `redis` at
 startup. The selected store is the sole protocol authority; the engine retains no
 authoritative copy. Memory is process-local standalone state, lost on restart;
@@ -82,8 +82,8 @@ attachment rules are in [Controller recovery](docs/controller-recovery.md).
 
 The trusted business directory and SIP-state Redis have separate authority. A
 business directory epoch change refuses the affected operation; it cannot rebuild
-old business authority. Native completion and retirement do not require directory
-reconciliation or authority-retirement RPCs.
+old business authority. Native completion and retirement use retained SIP-state
+authority independently of controller business policy.
 
 ## Request and write lifecycle
 

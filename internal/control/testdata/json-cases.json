@@ -2,7 +2,7 @@
     {
         "name": "hello maximum uint64",
         "valid": true,
-        "json": "{\"correlationId\":\"case\",\"hello\":{\"controller\":{\"instanceId\":\"controller\",\"epoch\":\"epoch\"},\"connectionAttempt\":\"18446744073709551615\",\"major\":2,\"bounds\":{\"maxEnvelopeBytes\":4096}}}"
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"controller\":{\"instanceId\":\"controller\",\"epoch\":\"epoch\"},\"connectionAttempt\":\"18446744073709551615\",\"major\":1,\"bounds\":{\"maxEnvelopeBytes\":4096}}}"
     },
     {
         "name": "optional unknown fields",
@@ -12,7 +12,7 @@
     {
         "name": "binary payload and counter",
         "valid": true,
-        "json": "{\"correlationId\":\"case\",\"write\":{\"wire\":\"AP+AQQ==\",\"bindingRevision\":\"9007199254740993\"}}"
+        "json": "{\"correlationId\":\"case\",\"request\":{\"snapshot\":{\"revision\":\"9007199254740993\"},\"message\":{\"wire\":\"AP+AQQ==\"}}}"
     },
     {
         "name": "symbolic enum",
@@ -137,22 +137,22 @@
     {
         "name": "invalid base64",
         "valid": false,
-        "json": "{\"correlationId\":\"case\",\"write\":{\"wire\":\"??==\"}}"
+        "json": "{\"correlationId\":\"case\",\"ingress\":{\"message\":{\"wire\":\"??==\"}}}"
     },
     {
         "name": "unpadded base64",
         "valid": false,
-        "json": "{\"correlationId\":\"case\",\"write\":{\"wire\":\"YQ\"}}"
+        "json": "{\"correlationId\":\"case\",\"ingress\":{\"message\":{\"wire\":\"YQ\"}}}"
     },
     {
         "name": "noncanonical base64 pad bits",
         "valid": false,
-        "json": "{\"correlationId\":\"case\",\"write\":{\"wire\":\"YR==\"}}"
+        "json": "{\"correlationId\":\"case\",\"ingress\":{\"message\":{\"wire\":\"YR==\"}}}"
     },
     {
         "name": "URL-safe base64",
         "valid": false,
-        "json": "{\"correlationId\":\"case\",\"write\":{\"wire\":\"_w==\"}}"
+        "json": "{\"correlationId\":\"case\",\"ingress\":{\"message\":{\"wire\":\"_w==\"}}}"
     },
     {
         "name": "snake case alias",
@@ -255,49 +255,9 @@
         "json": "{\"correlationId\": \"case\", \"hello\": {\"connectionAttempt\": \"1\\n\"}}"
     },
     {
-        "name": "explicit context reconciliation",
-        "valid": true,
-        "json": "{\"correlationId\":\"case\",\"reconcileContext\":{\"context\":{\"id\":\"context\"},\"fromDirectoryEpoch\":\"old\",\"directoryEpoch\":\"new\"}}"
-    },
-    {
-        "name": "barrier authority unsigned revision",
-        "valid": true,
-        "json": "{\"correlationId\":\"case\",\"reconcileAuthority\":{\"token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"barrierRevision\":\"18446744073709551615\",\"snapshot\":{\"directoryEpoch\":\"old\"},\"origin\":{\"wire\":\"SU5WSVRF\"}}}"
-    },
-    {
-        "name": "immutable authority receipt",
-        "valid": true,
-        "json": "{\"correlationId\":\"case\",\"authorityReceipt\":{\"barrierRevision\":\"9007199254740993\",\"directoryEpoch\":\"new\",\"delivery\":{\"nativeRevision\":\"9007199254740993\"}}}"
-    },
-    {
-        "name": "numeric barrier revision",
-        "valid": false,
-        "json": "{\"correlationId\":\"case\",\"reconcileAuthority\":{\"barrierRevision\":9007199254740993}}"
-    },
-    {
-        "name": "invalid authority receipt delivery revision",
-        "valid": false,
-        "json": "{\"correlationId\":\"case\",\"authorityReceipt\":{\"delivery\":{\"nativeRevision\":\"-1\"}}}"
-    },
-    {
-        "name": "conflicting reconciliation payloads",
-        "valid": false,
-        "json": "{\"correlationId\":\"case\",\"reconcileContext\":{},\"authorityReceipt\":{}}"
-    },
-    {
-        "name": "completion-only authority receipt",
-        "valid": true,
-        "json": "{\"correlationId\":\"case\",\"authorityReceipt\":{\"ownerLost\":true}}"
-    },
-    {
-        "name": "invalid completion-only authority receipt flag",
-        "valid": false,
-        "json": "{\"correlationId\":\"case\",\"authorityReceipt\":{\"ownerLost\":\"true\"}}"
-    },
-    {
         "name": "controller recovery attachment",
         "valid": true,
-        "json": "{\"correlationId\":\"reattach\",\"hello\":{\"controller\":{\"instanceId\":\"controller-b\",\"epoch\":\"new-process\"},\"connectionAttempt\":\"1\",\"major\":2,\"capabilities\":[\"sip.controller-reattach.v1\"],\"bounds\":{\"maxEnvelopeBytes\":4096},\"recovery\":{\"application\":{\"instanceId\":\"controller-a\",\"epoch\":\"original-process\"},\"term\":\"original-term\",\"token\":\"synthetic-recovery-proof\",\"attemptId\":\"reattach-1\",\"attachmentGeneration\":\"2\"}}}"
+        "json": "{\"correlationId\":\"reattach\",\"hello\":{\"controller\":{\"instanceId\":\"controller-b\",\"epoch\":\"new-process\"},\"connectionAttempt\":\"1\",\"major\":1,\"capabilities\":[\"sip.controller-reattach.v1\"],\"bounds\":{\"maxEnvelopeBytes\":4096},\"recovery\":{\"application\":{\"instanceId\":\"controller-a\",\"epoch\":\"original-process\"},\"term\":\"original-term\",\"token\":\"synthetic-recovery-proof\",\"attemptId\":\"reattach-1\",\"attachmentGeneration\":\"2\"}}}"
     },
     {
         "name": "controller context inventory",

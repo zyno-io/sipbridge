@@ -90,7 +90,7 @@ func TestStateRetainedAuthoritySurvivesRealSentinelPromotion(t *testing.T) {
 			return err == nil && len(raw) == 2
 		})
 	}
-	cfg := Config{Redis: RedisOptions{SentinelAddresses: sentinels, SentinelMaster: "fixture", DialTimeout: 200 * time.Millisecond, IOTimeout: 30 * time.Second, PoolSize: 2}, Prefix: "sipstate:sentinel-continuity", Namespace: "test-" + uuid.NewString(), NamespaceKey: bytes.Repeat([]byte{81}, 32), Partitions: 2, Generation: "retained", Versions: Versions{Schema: "2", Reducer: "9", Timers: "1"}, ClaimTTL: 100 * time.Millisecond}
+	cfg := Config{Redis: RedisOptions{SentinelAddresses: sentinels, SentinelMaster: "fixture", DialTimeout: 200 * time.Millisecond, IOTimeout: 30 * time.Second, PoolSize: 2}, Prefix: "sipstate:sentinel-continuity", Namespace: "test-" + uuid.NewString(), NamespaceKey: bytes.Repeat([]byte{81}, 32), Partitions: 2, Generation: "retained", Versions: Versions{Schema: "1", Reducer: "1", Timers: "1"}, ClaimTTL: 100 * time.Millisecond}
 	store, err := Open(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)

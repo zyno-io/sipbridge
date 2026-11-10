@@ -25,7 +25,7 @@ This one answers a presented INVITE with `180 Ringing`:
       "owner": { "instanceId": "sipbridge-0", "epoch": "<sipbridge process UUID>" },
       "id": "<context id>",
       "state": {
-        "authority": { "service": "sipbridge", "generation": "default", "primaryId": "<state authority ID>", "schemaVersion": 3 },
+        "authority": { "service": "sipbridge", "generation": "default", "primaryId": "<state authority ID>", "schemaVersion": 1 },
         "groupId": "<group id>",
         "incarnation": "<incarnation>",
         "callId": "<Call-ID>",

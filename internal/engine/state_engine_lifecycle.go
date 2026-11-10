@@ -220,6 +220,9 @@ func (r *stateReduction) appendLifecycleTimers() error {
 	}
 	recoveryAt := r.serverResponseDue()
 	for _, effect := range r.payload.Effects {
+		if !stateSupportedEffectKind(effect.Kind) {
+			return state.ErrCorrupt
+		}
 		if r.engine.autonomousCompletion() && stateTrustedRelayEffect(effect) {
 			continue
 		}
@@ -238,7 +241,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 		if knownUnsettled || effect.Status != state.EffectPending || at <= r.now {
 			at = r.now + stateEffectRecoveryMS
 		}
-		if stateRetiredMetadataEffect(effect.Kind) || !knownUnsettled && effect.DeadlineMS+120000 <= r.now && !stateHistoricalDelivery(effect) && !stateHistoricalAuthorization(effect) {
+		if !knownUnsettled && effect.DeadlineMS+120000 <= r.now && !stateHistoricalDelivery(effect) && !stateHistoricalAuthorization(effect) {
 			continue
 		}
 		if recoveryAt == 0 || at < recoveryAt {

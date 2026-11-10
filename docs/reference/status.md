@@ -12,7 +12,7 @@ The `sipbridge` service, with in-memory state (the default) or Redis:
 - SIP over UDP, TCP and TLS. A dialog stays on the transport it started with.
 - SIP transactions, dialogs and timers, handled by a pinned build of the sipgo
   library.
-- The v2 JSON control protocol over authenticated WebSocket: default mTLS,
+- The v1 JSON control protocol over authenticated WebSocket: default mTLS,
   explicit bearer alternatives, heartbeats and credential reload.
 - Controller leases and opt-in timed reattachment, with generation fencing and
   bounded owner-scoped context listing. Native SIP cleanup handles expired owners.

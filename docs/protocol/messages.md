@@ -1,6 +1,6 @@
 # Message Families
 
-This page lists every message type in the control protocol: who sends it, what
+This page lists the controller message families: who sends them, what
 it is for and what reply it expects. The payload field of an
 [envelope](./overview.md#envelope) names the message type. Each type has a fixed
 direction, and sipbridge rejects a message sent the wrong way, outside a
@@ -99,28 +99,18 @@ structured references:
 You do not need to build or interpret these. Store each reference as you
 received it and send it back unchanged.
 
-## Historical families
+## Subscription liveness
 
-The schema defines more message types than the table above: `egress`, `write`,
-`delivery`, `sendPermit`, `deliverEffect`, `inspectEffect`, `settleEffect`,
-`retireAuthority`, `probeApplication`, `applicationStatus`, `reconcileContext`,
-`reconcileAuthority` and `authorityReceipt`.
+`probeApplication` / `applicationStatus` check application liveness before
+subscription processing is handed to another controller. This preflight is
+separate from the native SIP timers and the application's recovery lease.
 
-Most of these belong to an earlier design, in which controllers approved and
-relayed each individual send. The current service sends by itself and does not
-use them; `reconcileContext` is refused outright. They stay in the schema so
-that older software and tests can still decode them. The exception is
-`probeApplication` / `applicationStatus`, which is still used as a check before
-subscription processing is handed to another controller.
+## Operational limits
 
-A new controller can ignore this group.
-
-## Proposed, not implemented
-
-PROTOCOL.md describes a drain protocol (`drain.begin`, `drain.status`,
-`drain.complete`), a way to list an instance's contexts page by page, and
-bounded output queues. These are designs only. They are not in the schema or
-the service, so do not build against them yet.
+The service has no drain command or global context inventory. Plan SIP-process
+replacement as described in [Deployment](../guide/deployment.md#replacing-a-process).
+The owner-scoped recovery inventory below is available to controllers that
+negotiate recovery.
 
 ## Controller recovery inventory
 

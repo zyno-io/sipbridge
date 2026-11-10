@@ -22,6 +22,9 @@ func stateSameContext(a, b *pb.ContextRef) bool {
 func (r *stateReduction) findEffect(id string) (int, state.Effect, stateEngineEffect, error) {
 	for index, effect := range r.payload.Effects {
 		if effect.ID == id {
+			if !stateSupportedEffectKind(effect.Kind) {
+				return 0, effect, stateEngineEffect{}, state.ErrCorrupt
+			}
 			var body stateEngineEffect
 			if body.UnmarshalJSON(effect.Payload) != nil {
 				return 0, effect, body, state.ErrCorrupt
@@ -439,9 +442,6 @@ func (r *stateReduction) effectResult() error {
 	} else if body.Executor == nil || !sameProcess(body.Executor, r.in.Executor) {
 		return errors.New("RPC completion executor mismatch")
 	}
-	if stateRetiredMetadataEffect(effect.Kind) {
-		return errors.New("retired metadata effect")
-	}
 	if effect.Kind == "adopt" {
 		return r.finishFlowAdoption(index, effect, body, c)
 	}
@@ -598,9 +598,6 @@ func (r *stateReduction) openUAC() error {
 	// The open intent is retained before any DNS/TCP/TLS side effect. Parent
 	// ingress owns the connection and returns its exact flow before SIP send.
 	request := proto.Clone(open).(*pb.OpenUac)
-	if request.Network != nil && request.Network.Password != "" {
-		return errors.New("inline credentials forbidden")
-	}
 	encoded, _ := json.Marshal(request)
 	if open.BindingId == "" {
 		until := r.now + 5000

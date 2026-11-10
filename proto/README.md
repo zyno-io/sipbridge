@@ -5,8 +5,8 @@ defines the fields and message types; `PROTOCOL.md` and `docs/runtime.md` define
 what they mean. The JSON cases exercise both Go and TypeScript validation, and
 the digest fixture is shared with native engine tests.
 
-The current public protocol uses `sipbridge.control.v2` and WebSocket
-subprotocol `sipbridge.control.json.v2`. `sip.controller-reattach.v1` names the
+The current public protocol uses `sipbridge.control.v1` and WebSocket
+subprotocol `sipbridge.control.json.v1`. `sip.controller-reattach.v1` names the
 first revision of the optional controller recovery feature; capability revisions
 are independent of the protocol's major version.
 

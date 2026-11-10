@@ -16,7 +16,7 @@ import (
 )
 
 // These regressions exercise the Redis-native service after retiring its
-// independently implemented resident Engine. They use actual 2/9 CAS admission;
+// independently implemented resident Engine. They use actual 1/1 CAS admission;
 // explicit reducer times below cover timer boundaries without wall-clock sleeps.
 func migrationEstablished(t *testing.T, f nativeOwnerFixture) *pb.ContextRef {
 	t.Helper()

@@ -24,7 +24,7 @@ func recoveryStateContract(t *testing.T, test func(*testing.T, *recoveryStateFix
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {
 		cfg := contractConfig()
-		cfg.Versions = Versions{Schema: "3", Reducer: "9", Timers: "1"}
+		cfg.Versions = Versions{Schema: "1", Reducer: "1", Timers: "1"}
 		cfg.Limits.GroupBytes = 4 << 20
 		now := time.Now()
 		m, err := newMemory(cfg, func() time.Time { return now })
@@ -36,7 +36,7 @@ func recoveryStateContract(t *testing.T, test func(*testing.T, *recoveryStateFix
 	})
 	t.Run("redis", func(t *testing.T) {
 		s := testStore(t, func(cfg *Config) {
-			cfg.Versions = Versions{Schema: "3", Reducer: "9", Timers: "1"}
+			cfg.Versions = Versions{Schema: "1", Reducer: "1", Timers: "1"}
 			cfg.Limits = contractConfig().Limits
 			cfg.Limits.GroupBytes = 4 << 20
 		})

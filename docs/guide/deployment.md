@@ -99,11 +99,10 @@ check first depends on your state backend:
 - **Memory:** a restart loses state anyway, so there is nothing to keep
   compatible. Clients register again as after any restart.
 - **Redis:** all instances sharing a namespace must use the same state format
-  (currently schema 3, reducer 9, timers 1). Do not run builds with different
+  (currently schema 1, reducer 1, timers 1). Do not run builds with different
   state formats against one namespace.
-- **Controller:** your controller must still work with the capabilities the
-  older sipbridge build offers. See
-  [Protocol: compatibility](../spec/protocol.md#_11-compatibility-reload-and-drain).
+- **Controller:** check the image's schema receipt and required capabilities before
+  reconnecting it to your controller.
 
 ## Changing configuration
 

@@ -1,7 +1,7 @@
 # Fixtures and evidence scope
 
 This is the normative fixture supplement to [ARCHITECTURE.md](../ARCHITECTURE.md).
-The service is the 3/9/1 CAS executable with memory or explicit Redis state. The programs and historical
+The service is the 1/1/1 CAS executable with memory or explicit Redis state. The programs and historical
 test paths below isolate particular contracts; passing them is not full controller,
 media, handset, load or production qualification. See [Verification](verification.md)
 for commands and [Runtime](runtime.md) for the actual service contract.
@@ -72,14 +72,14 @@ Historical schema 1 / reducer 7 / timers 1 values and broad reducer/rolling asse
 remain in test fixtures. Their constructor and claimed/CAS selection are test-only;
 `internal/execution/fixture` provides the claimed driver, which the service does not
 link. Shared store claimed methods are fixture-specific support, not selectable
-service execution. The service constructor accepts only 3/9/1 CAS, and unexpected
+service execution. The service constructor accepts only 1/1/1 CAS, and unexpected
 retained Pending computations fail closed without Resume or overwrite.
 
 These tests preserve historical trusted per-send authorization, controller-relayed physical
 writes/inspection/settlement and directory-owner probes where an assertion specifically
-needs them. They do not restore retired directory reconciliation or authority-retirement
-guarantees. Migrating all these assertions to native authority changes their premise;
-use actual 3/9 process/socket tests for current production-path evidence.
+needs them. These fixtures provide no current service API. Migrating their
+assertions to native authority changes their premise;
+use actual 1/1 process/socket tests for current production-path evidence.
 
 The claimed fixture driver loads one value and Redis-derived time, reduces and commits
 before dispatch. Pending input recovery finishes that exact input before another;
@@ -94,7 +94,7 @@ CAS or independent fixture tests. No alternate resident service fallback is reta
 
 The service-path migration tests are in
 [state_engine_resident_migration_test.go](../internal/engine/state_engine_resident_migration_test.go).
-They use actual Redis CAS with native 3/9 leases and command admission. Historical
+They use actual Redis CAS with native 1/1 leases and command admission. Historical
 1/7 assertions below exercise shared reducers under their stated fixture authority;
 they are explicitly separate evidence, not a claim that all old tests were ported.
 

@@ -12,8 +12,8 @@ options = parser.parse_args()
 pin = json.loads((root / 'dependencies/control-schema.json').read_text())
 if (pin['repository'] != 'https://github.com/zyno-io/sipbridge'
         or pin['source'] != 'proto/sipbridge-control.proto'
-        or pin['protocol_major'] != 2
-        or pin['subprotocol'] != 'sipbridge.control.json.v2'):
+        or pin['protocol_major'] != 1
+        or pin['subprotocol'] != 'sipbridge.control.json.v1'):
     raise SystemExit('unexpected public control contract provenance')
 checks = [
     ('proto/sipbridge-control.proto', 'schema_sha256'),

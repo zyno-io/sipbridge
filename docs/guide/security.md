@@ -23,11 +23,11 @@ controller's client certificate chain plus an exact URI SAN from
 identify an allowed controller.
 
 ```text
-wss://<sipbridge control endpoint>/v2/control
-Sec-WebSocket-Protocol: sipbridge.control.json.v2
+wss://<sipbridge control endpoint>/v1/control
+Sec-WebSocket-Protocol: sipbridge.control.json.v1
 ```
 
-All modes require `GET /v2/control` without a query string, the v2 subprotocol,
+All modes require `GET /v1/control` without a query string, the v1 subprotocol,
 no `Origin` header and text frames. Authentication completes before the upgrade
 or any process/owner claim. A failed mTLS handshake never falls back to bearer.
 
@@ -64,7 +64,7 @@ in addition to the SIP listener options from [Getting Started](./getting-started
 --control-principal=local-controller
 ```
 
-Use `ws://127.0.0.1:8443/v2/control`. Control TLS flags must be omitted, and a
+Use `ws://127.0.0.1:8443/v1/control`. Control TLS flags must be omitted, and a
 non-loopback listener is rejected. Bearer authentication remains required.
 Public SIP TLS and account authentication are separate settings and rules.
 

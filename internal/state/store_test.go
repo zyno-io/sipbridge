@@ -211,7 +211,7 @@ func TestStateLostCommitReplyAndReceiptConflict(t *testing.T) {
 }
 
 func TestStateNamespaceACL(t *testing.T) {
-	s := testStore(t, func(cfg *Config) { cfg.Versions = Versions{Schema: "2", Reducer: "9", Timers: "1"} })
+	s := testStore(t, func(cfg *Config) { cfg.Versions = Versions{Schema: "1", Reducer: "1", Timers: "1"} })
 	ctx := context.Background()
 	user := "state-" + uuid.NewString()
 	password := uuid.NewString()

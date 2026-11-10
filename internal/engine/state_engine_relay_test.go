@@ -57,7 +57,7 @@ func stateControllerPair(t *testing.T, e *StateEngine, ready, draining *pb.Proce
 	if err != nil {
 		t.Fatal(err)
 	}
-	capabilities := []string{Capability, DialogContinuityCapability, control.StateCapability, control.DirectoryReconcileCapability, control.CompletionRelayCapability}
+	capabilities := []string{Capability, DialogContinuityCapability, control.StateCapability}
 	configuration := control.Config{Process: e.cfg.Process, TLS: material, AllowedURIs: []string{identity.String()}, Capabilities: capabilities, StateAuthority: e.StateAuthority(), OnStatus: func(*control.Peer, *pb.SessionStatus) error { return nil }}
 	if e.autonomousCompletion() {
 		capabilities = append(capabilities, control.NativeCompletionCapability)
@@ -82,12 +82,12 @@ func stateControllerPair(t *testing.T, e *StateEngine, ready, draining *pb.Proce
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(certPEM)
 	dial := func(application *pb.ProcessRef, isReady bool) (*websocket.Conn, string) {
-		connection, _, err := websocket.Dial(ctx, "wss://"+listener.Addr().String()+"/v2/control", &websocket.DialOptions{Subprotocols: []string{control.Subprotocol}, HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13}}}})
+		connection, _, err := websocket.Dial(ctx, "wss://"+listener.Addr().String()+"/v1/control", &websocket.DialOptions{Subprotocols: []string{control.Subprotocol}, HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13}}}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { connection.CloseNow() })
-		writeControllerEnvelope(t, ctx, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: application, ConnectionAttempt: 1, Major: 2, Bounds: &pb.Bounds{MaxEnvelopeBytes: control.MaxEnvelope}, Capabilities: capabilities}}})
+		writeControllerEnvelope(t, ctx, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: application, ConnectionAttempt: 1, Major: 1, Bounds: &pb.Bounds{MaxEnvelopeBytes: control.MaxEnvelope}, Capabilities: capabilities}}})
 		hello := readControllerEnvelope(t, ctx, connection).GetHelloAck()
 		if hello == nil {
 			t.Fatal("state controller hello rejected")

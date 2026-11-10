@@ -250,7 +250,7 @@ func TestStateStandaloneRedisRestartTotalLoss(t *testing.T) {
 	originalRunID := standaloneRestartRunID(t, admin)
 	cfg := Config{Redis: RedisOptions{Address: fixture.address, DialTimeout: time.Second, IOTimeout: time.Second, PoolSize: 2},
 		Prefix: "sipstate:restart-test", Namespace: "test-" + uuid.NewString(), NamespaceKey: bytes.Repeat([]byte{83}, 32), Partitions: 1,
-		Versions: Versions{Schema: "2", Reducer: "9", Timers: "1"}}
+		Versions: Versions{Schema: "1", Reducer: "1", Timers: "1"}}
 	ctx := context.Background()
 	original, err := Open(ctx, cfg)
 	if err != nil {

@@ -49,16 +49,19 @@ func assertCASPendingRefused(t *testing.T, engine *StateEngine, ref state.Ref) {
 }
 
 func TestStateProductionUsesCASAndHistoricalConstructorIsFixtureOnly(t *testing.T) {
-	for _, schema := range []string{"3", "1"} {
+	for _, profile := range []struct {
+		name     string
+		versions state.Versions
+		native   bool
+	}{
+		{name: "native", versions: NativeStateVersions(), native: true},
+		{name: "historical", versions: state.Versions{Schema: "1", Reducer: "7", Timers: "1"}},
+	} {
 		for _, mode := range []string{"", "legacy", "cas", "invalid"} {
-			t.Run(schema+"/"+mode, func(t *testing.T) {
+			t.Run(profile.name+"/"+mode, func(t *testing.T) {
 				key := bytes.Repeat([]byte{7}, 32)
-				version := state.Versions{Schema: schema, Reducer: "9", Timers: "1"}
-				if schema == "1" {
-					version.Reducer = "7"
-				}
 				store, err := state.OpenDeferred(state.Config{Redis: state.RedisOptions{Address: "127.0.0.1:1"}, Prefix: "sipstate:driver-test",
-					Namespace: "driver-test", NamespaceKey: key, Generation: "generation", Versions: version, Partitions: 1})
+					Namespace: "driver-test", NamespaceKey: key, Generation: "generation", Versions: profile.versions, Partitions: 1})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -66,7 +69,7 @@ func TestStateProductionUsesCASAndHistoricalConstructorIsFixtureOnly(t *testing.
 				engine, err := newStateForFixture(context.Background(), Config{Process: &pb.ProcessRef{InstanceId: "driver-test", Epoch: "epoch"},
 					AdvertiseAddress: "sip.example.test:5061", ContactURI: "sip:sipbridge@sip.example.test:5061;transport=tls",
 					StateIdentityKey: key}, store, &control.Server{}, mode)
-				if schema == "1" && mode == "invalid" {
+				if !profile.native && mode == "invalid" {
 					if err == nil || engine != nil {
 						t.Fatal("relay fixture accepted invalid execution selection")
 					}
@@ -76,7 +79,7 @@ func TestStateProductionUsesCASAndHistoricalConstructorIsFixtureOnly(t *testing.
 					t.Fatal(err)
 				}
 				defer engine.Close()
-				wantCAS := schema == "3" || mode == "cas"
+				wantCAS := profile.native || mode == "cas"
 				if engine.runtime.UsesCAS() != wantCAS {
 					t.Fatal("runtime selection does not match the owning profile")
 				}

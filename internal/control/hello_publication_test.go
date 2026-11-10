@@ -14,7 +14,7 @@ import (
 func sendPublicationHello(t *testing.T, conn *websocket.Conn, server *Server, application *pb.ProcessRef, attempt uint64) {
 	t.Helper()
 	send(t, conn, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{
-		Controller: application, ConnectionAttempt: attempt, Major: 2, Capabilities: server.cfg.Capabilities,
+		Controller: application, ConnectionAttempt: attempt, Major: 1, Capabilities: server.cfg.Capabilities,
 		Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096},
 	}}})
 }
@@ -40,7 +40,7 @@ func waitPublicationPeer(t *testing.T, server *Server, application *pb.ProcessRe
 
 func TestHelloPublicationWaitsForLeaseAndAcknowledgement(t *testing.T) {
 	pki := newPKI(t)
-	authority := &pb.StateAuthority{Service: "edge", Generation: "generation", PrimaryId: "primary", SchemaVersion: 3}
+	authority := &pb.StateAuthority{Service: "edge", Generation: "generation", PrimaryId: "primary", SchemaVersion: 1}
 	entered := make(chan uint64, 2)
 	releases := []chan struct{}{make(chan struct{}), make(chan struct{})}
 	defer func() {
@@ -54,7 +54,7 @@ func TestHelloPublicationWaitsForLeaseAndAcknowledgement(t *testing.T) {
 	}()
 	var calls atomic.Uint64
 	server, address := testServer(t, pki, 8, func(cfg *Config) {
-		cfg.Capabilities = []string{"sip.v1", StateCapability, DirectoryReconcileCapability, CompletionRelayCapability, NativeCompletionCapability}
+		cfg.Capabilities = []string{"sip.v1", StateCapability, NativeCompletionCapability}
 		cfg.StateAuthority = authority
 		cfg.HelloTimeout = 2 * time.Second
 		cfg.HeartbeatInterval, cfg.HeartbeatTimeout = time.Minute, 2*time.Minute
@@ -142,8 +142,8 @@ func TestFailedHelloLeaseNeverPublishesPeer(t *testing.T) {
 		}
 	}()
 	server, address := testServer(t, pki, 8, func(cfg *Config) {
-		cfg.Capabilities = []string{"sip.v1", StateCapability, DirectoryReconcileCapability, CompletionRelayCapability, NativeCompletionCapability}
-		cfg.StateAuthority = &pb.StateAuthority{Service: "edge", Generation: "generation", PrimaryId: "primary", SchemaVersion: 3}
+		cfg.Capabilities = []string{"sip.v1", StateCapability, NativeCompletionCapability}
+		cfg.StateAuthority = &pb.StateAuthority{Service: "edge", Generation: "generation", PrimaryId: "primary", SchemaVersion: 1}
 		cfg.HelloTimeout = 2 * time.Second
 		cfg.OnApplicationLease = func(ctx context.Context, _ *pb.ProcessRef, _ string) (*pb.ApplicationLease, error) {
 			close(entered)

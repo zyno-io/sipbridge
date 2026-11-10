@@ -129,7 +129,7 @@ setup or bootstrap command.
 - Use a single writable primary, optionally discovered through Sentinel. Redis
   Cluster is not supported.
 - Restrict the Redis user to the configured key prefix (`SIPBRIDGE_STATE_PREFIX`,
-  default `sipstate:v2`).
+  default `sipstate:v1`).
 - Do not let Redis evict keys. Evicting SIP state breaks calls in ways that are
   hard to diagnose. The project's own CI runs Redis with `noeviction`.
 - Give every instance that shares a namespace the same identity key and

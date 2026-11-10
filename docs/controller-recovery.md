@@ -1,15 +1,15 @@
 # Controller recovery and authentication
 
-This document owns the v2 controller attachment contract and its authentication
+This document owns the v1 controller attachment contract and its authentication
 and state-adapter boundaries.
 
 ## Public contract
 
 sipbridge owns its schema, generated bindings, validators and wire examples in
-this repository. Protocol v2 uses `hello.controller`, `routeResult.controller`,
-`--initial-controller`, `/v2/control` and `sipbridge.control.json.v2`. The public
-project and source links use https://github.com/zyno-io/sipbridge. Consumers pin a
-released contract receipt. Internal product names are not compatibility aliases.
+this repository. Protocol v1 uses `hello.controller`, `routeResult.controller`,
+`--initial-controller`, `/v1/control` and `sipbridge.control.json.v1`. The public
+project and source links use https://github.com/zyno-io/sipbridge. The generated
+contract receipt identifies the schema used by each build.
 
 ## Authentication and transport
 
@@ -97,4 +97,4 @@ controller reattachment.
 The controller saves its recovery handle, checkpoints its application state and
 reconciles retained SIP contexts before becoming ready. It also restores any
 application-managed resources needed to continue a call. Recovery is optional
-and available through the public v2 control contract.
+and available through the public v1 control contract.

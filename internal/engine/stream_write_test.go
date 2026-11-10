@@ -2,11 +2,14 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net"
 	"testing"
 	"time"
+
+	pb "sipbridge/internal/controlpb"
 )
 
 type partialWrite struct {
@@ -43,36 +46,43 @@ func (c *framingConn) SetReadDeadline(time.Time) error  { return nil }
 func (c *framingConn) SetWriteDeadline(time.Time) error { c.deadlines++; return nil }
 
 func TestStreamWriteCompletesOneFrameUnderOriginalDeadline(t *testing.T) {
-	conn := &framingConn{writes: []partialWrite{{n: 2}, {n: 1}}}
-	flow := &physicalFlow{conn: conn}
-	message := []byte("first-frame")
-	n, err := flow.writeWire(message)
-	if err != nil || n != len(message) || conn.sent.String() != string(message) || conn.closed || conn.deadlines != 1 {
-		t.Fatalf("partial success: n=%d err=%v sent=%q closed=%v deadlines=%d", n, err, conn.sent.String(), conn.closed, conn.deadlines)
+	writer := &evidenceWriter{reserved: &CommittedWrite{Wire: []byte("first-frame")}}
+	ingress, command, conn := stateWriterFixture(t, writer)
+	conn.writes = []partialWrite{{n: 2}, {n: 1}}
+	result := ingress.WriteCommitted(context.Background(), command)
+	if result.Outcome != pb.DeliveryResult_WRITTEN || conn.sent.String() != "first-frame" || conn.closed || conn.deadlines != 1 {
+		t.Fatalf("partial success: result=%v sent=%q closed=%v deadlines=%d", result, conn.sent.String(), conn.closed, conn.deadlines)
 	}
-	if _, err = flow.writeWire([]byte("second-frame")); err != nil || conn.sent.String() != "first-framesecond-frame" {
-		t.Fatalf("next frame: %v %q", err, conn.sent.String())
+	command.Effect.Id = "second-effect"
+	writer.reserved = &CommittedWrite{Wire: []byte("second-frame")}
+	result = ingress.WriteCommitted(context.Background(), command)
+	if result.Outcome != pb.DeliveryResult_WRITTEN || conn.sent.String() != "first-framesecond-frame" || writer.reserves != 2 {
+		t.Fatalf("next committed frame: %v %q", result, conn.sent.String())
 	}
 }
 
 func TestPartialStreamFailureCannotAppendAnotherDialogsFrame(t *testing.T) {
-	failure := errors.New("injected write failure")
-	conn := &framingConn{writes: []partialWrite{{n: 3, err: failure}}}
-	flow := &physicalFlow{conn: conn}
-	n, err := flow.writeWire([]byte("first-frame"))
-	if n != 3 || !errors.Is(err, failure) || !conn.closed {
-		t.Fatalf("write failure: n=%d err=%v closed=%v", n, err, conn.closed)
+	writer := &evidenceWriter{reserved: &CommittedWrite{Wire: []byte("first-frame")}}
+	ingress, command, conn := stateWriterFixture(t, writer)
+	conn.writes = []partialWrite{{n: 3, err: errors.New("injected write failure")}}
+	result := ingress.WriteCommitted(context.Background(), command)
+	if result.Outcome != pb.DeliveryResult_UNKNOWN || !conn.closed || conn.sent.String() != "fir" {
+		t.Fatalf("write failure: result=%v sent=%q closed=%v", result, conn.sent.String(), conn.closed)
 	}
-	n, err = flow.writeWire([]byte("other-dialog-frame"))
-	if n != 0 || !errors.Is(err, net.ErrClosed) || conn.sent.String() != "fir" {
-		t.Fatalf("poisoned stream reused: n=%d err=%v sent=%q", n, err, conn.sent.String())
+	command.Effect.Id = "another-dialog-effect"
+	writer.reserved = &CommittedWrite{Wire: []byte("other-dialog-frame")}
+	result = ingress.WriteCommitted(context.Background(), command)
+	if result.Outcome != pb.DeliveryResult_NOT_WRITTEN || conn.sent.String() != "fir" {
+		t.Fatalf("poisoned stream reused: %v sent=%q", result, conn.sent.String())
 	}
 }
 
 func TestNoProgressStreamWriteClosesInsteadOfSpinning(t *testing.T) {
-	conn := &framingConn{writes: []partialWrite{{n: 0}}}
-	flow := &physicalFlow{conn: conn}
-	if _, err := flow.writeWire([]byte("frame")); !errors.Is(err, io.ErrNoProgress) || !conn.closed {
-		t.Fatalf("no progress: %v closed=%v", err, conn.closed)
+	writer := &evidenceWriter{reserved: &CommittedWrite{Wire: []byte("frame")}}
+	ingress, command, conn := stateWriterFixture(t, writer)
+	conn.writes = []partialWrite{{n: 0}}
+	result := ingress.WriteCommitted(context.Background(), command)
+	if result.Outcome != pb.DeliveryResult_UNKNOWN || !conn.closed || conn.sent.Len() != 0 || writer.reserves != 1 {
+		t.Fatalf("no progress: result=%v closed=%v", result, conn.closed)
 	}
 }

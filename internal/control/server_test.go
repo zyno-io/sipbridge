@@ -127,7 +127,7 @@ func testServer(t *testing.T, p *testPKI, max int, configure ...func(*Config)) (
 			t.Error(err)
 		}
 	})
-	return s, "wss://" + l.Addr().String() + "/v2/control"
+	return s, "wss://" + l.Addr().String() + "/v1/control"
 }
 
 func (p *testPKI) dial(address string) (*websocket.Conn, error) {
@@ -166,7 +166,7 @@ func receive(c *websocket.Conn) (*pb.Envelope, error) {
 
 func hello(t *testing.T, c *websocket.Conn, instance, epoch string, attempt uint64, bound uint32) *pb.SessionHelloAck {
 	t.Helper()
-	send(t, c, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: instance, Epoch: epoch}, ConnectionAttempt: attempt, Major: 2, Bounds: &pb.Bounds{MaxEnvelopeBytes: bound}}}})
+	send(t, c, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: instance, Epoch: epoch}, ConnectionAttempt: attempt, Major: 1, Bounds: &pb.Bounds{MaxEnvelopeBytes: bound}}}})
 	e, err := receive(c)
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestSessionFencingAndIsolation(t *testing.T) {
 	}
 	defer first.CloseNow()
 	a := hello(t, first, "controller-1", "epoch-1", 9007199254740993, 4096)
-	if a.Major != 2 || len(a.Capabilities) != 0 || a.Bounds.MaxEnvelopeBytes != 4096 {
+	if a.Major != 1 || len(a.Capabilities) != 0 || a.Bounds.MaxEnvelopeBytes != 4096 {
 		t.Fatal("invalid negotiated profile")
 	}
 	roundtrip(t, first, a.SessionId)
@@ -233,7 +233,7 @@ func TestSessionFencingAndIsolation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		send(t, c, &pb.Envelope{CorrelationId: "rejected", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "controller-1", Epoch: epoch}, ConnectionAttempt: 1, Major: 2, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}})
+		send(t, c, &pb.Envelope{CorrelationId: "rejected", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "controller-1", Epoch: epoch}, ConnectionAttempt: 1, Major: 1, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}})
 		if _, err := receive(c); err == nil {
 			t.Fatal("stale/colliding hello accepted")
 		}

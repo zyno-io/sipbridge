@@ -156,14 +156,14 @@ try {
         json_cases_sha256: casesHash,
         digest_challenge_case_sha256: challengeCaseHash,
         wire_encoding: 'json',
-        subprotocol: 'sipbridge.control.json.v2',
-        protocol_major: 2
+        subprotocol: 'sipbridge.control.json.v1',
+        protocol_major: 1
     }, null, 2) + '\n');
     const pinTarget = join(root, 'dependencies/control-schema.json');
     if (checking) {
         if (!pin.equals(readFileSync(pinTarget))) throw new Error('control schema provenance drift');
     } else writeFileSync(pinTarget, pin);
-    console.log(`sipbridge standalone JSON v2 contract ${checking ? 'checked' : 'generated'}`);
+    console.log(`sipbridge standalone JSON v1 contract ${checking ? 'checked' : 'generated'}`);
 } finally {
     rmSync(temporary, { recursive: true, force: true });
 }

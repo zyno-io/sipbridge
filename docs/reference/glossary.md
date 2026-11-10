@@ -74,8 +74,8 @@ Without recovery, permanent lease loss starts cleanup. A recoverable owner may
 reattach with its saved proof before the fixed deadline; after that, cleanup runs. See
 [Owner lease](../guide/lifecycle.md#owner-lease).
 
-**Profile (3/9/1).** The version of sipbridge's state format: schema 3, reducer
-9, timers 1. Instances sharing Redis must all use the same one. The current
+**Profile (1/1/1).** The version of sipbridge's state format: schema 1, reducer
+1, timers 1. Instances sharing Redis must all use the same one. The current
 service has only this one.
 
 **Reducer.** A function that takes the current SIP state and an input (a

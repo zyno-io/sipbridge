@@ -32,7 +32,7 @@ func TestConfiguredLocalAuthenticationRequiresAwareControllerAndPublishesMethods
 				capabilities = append(capabilities, "sip.local-challenge.v1")
 			}
 			send(t, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{
-				Controller: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 2,
+				Controller: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 1,
 				Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096},
 			}}})
 			reply, err := receive(connection)

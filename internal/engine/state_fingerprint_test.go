@@ -37,8 +37,8 @@ func TestSendFingerprintSharedUTF8Vectors(t *testing.T) {
 		flow     *pb.FlowRef
 		expected string
 	}{
-		{"no_flow", nil, "d44872f19353d3261c58e2ce1ea8bbef5c5d6c70f200e0c716d9e48186f50be5"},
-		{"full_flow", sendFingerprintFlow(), "5958fcb307f04dfba2fbe505d94d0895a85efeaf138617a0e6b7229e7e831b6c"},
+		{"no_flow", nil, "a37f0990c4b94dc9281ed6e0116ef9eb4d1459ea187f4963de1e597b48327c9d"},
+		{"full_flow", sendFingerprintFlow(), "0ef35ff9807267305153d0da2a16affdcdb990ef05ff2f07f900c210add30b46"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := SendFingerprint(snapshot, message, auth, test.flow)

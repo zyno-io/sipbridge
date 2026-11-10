@@ -139,7 +139,7 @@ func TestUnavailableUDPRespondsAfterRealRedisReadBudgetExpires(t *testing.T) {
 	})
 	store, err := state.OpenDeferred(state.Config{Redis: state.RedisOptions{Address: blackhole.Addr().String()},
 		Prefix: "sipstate:timeout", Namespace: "timeout", NamespaceKey: bytes.Repeat([]byte{44}, 32), Generation: "generation",
-		Versions: state.Versions{Schema: "3", Reducer: "9", Timers: "1"}, Partitions: 2})
+		Versions: NativeStateVersions(), Partitions: 2})
 	if err != nil {
 		t.Fatal(err)
 	}

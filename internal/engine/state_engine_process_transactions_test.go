@@ -2,7 +2,6 @@ package engine
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -215,22 +214,13 @@ func TestStateNativeProcessUASReinvitePinsOutboundTransactionScope(t *testing.T)
 	if ack.CSeq().SeqNo != 1 || ackGrant.Authorization.CompletionScope != "outbound-invite-1" {
 		t.Fatal("successful re-INVITE ACK used the inbound dialog procedure")
 	}
-	h.wait(func(observed processObservation) bool {
-		settlement := observed.Envelope.GetSettleEffect()
-		return settlement != nil && settlement.Write.Effect.Id == ackGrant.Authorization.Effect.Id && settlement.Delivery.Recorded && settlement.Delivery.Outcome == pb.DeliveryResult_WRITTEN
-	})
+
 	_, written := processWaitRecord(h, callID, func(record state.Record, c *stateContext) bool {
 		proof := c.ACKWritten[c.Dialog]
 		if proof.Sequence != 1 || proof.WireHash != stateACKHash([]byte(ack.String())) {
 			return false
 		}
-		for _, effect := range record.Payload.Effects {
-			if effect.ID == ackGrant.Authorization.Effect.Id {
-				var body stateEngineEffect
-				return json.Unmarshal(effect.Payload, &body) == nil && body.Settled
-			}
-		}
-		return true // Recorded and settled physical proof was already compacted.
+		return true // The exact native ACK proof survives independently of effect compaction.
 	})
 	if written.CompletionScope != inboundScope || written.DialogScopes[written.Dialog] != inboundScope || !sameProcess(written.Snapshot.Application, h.application) {
 		t.Fatal("ACK settlement changed original dialog authority or application owner")

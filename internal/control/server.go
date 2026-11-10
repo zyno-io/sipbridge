@@ -18,7 +18,7 @@ import (
 	pb "sipbridge/internal/controlpb"
 )
 
-const Subprotocol = "sipbridge.control.json.v2"
+const Subprotocol = "sipbridge.control.json.v1"
 const MaxEnvelope = 1024 * 1024
 const LocalChallengeCapability = "sip.local-challenge.v1"
 
@@ -98,15 +98,9 @@ func NewServer(cfg Config) (*Server, error) {
 			return nil, errors.New("state capability requires a valid state authority")
 		}
 	}
-	if slices.Contains(cfg.Capabilities, DirectoryReconcileCapability) && !HasStateCapability(cfg.Capabilities) {
-		return nil, errors.New("directory reconciliation requires state capability")
-	}
-	if slices.Contains(cfg.Capabilities, CompletionRelayCapability) && !HasStateCapability(cfg.Capabilities) {
-		return nil, errors.New("completion relay requires state capability")
-	}
 	if slices.Contains(cfg.Capabilities, NativeCompletionCapability) &&
-		(!HasStateCapability(cfg.Capabilities) || cfg.StateAuthority.GetSchemaVersion() != 3 || cfg.OnApplicationLease == nil && cfg.OnControllerSession == nil) {
-		return nil, errors.New("native completion requires schema 3 and an application lease authority")
+		(!HasStateCapability(cfg.Capabilities) || cfg.StateAuthority.GetSchemaVersion() != 1 || cfg.OnApplicationLease == nil && cfg.OnControllerSession == nil) {
+		return nil, errors.New("native completion requires schema 1 and an application lease authority")
 	}
 	if slices.Contains(cfg.Capabilities, ControllerReattachCapability) &&
 		(!slices.Contains(cfg.Capabilities, NativeCompletionCapability) || cfg.OnControllerSession == nil || cfg.OnControllerRenew == nil) {
@@ -226,7 +220,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "SIP service is not implemented", http.StatusServiceUnavailable)
 		return
 	}
-	if r.URL.Path != "/v2/control" || r.URL.RawQuery != "" || r.Method != http.MethodGet {
+	if r.URL.Path != "/v1/control" || r.URL.RawQuery != "" || r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
@@ -423,8 +417,6 @@ func HasStateCapability(capabilities []string) bool {
 	return slices.Contains(capabilities, StateCapability)
 }
 
-const DirectoryReconcileCapability = "sip.directory-reconcile.v1"
-const CompletionRelayCapability = "sip.completion-relay.v1"
 const NativeCompletionCapability = "sip.native-completion.v1"
 const ControllerReattachCapability = "sip.controller-reattach.v1"
 
@@ -544,7 +536,7 @@ func (p *session) hello() error {
 		return errors.New("hello required")
 	}
 	h := e.GetHello()
-	if e.SessionId != "" || e.RemainingBudgetMs != 0 || h == nil || !validProcess(h.Controller) || h.ConnectionAttempt == 0 || h.Major != 2 || h.MinMinor > h.MaxMinor || h.MinMinor > 0 || h.Bounds == nil || h.Bounds.MaxEnvelopeBytes < 512 || h.Bounds.MaxEnvelopeBytes > MaxEnvelope || len(h.Capabilities) > 32 {
+	if e.SessionId != "" || e.RemainingBudgetMs != 0 || h == nil || !validProcess(h.Controller) || h.ConnectionAttempt == 0 || h.Major != 1 || h.MinMinor > h.MaxMinor || h.MinMinor > 0 || h.Bounds == nil || h.Bounds.MaxEnvelopeBytes < 512 || h.Bounds.MaxEnvelopeBytes > MaxEnvelope || len(h.Capabilities) > 32 {
 		return errors.New("unsupported hello")
 	}
 	seen := make(map[string]bool)
@@ -559,12 +551,6 @@ func (p *session) hello() error {
 	}
 	if HasStateCapability(p.server.cfg.Capabilities) && (!slices.Contains(p.capabilities, "sip.v1") || !HasStateCapability(p.capabilities)) {
 		return errors.New("state runtime requires sip.v1 and a compatible state capability")
-	}
-	if slices.Contains(p.server.cfg.Capabilities, DirectoryReconcileCapability) && !slices.Contains(p.capabilities, DirectoryReconcileCapability) {
-		return errors.New("state runtime requires sip.directory-reconcile.v1")
-	}
-	if HasStateCapability(p.server.cfg.Capabilities) && !slices.Contains(p.capabilities, CompletionRelayCapability) {
-		return errors.New("state runtime requires sip.completion-relay.v1")
 	}
 	if slices.Contains(p.server.cfg.Capabilities, NativeCompletionCapability) && !slices.Contains(p.capabilities, NativeCompletionCapability) {
 		return errors.New("state runtime requires sip.native-completion.v1")
@@ -621,7 +607,7 @@ func (p *session) hello() error {
 		}
 	}
 	if err := p.write(&pb.Envelope{CorrelationId: e.CorrelationId, Payload: &pb.Envelope_HelloAck{HelloAck: &pb.SessionHelloAck{
-		Sipbridge: p.server.cfg.Process, SessionId: p.id, Major: 2, Minor: 0, Capabilities: p.capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: uint32(p.bound)},
+		Sipbridge: p.server.cfg.Process, SessionId: p.id, Major: 1, Minor: 0, Capabilities: p.capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: uint32(p.bound)},
 		HeartbeatIntervalMs: uint32(p.server.cfg.HeartbeatInterval / time.Millisecond), HeartbeatTimeoutMs: uint32(p.server.cfg.HeartbeatTimeout / time.Millisecond),
 		StateAuthority: authority, ApplicationLease: p.applicationLease, InboundAuthPolicy: p.server.cfg.InboundAuthPolicy,
 	}}}); err != nil {
@@ -702,16 +688,13 @@ func (p *session) handle(e *pb.Envelope) bool {
 				return false
 			}
 		}
-		if (e.GetSendPermit() != nil || e.GetCredentialResult() != nil || e.GetInspectEffect() != nil || e.GetDeliverEffect() != nil || e.GetCredentialLookup() != nil || e.GetSettleEffect() != nil || e.GetRetireAuthority() != nil || e.GetProbeApplication() != nil || e.GetApplicationStatus() != nil || e.GetReconcileContext() != nil || e.GetReconcileAuthority() != nil || e.GetAuthorityReceipt() != nil) && !HasStateCapability(p.capabilities) {
-			return false
-		}
-		if (e.GetReconcileContext() != nil || e.GetReconcileAuthority() != nil || e.GetAuthorityReceipt() != nil) && !slices.Contains(p.capabilities, DirectoryReconcileCapability) {
+		if (e.GetSendPermit() != nil || e.GetCredentialResult() != nil || e.GetInspectEffect() != nil || e.GetDeliverEffect() != nil || e.GetCredentialLookup() != nil || e.GetProbeApplication() != nil || e.GetApplicationStatus() != nil) && !HasStateCapability(p.capabilities) {
 			return false
 		}
 		if ingest := e.GetIngest(); ingest != nil && (ingest.Admission == pb.OwnerIngest_TLS_DIALOG_CONTINUITY || ingest.Admission == pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY) && !slices.Contains(p.capabilities, DialogContinuityCapability) {
 			return false
 		}
-		if e.GetResult() != nil || e.GetDelivery() != nil || e.GetRouteResult() != nil || e.GetFlowAdoptionResult() != nil || e.GetSendPermit() != nil || e.GetCredentialResult() != nil || e.GetApplicationStatus() != nil || e.GetAuthorityReceipt() != nil {
+		if e.GetResult() != nil || e.GetDelivery() != nil || e.GetRouteResult() != nil || e.GetFlowAdoptionResult() != nil || e.GetSendPermit() != nil || e.GetCredentialResult() != nil || e.GetApplicationStatus() != nil {
 			p.mu.Lock()
 			waiter := p.pending[e.CorrelationId]
 			_, expired := p.expired[e.CorrelationId]

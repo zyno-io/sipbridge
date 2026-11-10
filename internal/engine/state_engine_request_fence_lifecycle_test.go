@@ -341,7 +341,7 @@ func TestRequestFenceNativeMetadataIsMandatory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			record := state.Record{Versions: state.Versions{Schema: "3", Reducer: "9", Timers: "1"}, Payload: state.Payload{ProtocolState: encoded}}
+			record := state.Record{Versions: NativeStateVersions(), Payload: state.Payload{ProtocolState: encoded}}
 			if _, err = decodeStateGroup(record); !errors.Is(err, state.ErrCorrupt) {
 				t.Fatalf("native disposition corruption was accepted: %v", err)
 			}
@@ -350,7 +350,7 @@ func TestRequestFenceNativeMetadataIsMandatory(t *testing.T) {
 }
 
 func TestRequestFenceRejectsUnsupportedNativeEngineProfiles(t *testing.T) {
-	for _, version := range []state.Versions{{Schema: "1", Reducer: "7", Timers: "1"}, {Schema: "2", Reducer: "8", Timers: "1"}, {Schema: "2", Reducer: "9", Timers: "2"}, {Schema: "2", Reducer: "10", Timers: "1"}, {Schema: "1", Reducer: "1", Timers: "1"}, {Schema: "2", Reducer: "9", Timers: "1"}} {
+	for _, version := range []state.Versions{{Schema: "1", Reducer: "7", Timers: "1"}, {Schema: "2", Reducer: "8", Timers: "1"}, {Schema: "2", Reducer: "9", Timers: "2"}, {Schema: "2", Reducer: "10", Timers: "1"}, {Schema: "3", Reducer: "9", Timers: "1"}, {Schema: "2", Reducer: "9", Timers: "1"}} {
 		t.Run(version.Schema+"/"+version.Reducer+"/"+version.Timers, func(t *testing.T) {
 			key := bytes.Repeat([]byte{7}, 32)
 			store, err := state.OpenDeferred(state.Config{Redis: state.RedisOptions{Address: "127.0.0.1:1"}, Prefix: "sipstate:profile-test", Namespace: "profile-test", NamespaceKey: key, Generation: "generation", Versions: version, Partitions: 1})

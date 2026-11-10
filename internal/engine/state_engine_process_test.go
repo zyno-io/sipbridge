@@ -115,7 +115,7 @@ func newProcessHarnessForProfile(t *testing.T, autonomous bool, budget time.Dura
 	var engine *StateEngine
 	if autonomous {
 		cfg := state.Config{Redis: state.RedisOptions{Address: os.Getenv("SIPBRIDGE_STATE_TEST_REDIS")}, Prefix: "sipstate:process-test", Namespace: "test-" + uuid.NewString(),
-			NamespaceKey: bytes.Repeat([]byte{17}, 32), Partitions: 1, Generation: "generation", Versions: state.Versions{Schema: "3", Reducer: "9", Timers: "1"}}
+			NamespaceKey: bytes.Repeat([]byte{17}, 32), Partitions: 1, Generation: "generation", Versions: NativeStateVersions()}
 		if cfg.Redis.Address == "" {
 			t.Skip("set SIPBRIDGE_STATE_TEST_REDIS for native process qualification")
 		}
@@ -188,7 +188,7 @@ func newProcessHarnessForProfile(t *testing.T, autonomous bool, budget time.Dura
 	if autonomous {
 		h.cfg.PlainSIP = true
 		h.cfg.Store.Prefix = "sipstate:process-test"
-		h.cfg.Store.Versions = state.Versions{Schema: "3", Reducer: "9", Timers: "1"}
+		h.cfg.Store.Versions = NativeStateVersions()
 	}
 	t.Cleanup(h.capture)
 	return h
@@ -259,17 +259,17 @@ func (h *processHarness) connect(w *processWorker, attempt uint64) {
 }
 func (h *processHarness) connectController(w *processWorker, attempt uint64, holder *pb.ProcessRef, recovery *pb.ControllerRecovery) {
 	h.t.Helper()
-	connection, _, err := websocket.Dial(h.ctx, "wss://"+w.ready.Control+"/v2/control", &websocket.DialOptions{Subprotocols: []string{control.Subprotocol}, HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: h.clientTLS.Clone()}}})
+	connection, _, err := websocket.Dial(h.ctx, "wss://"+w.ready.Control+"/v1/control", &websocket.DialOptions{Subprotocols: []string{control.Subprotocol}, HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: h.clientTLS.Clone()}}})
 	if err != nil {
 		h.t.Fatal(err)
 	}
 	p := &processController{worker: w, harness: h, connection: connection, pending: make(map[string]chan *pb.Envelope), done: make(chan struct{})}
-	autonomous := h.cfg.Store.Versions.Schema == "3"
+	autonomous := h.cfg.Store.Versions == NativeStateVersions()
 	capabilities := stateProcessCapabilities(autonomous)
 	if h.recoverable {
 		capabilities = append(capabilities, control.ControllerReattachCapability)
 	}
-	writeControllerEnvelope(h.t, h.ctx, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: holder, Recovery: recovery, ConnectionAttempt: attempt, Major: 2, Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: control.MaxEnvelope}}}})
+	writeControllerEnvelope(h.t, h.ctx, connection, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: holder, Recovery: recovery, ConnectionAttempt: attempt, Major: 1, Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: control.MaxEnvelope}}}})
 	hello := readControllerEnvelope(h.t, h.ctx, connection)
 	ack := hello.GetHelloAck()
 	if ack == nil {
@@ -281,7 +281,7 @@ func (h *processHarness) connectController(w *processWorker, attempt uint64, hol
 		if recovery != nil {
 			application = recovery.Application
 		}
-		if ack.ApplicationLease == nil || !proto.Equal(ack.ApplicationLease.Application, application) || ack.ApplicationLease.Term == "" || ack.ApplicationLease.Authority == nil || ack.ApplicationLease.Authority.SchemaVersion != 3 {
+		if ack.ApplicationLease == nil || !proto.Equal(ack.ApplicationLease.Application, application) || ack.ApplicationLease.Term == "" || ack.ApplicationLease.Authority == nil || ack.ApplicationLease.Authority.SchemaVersion != 1 {
 			h.t.Fatal("native process hello did not acquire its real SIP authority lease")
 		}
 		p.lease = proto.Clone(ack.ApplicationLease).(*pb.ApplicationLease)
@@ -388,7 +388,7 @@ func (p *processController) call(envelope *pb.Envelope) (*pb.Envelope, error) {
 }
 
 func (p *processController) admitNativeCommand(envelope *pb.Envelope) error {
-	if p.harness.cfg.Store.Versions.Schema != "3" {
+	if p.harness.cfg.Store.Versions != NativeStateVersions() {
 		return nil
 	}
 	command := envelope.GetCommand()
@@ -544,7 +544,7 @@ func (p *processController) handle(envelope *pb.Envelope) {
 		}
 	case *pb.Envelope_ProbeApplication:
 		probe := body.ProbeApplication
-		if h.cfg.Store.Versions.Schema == "3" {
+		if h.cfg.Store.Versions == NativeStateVersions() {
 			h.t.Error("native process fixture unexpectedly requested Controller owner-liveness proof")
 			p.reply(envelope, &pb.Envelope{Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "unexpected directory proof"}}})
 			return
@@ -556,7 +556,7 @@ func (p *processController) handle(envelope *pb.Envelope) {
 		p.reply(envelope, &pb.Envelope{Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}}})
 	case *pb.Envelope_Egress:
 		egress := body.Egress
-		if h.cfg.Store.Versions.Schema == "3" && egress.Authorization.AuthorityClass != pb.EffectAuthorization_APPLICATION {
+		if h.cfg.Store.Versions == NativeStateVersions() && egress.Authorization.AuthorityClass != pb.EffectAuthorization_APPLICATION {
 			h.t.Error("retained native completion depended on a Controller egress grant")
 			p.reply(envelope, &pb.Envelope{Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "unexpected native egress grant"}}})
 			return
@@ -573,7 +573,7 @@ func (p *processController) handle(envelope *pb.Envelope) {
 			scope := egress.Authorization.CompletionScope
 			if scope == "" {
 				scope = "scope-" + egress.Snapshot.Context.Id
-				if h.cfg.Store.Versions.Schema == "3" {
+				if h.cfg.Store.Versions == NativeStateVersions() {
 					scope = fixtureResponseAuthority(egress.Snapshot, egress.Message, epoch).CompletionScope
 				}
 			}
@@ -601,8 +601,6 @@ func (p *processController) handle(envelope *pb.Envelope) {
 		h.deliver(p, envelope, body.DeliverEffect, false)
 	case *pb.Envelope_InspectEffect:
 		h.deliver(p, envelope, body.InspectEffect, true)
-	case *pb.Envelope_SettleEffect:
-		p.reply(envelope, &pb.Envelope{Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}}})
 	case *pb.Envelope_FlowAdoption:
 		proposal := body.FlowAdoption
 		h.mu.Lock()
@@ -701,7 +699,7 @@ func (h *processHarness) result(peer *processWorker, cmd *pb.Command) *pb.Operat
 }
 func (h *processHarness) respond(worker *processWorker, presented *pb.RequestPresented, status uint32) *pb.OperationResult {
 	response := &pb.Respond{RequestId: presented.RequestId, Status: status, Body: []byte("v=0\r\n")}
-	if h.cfg.Store.Versions.Schema == "3" {
+	if h.cfg.Store.Versions == NativeStateVersions() {
 		h.mu.Lock()
 		epoch := h.directoryEpoch
 		h.mu.Unlock()

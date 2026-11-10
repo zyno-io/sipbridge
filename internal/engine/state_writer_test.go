@@ -266,15 +266,34 @@ func TestCommittedWriteConcurrentRetryIsUncertainWithoutSecondAttempt(t *testing
 	}
 }
 
-func TestCommittedWriteUsesStoredOutcomeAndRejectsCallerWire(t *testing.T) {
+func TestCommittedWriteUsesStoredOutcomeWithoutAnotherSocketWrite(t *testing.T) {
 	writer := &evidenceWriter{reserved: &CommittedWrite{Known: true, Outcome: pb.DeliveryResult_WRITTEN}}
 	ingress, cmd, conn := stateWriterFixture(t, writer)
-	if result := ingress.committedResult(context.Background(), cmd); result.Outcome != pb.DeliveryResult_WRITTEN || conn.sent.Len() != 0 {
+	if result := ingress.committedResult(context.Background(), cmd); result.Outcome != pb.DeliveryResult_WRITTEN || conn.sent.Len() != 0 || writer.reserves != 1 {
 		t.Fatalf("known effect wrote: %v %q", result, conn.sent.String())
 	}
-	cmd.Wire = []byte("uncommitted-caller-bytes")
-	if result := ingress.committedResult(context.Background(), cmd); result.Outcome != pb.DeliveryResult_UNKNOWN || writer.reserves != 1 || conn.sent.Len() != 0 {
-		t.Fatalf("caller bypassed stored effect: %v", result)
+}
+
+func TestPhysicalWriteRequiresCommittedStateWriterAndExactIdentities(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		invalidate func(*Ingress, *pb.FlowWrite)
+	}{
+		{"writer", func(ingress *Ingress, _ *pb.FlowWrite) { ingress.stateWriter = nil }},
+		{"effect", func(_ *Ingress, cmd *pb.FlowWrite) { cmd.Effect = nil }},
+		{"permit", func(_ *Ingress, cmd *pb.FlowWrite) { cmd.Permit = nil }},
+		{"foreign-ingress", func(_ *Ingress, cmd *pb.FlowWrite) {
+			cmd.Flow.Ingress = &pb.ProcessRef{InstanceId: cmd.Flow.Ingress.InstanceId, Epoch: "another-process"}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			writer := &evidenceWriter{reserved: &CommittedWrite{Wire: []byte("committed-frame")}}
+			ingress, cmd, conn := stateWriterFixture(t, writer)
+			test.invalidate(ingress, cmd)
+			if result := ingress.committedResult(context.Background(), cmd); result.Outcome != pb.DeliveryResult_UNKNOWN || result.Error == "" || writer.reserves != 0 || conn.sent.Len() != 0 {
+				t.Fatalf("unvalidated physical request reached reservation/socket: %v", result)
+			}
+		})
 	}
 }
 

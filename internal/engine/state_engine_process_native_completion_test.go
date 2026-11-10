@@ -92,17 +92,15 @@ func TestStateNativeCurrentProcessControlReconnectPreservesDialog(t *testing.T) 
 	}
 }
 
-func processReconcileRefusal(h *processHarness, worker *processWorker, ref *pb.ContextRef) {
+func processInspectRetainedContext(h *processHarness, worker *processWorker, ref *pb.ContextRef) {
 	h.t.Helper()
-	reply, err := worker.peer.call(&pb.Envelope{Payload: &pb.Envelope_ReconcileContext{ReconcileContext: &pb.ContextReconcile{
-		Context: ref, FromDirectoryEpoch: "fixture-directory", DirectoryEpoch: "next-directory",
-	}}})
+	reply, err := worker.peer.call(&pb.Envelope{Payload: &pb.Envelope_Inspect{Inspect: &pb.ContextInspect{Context: ref}}})
 	if err != nil {
 		h.t.Fatal(err)
 	}
 	result := reply.GetResult()
-	if result == nil || result.Certainty != pb.OperationResult_NOT_ACCEPTED || result.Error != "directory reconciliation retired; re-establish context" {
-		h.t.Fatalf("native reconciliation was not refused by the retired RPC boundary: %s", result)
+	if result == nil || result.Certainty != pb.OperationResult_COMPLETED || result.Snapshot == nil || !stateSameContext(result.Snapshot.Context, ref) {
+		h.t.Fatalf("inspection did not return the retained native context: %s", result)
 	}
 }
 
@@ -110,30 +108,30 @@ func assertProcessRecordUnchanged(h *processHarness, callID string, before state
 	h.t.Helper()
 	after, _ := h.record(callID)
 	if after.Revision != before.Revision || !reflect.DeepEqual(after.Payload, before.Payload) {
-		h.t.Fatal("refused reconciliation changed retained native state")
+		h.t.Fatal("read-only inspection changed retained native state")
 	}
 }
 
-func TestStateNativeReconcileRefusalPreservesInboundDialogAndBYE(t *testing.T) {
+func TestStateNativeInspectionPreservesInboundDialogAndBYE(t *testing.T) {
 	h := newNativeProcessHarness(t)
 	a := h.start("sip-a")
 	phone := h.phone(a)
 	callID := "native-anchored-" + uuid.NewString()
 	ref := processEstablish(h, a, phone, callID)
 	// A received ACK event precedes its retained receiver-completion commit.
-	// Establish a quiescent baseline before testing that refusal writes nothing.
+	// Establish a quiescent baseline before testing that inspection writes nothing.
 	before, context := processWaitRecord(h, callID, func(record state.Record, c *stateContext) bool {
 		return c.Snapshot.InitialAck && len(record.Payload.Effects) == 0
 	})
 
-	processReconcileRefusal(h, a, ref)
+	processInspectRetainedContext(h, a, ref)
 	assertProcessRecordUnchanged(h, callID, before)
 	phone.send(t, processRequest(t, sip.BYE, callID, 2, context.Snapshot.LocalTag))
 	phone.receive(t, sip.BYE, 200)
 	processWaitRecord(h, callID, func(_ state.Record, c *stateContext) bool { return c.Snapshot.Ended })
 }
 
-func TestStateNativeReconcileRefusalPreservesDuplicate200ACKAndBYE(t *testing.T) {
+func TestStateNativeInspectionPreservesDuplicate200ACKAndBYE(t *testing.T) {
 	h := newNativeProcessHarness(t)
 	a := h.start("sip-a")
 	phone := h.phone(a)
@@ -147,12 +145,12 @@ func TestStateNativeReconcileRefusalPreservesDuplicate200ACKAndBYE(t *testing.T)
 		return c.Snapshot.InitialAck && len(record.Payload.Effects) == 0
 	})
 
-	processReconcileRefusal(h, a, ref)
+	processInspectRetainedContext(h, a, ref)
 	assertProcessRecordUnchanged(h, callID, before)
 	phone.send(t, []byte(accepted.String()))
 	replayed := phone.receive(t, sip.ACK, 0)
 	if replayed.String() != firstACK.String() {
-		t.Fatal("refused reconciliation changed duplicate200 ACK wire")
+		t.Fatal("inspection changed duplicate200 ACK wire")
 	}
 	phone.send(t, processRequest(t, sip.BYE, callID, 1, tag(invite.From().Params)))
 	phone.receive(t, sip.BYE, 200)

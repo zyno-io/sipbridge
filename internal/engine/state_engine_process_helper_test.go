@@ -360,7 +360,7 @@ func TestStateProcessHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	autonomous := cfg.Store.Versions.Schema == "3" && cfg.Store.Versions.Reducer == "9"
+	autonomous := cfg.Store.Versions == NativeStateVersions()
 	serverConfig := control.Config{Process: cfg.Process, TLS: material, AllowedURIs: []string{"spiffe://test/state-process"}, Capabilities: stateProcessCapabilities(autonomous), StateAuthority: &pb.StateAuthority{Service: store.Namespace(), Generation: a.Generation, PrimaryId: a.RunID, SchemaVersion: uint32(schema)}, OnStatus: func(peer *control.Peer, status *pb.SessionStatus) error {
 		if status.RetainedReady && status.BindingsReady {
 			return native.ControllerReady(peer.Context(), peer)
@@ -477,7 +477,7 @@ func TestStateProcessHelper(t *testing.T) {
 }
 
 func stateProcessCapabilities(autonomous bool) []string {
-	capabilities := []string{Capability, control.CommandBudgetCapability, DialogContinuityCapability, control.StateCapability, control.DirectoryReconcileCapability, control.CompletionRelayCapability}
+	capabilities := []string{Capability, control.CommandBudgetCapability, DialogContinuityCapability, control.StateCapability}
 	if autonomous {
 		capabilities = append(capabilities, control.NativeCompletionCapability)
 	}

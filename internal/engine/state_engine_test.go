@@ -503,39 +503,6 @@ func TestStateEngineSubscriptionPolicyAndPublicationFenceLease(t *testing.T) {
 
 }
 
-func TestStateEngineRejectsInlineCredentialsBeforeRedisAdmission(t *testing.T) {
-	a, _ := historicalStateTestEngine(t)
-	ctx := context.Background()
-	ref, err := a.Locate(ctx, stateTestRequest("OPTIONS", 1, "", "secret-test"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	group, err := a.group(ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secret := "never-persist-this-password"
-	command := &pb.Command{Context: ref, Sequence: 1, Action: &pb.Command_OpenUac{OpenUac: &pb.OpenUac{Uri: "sip:target@example.test", Network: &pb.NetworkTarget{Username: "user", Password: secret}}}}
-	_, err = a.apply(ctx, group, "inline-secret", stateEngineInput{Kind: "command", Context: ref, Command: command}, time.Now().Add(time.Second), false)
-	if err == nil {
-		t.Fatal("inline secret admitted")
-	}
-	record, err := a.store.Load(ctx, group)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.Pending != nil {
-		t.Fatal("inline secret entered retained pending slot")
-	}
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(encoded, []byte(secret)) {
-		t.Fatal("inline secret retained")
-	}
-}
-
 func TestStateEngineRecoveredExpiredFreshCommandCannotEmit(t *testing.T) {
 	a, _ := historicalStateTestEngine(t)
 	ctx := context.Background()

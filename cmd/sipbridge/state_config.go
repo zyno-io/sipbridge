@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"sipbridge/internal/engine"
 	"sipbridge/internal/state"
 )
 
@@ -22,7 +23,7 @@ var statePrefix = regexp.MustCompile(`^[A-Za-z0-9_.:\-]{1,96}$`)
 // No error contains an endpoint password or the shared identity key.
 func stateConfiguration(get func(string) string, readFile func(string) ([]byte, error)) (*state.Config, error) {
 	cfg := &state.Config{Backend: get("SIPBRIDGE_STATE_BACKEND"), Namespace: get("SIPBRIDGE_STATE_NAMESPACE"), Generation: get("SIPBRIDGE_STATE_GENERATION"),
-		Prefix: get("SIPBRIDGE_STATE_PREFIX"), Versions: state.Versions{Schema: "3", Reducer: "9", Timers: "1"}}
+		Prefix: get("SIPBRIDGE_STATE_PREFIX"), Versions: engine.NativeStateVersions()}
 	if cfg.Backend == "" {
 		cfg.Backend = state.MemoryBackend
 	}

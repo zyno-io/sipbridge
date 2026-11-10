@@ -12,7 +12,7 @@ func TestStateProfileRejectsIncompatiblePeerBeforeSessionClaim(t *testing.T) {
 	pki := newPKI(t)
 	authority := &pb.StateAuthority{Service: "sip", Generation: "generation", PrimaryId: "primary", SchemaVersion: 1}
 	server, address := testServer(t, pki, 8, func(cfg *Config) {
-		cfg.Capabilities = []string{"sip.v1", StateCapability, DirectoryReconcileCapability, CompletionRelayCapability}
+		cfg.Capabilities = []string{"sip.v1", StateCapability}
 		cfg.StateAuthority = authority
 		cfg.OnStatus = func(*Peer, *pb.SessionStatus) error { return nil }
 		cfg.HeartbeatInterval = time.Second
@@ -24,8 +24,8 @@ func TestStateProfileRejectsIncompatiblePeerBeforeSessionClaim(t *testing.T) {
 	}
 	defer compatible.CloseNow()
 	send(t, compatible, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{
-		Controller: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 2,
-		Capabilities: []string{"sip.v1", StateCapability, DirectoryReconcileCapability, CompletionRelayCapability}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096},
+		Controller: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 1,
+		Capabilities: []string{"sip.v1", StateCapability}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096},
 	}}})
 	reply, err := receive(compatible)
 	if err != nil {
@@ -40,13 +40,13 @@ func TestStateProfileRejectsIncompatiblePeerBeforeSessionClaim(t *testing.T) {
 	if len(server.ReadyPeers()) != 1 {
 		t.Fatal("compatible controller is not ready")
 	}
-	for _, capabilities := range [][]string{{"sip.v1", "sip.redis-state.v1", DirectoryReconcileCapability, CompletionRelayCapability}, {"sip.v1"}, {StateCapability}, {"sip.v1", StateCapability}, {"sip.v1", StateCapability, DirectoryReconcileCapability}, {"sip.v1", StateCapability, CompletionRelayCapability}, nil} {
+	for _, capabilities := range [][]string{{"sip.v1"}, {StateCapability}, nil} {
 		incompatible, err := pki.dial(address)
 		if err != nil {
 			t.Fatal(err)
 		}
 		send(t, incompatible, &pb.Envelope{CorrelationId: "old", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{
-			Controller: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}, ConnectionAttempt: 2, Major: 2,
+			Controller: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}, ConnectionAttempt: 2, Major: 1,
 			Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096},
 		}}})
 		if response, err := receive(incompatible); err == nil {

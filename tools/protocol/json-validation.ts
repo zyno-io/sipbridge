@@ -70,7 +70,7 @@ function validateScalar(value: unknown, field: JsonField): void {
     throw new Error(`invalid sipbridge JSON ${field.kind} field`);
 }
 
-export function validateSipbridgeJson(value: unknown, name = '.sipbridge.control.v2.Envelope'): void {
+export function validateSipbridgeJson(value: unknown, name = '.sipbridge.control.v1.Envelope'): void {
     if (!isObject(value)) throw new Error('sipbridge JSON message must be an object');
     const message = SIPBRIDGE_JSON_MESSAGES[name];
     if (!message) throw new Error('unknown sipbridge JSON message');

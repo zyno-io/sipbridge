@@ -124,7 +124,7 @@ func decodeStateGroup(record state.Record) (stateGroup, error) {
 			if tx == nil || (len(tx.AdmittedFlowProofs) > 0 || tx.DispositionUntilMS > 0) && !stateServerTransaction(tx) {
 				return g, state.ErrCorrupt
 			}
-			if record.Versions == (state.Versions{Schema: "3", Reducer: "9", Timers: "1"}) && stateServerTransaction(tx) && (tx.DispositionUntilMS == 0 || !c.Rejection && len(tx.AdmittedFlowProofs) == 0) {
+			if record.Versions == NativeStateVersions() && stateServerTransaction(tx) && (tx.DispositionUntilMS == 0 || !c.Rejection && len(tx.AdmittedFlowProofs) == 0) {
 				return g, state.ErrCorrupt
 			}
 			if err := tx.stateRequestDisposition.validate(); err != nil {
@@ -1435,8 +1435,8 @@ func (r *stateReduction) finish() (state.Payload, error) {
 	}
 	filtered := r.payload.Effects[:0]
 	for _, effect := range r.payload.Effects {
-		if stateRetiredMetadataEffect(effect.Kind) {
-			continue
+		if !stateSupportedEffectKind(effect.Kind) {
+			return state.Payload{}, state.ErrCorrupt
 		}
 		if (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten || effect.Status == state.EffectCancelled) && effect.DeadlineMS+120000 <= r.now {
 			var body stateEngineEffect

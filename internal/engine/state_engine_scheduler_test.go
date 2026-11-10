@@ -185,6 +185,7 @@ func TestStateSchedulerQuiescentGroupDoesNotResumeOrMutate(t *testing.T) {
 func TestStateSchedulerEligibilityPreservesHistoricalRecovery(t *testing.T) {
 	body := func(value stateEngineEffect) []byte { encoded, _ := json.Marshal(value); return encoded }
 	effects := []state.Effect{
+		{ID: "unsupported", Kind: "unsupported", Status: state.EffectPending, DeadlineMS: 300000},
 		{ID: "completed-event", Kind: "event", Status: state.EffectWritten, DeadlineMS: 1},
 		{ID: "owner-backoff", Kind: "owner", Status: state.EffectUnknown, DeadlineMS: 1},
 		{ID: "owner-rearmed", Kind: "owner", Status: state.EffectPending, DeadlineMS: 1},

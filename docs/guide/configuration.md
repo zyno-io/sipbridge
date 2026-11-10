@@ -100,7 +100,7 @@ set, sipbridge keeps state in memory, which is all a single instance needs.
 | `SIPBRIDGE_STATE_IDENTITY_KEY` | random per process (memory only) | Standard base64 of 32 to 256 bytes. Required for Redis, where every instance sharing a namespace must use the same key. |
 | `SIPBRIDGE_STATE_NAMESPACE` | `sipbridge` | Name of the state namespace; Redis-backed instances with matching settings and the same namespace share state. It is also reported to controllers as `stateAuthority.service`. Pattern `[A-Za-z0-9_.:@+-]{1,96}`. |
 | `SIPBRIDGE_STATE_GENERATION` | `default` | A label reported to controllers as `stateAuthority.generation`. Changing it does not reset or recover state. Same pattern as the namespace. |
-| `SIPBRIDGE_STATE_PREFIX` | `sipstate:v2` | Redis key prefix. Pattern `[A-Za-z0-9_.:-]{1,96}`. |
+| `SIPBRIDGE_STATE_PREFIX` | `sipstate:v1` | Redis key prefix. Pattern `[A-Za-z0-9_.:-]{1,96}`. |
 | `SIPBRIDGE_STATE_PARTITIONS` | `64` | Number of partitions Call-IDs are spread over, 1 to 4096. Must be the same on every instance in a namespace. |
 
 ### Memory only

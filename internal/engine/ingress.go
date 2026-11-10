@@ -28,7 +28,6 @@ type physicalFlow struct {
 	ref           *pb.FlowRef
 	conn          net.Conn
 	write         sync.Mutex
-	revisions     map[string]uint64
 	packet        net.PacketConn
 	remote        net.Addr
 	lastUsed      time.Time
@@ -587,60 +586,11 @@ func (i *Ingress) localResponseWithin(ctx context.Context, flow *physicalFlow, m
 func (i *Ingress) Write(peer *control.Peer, envelope *pb.Envelope) error {
 	select {
 	case i.writes <- struct{}{}:
-		go func() { defer func() { <-i.writes }(); _ = i.write(peer, envelope) }()
+		go func() { defer func() { <-i.writes }(); _ = i.writeCommitted(peer, envelope) }()
 		return nil
 	default:
 		return peer.Send(&pb.Envelope{CorrelationId: envelope.CorrelationId, Payload: &pb.Envelope_Delivery{Delivery: &pb.DeliveryResult{Outcome: pb.DeliveryResult_NOT_WRITTEN, Error: "write capacity"}}})
 	}
-}
-func (i *Ingress) write(peer *control.Peer, envelope *pb.Envelope) error {
-	cmd := envelope.GetWrite()
-	if cmd != nil && cmd.Effect != nil {
-		return i.writeCommitted(peer, envelope)
-	}
-	if i.stateWriter != nil {
-		return peer.Send(&pb.Envelope{CorrelationId: envelope.CorrelationId, Payload: &pb.Envelope_Delivery{Delivery: &pb.DeliveryResult{Outcome: pb.DeliveryResult_NOT_WRITTEN, Error: "committed SIP effect required"}}})
-	}
-	result := &pb.DeliveryResult{Outcome: pb.DeliveryResult_NOT_WRITTEN}
-	if cmd == nil || cmd.Flow == nil || !sameProcess(cmd.Flow.Ingress, i.process) || len(cmd.Wire) == 0 || len(cmd.Wire) > 65536 {
-		result.Error = "invalid physical write"
-	} else {
-		i.mu.Lock()
-		flow := i.flows[cmd.Flow.ConnectionId]
-		i.mu.Unlock()
-		if flow == nil || !proto.Equal(flow.ref, cmd.Flow) {
-			result.Error = "current flow closed"
-		} else {
-			flow.write.Lock()
-			if cmd.BindingId != "" && cmd.BindingRevision < flow.revisions[cmd.BindingId] {
-				result.Error = "stale binding revision"
-			} else {
-				if cmd.BindingId != "" {
-					if len(flow.revisions) >= 128 && flow.revisions[cmd.BindingId] == 0 {
-						result.Error = "flow binding capacity"
-					} else {
-						flow.revisions[cmd.BindingId] = cmd.BindingRevision
-					}
-				}
-				if result.Error == "" {
-					if !flow.admitSIPUse() {
-						result.Error = "current flow closed before write"
-					} else {
-						n, err := flow.writeWire(cmd.Wire)
-						flow.retainedUntil = time.Now().Add(4 * time.Hour)
-						if err == nil && n == len(cmd.Wire) {
-							result.Outcome = pb.DeliveryResult_WRITTEN
-						} else {
-							result.Outcome = pb.DeliveryResult_UNKNOWN
-							result.Error = "socket write failed or partial"
-						}
-					}
-				}
-			}
-			flow.write.Unlock()
-		}
-	}
-	return peer.Send(&pb.Envelope{CorrelationId: envelope.CorrelationId, Payload: &pb.Envelope_Delivery{Delivery: result}})
 }
 
 // Called under the flow write lock. Datagram writes preserve message boundaries.
@@ -698,7 +648,7 @@ func (f *physicalFlow) writeWire(wire []byte) (writtenResult int, resultErr erro
 
 func (i *Ingress) addStream(conn net.Conn, host string, port int, network string) (*physicalFlow, error) {
 	ref := &pb.FlowRef{Ingress: i.process, ConnectionId: uuid.NewString(), SourceIp: host, SourcePort: uint32(port), Listener: i.listener, Transport: network}
-	flow := &physicalFlow{ref: ref, conn: conn, revisions: make(map[string]uint64), lastUsed: time.Now(), capture: i.capture}
+	flow := &physicalFlow{ref: ref, conn: conn, lastUsed: time.Now(), capture: i.capture}
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if len(i.flows) >= i.max {
@@ -746,7 +696,7 @@ func (i *Ingress) packetFlow(remote net.Addr) (*physicalFlow, error) {
 		return nil, err
 	}
 	ref := &pb.FlowRef{Ingress: i.process, ConnectionId: uuid.NewString(), SourceIp: host, SourcePort: uint32(port), Listener: i.listener, Transport: "udp"}
-	flow := &physicalFlow{ref: ref, packet: i.udp, remote: remote, revisions: make(map[string]uint64), lastUsed: time.Now(), capture: i.capture}
+	flow := &physicalFlow{ref: ref, packet: i.udp, remote: remote, lastUsed: time.Now(), capture: i.capture}
 	i.flows[ref.ConnectionId] = flow
 	i.peers[remote.String()] = flow
 	return flow, nil

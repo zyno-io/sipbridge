@@ -14,7 +14,7 @@ export interface JsonMessage {
     oneofs: readonly string[];
 }
 export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
-    '.sipbridge.control.v2.Envelope': {
+    '.sipbridge.control.v1.Envelope': {
         fields: {
             correlationId: {
                 kind: 'string',
@@ -30,193 +30,163 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             hello: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SessionHello',
+                message: '.sipbridge.control.v1.SessionHello',
                 oneof: 'payload'
             },
             helloAck: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SessionHelloAck',
+                message: '.sipbridge.control.v1.SessionHelloAck',
                 oneof: 'payload',
                 alias: 'hello_ack'
             },
             status: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SessionStatus',
+                message: '.sipbridge.control.v1.SessionStatus',
                 oneof: 'payload'
             },
             ping: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Heartbeat',
+                message: '.sipbridge.control.v1.Heartbeat',
                 oneof: 'payload'
             },
             pong: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Heartbeat',
+                message: '.sipbridge.control.v1.Heartbeat',
                 oneof: 'payload'
             },
             ingress: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.IngressReceived',
+                message: '.sipbridge.control.v1.IngressReceived',
                 oneof: 'payload'
             },
             routeResult: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.RouteResult',
+                message: '.sipbridge.control.v1.RouteResult',
                 oneof: 'payload',
                 alias: 'route_result'
             },
             ingest: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.OwnerIngest',
+                message: '.sipbridge.control.v1.OwnerIngest',
                 oneof: 'payload'
             },
             request: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.RequestPresented',
+                message: '.sipbridge.control.v1.RequestPresented',
                 oneof: 'payload'
             },
             command: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Command',
+                message: '.sipbridge.control.v1.Command',
                 oneof: 'payload'
             },
             result: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.OperationResult',
+                message: '.sipbridge.control.v1.OperationResult',
                 oneof: 'payload'
             },
             egress: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.EgressRequest',
+                message: '.sipbridge.control.v1.EgressRequest',
                 oneof: 'payload'
             },
             write: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowWrite',
+                message: '.sipbridge.control.v1.FlowWrite',
                 oneof: 'payload'
             },
             delivery: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.DeliveryResult',
+                message: '.sipbridge.control.v1.DeliveryResult',
                 oneof: 'payload'
             },
             flowClosed: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowClosed',
+                message: '.sipbridge.control.v1.FlowClosed',
                 oneof: 'payload',
                 alias: 'flow_closed'
             },
             dialogEvent: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.DialogEvent',
+                message: '.sipbridge.control.v1.DialogEvent',
                 oneof: 'payload',
                 alias: 'dialog_event'
             },
             inspect: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextInspect',
+                message: '.sipbridge.control.v1.ContextInspect',
                 oneof: 'payload'
             },
             flowAdoption: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowAdoptionRequest',
+                message: '.sipbridge.control.v1.FlowAdoptionRequest',
                 oneof: 'payload',
                 alias: 'flow_adoption'
             },
             flowAdoptionResult: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowAdoptionResult',
+                message: '.sipbridge.control.v1.FlowAdoptionResult',
                 oneof: 'payload',
                 alias: 'flow_adoption_result'
             },
             sendPermit: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SendPermit',
+                message: '.sipbridge.control.v1.SendPermit',
                 oneof: 'payload',
                 alias: 'send_permit'
             },
             deliverEffect: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowWrite',
+                message: '.sipbridge.control.v1.FlowWrite',
                 oneof: 'payload',
                 alias: 'deliver_effect'
             },
             credentialLookup: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.CredentialLookup',
+                message: '.sipbridge.control.v1.CredentialLookup',
                 oneof: 'payload',
                 alias: 'credential_lookup'
             },
             credentialResult: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.CredentialResult',
+                message: '.sipbridge.control.v1.CredentialResult',
                 oneof: 'payload',
                 alias: 'credential_result'
             },
             inspectEffect: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowWrite',
+                message: '.sipbridge.control.v1.FlowWrite',
                 oneof: 'payload',
                 alias: 'inspect_effect'
             },
-            settleEffect: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.EffectSettlement',
-                oneof: 'payload',
-                alias: 'settle_effect'
-            },
-            retireAuthority: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.ContextSnapshot',
-                oneof: 'payload',
-                alias: 'retire_authority'
-            },
             probeApplication: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ApplicationProbe',
+                message: '.sipbridge.control.v1.ApplicationProbe',
                 oneof: 'payload',
                 alias: 'probe_application'
             },
             applicationStatus: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ApplicationStatus',
+                message: '.sipbridge.control.v1.ApplicationStatus',
                 oneof: 'payload',
                 alias: 'application_status'
             },
-            reconcileContext: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.ContextReconcile',
-                oneof: 'payload',
-                alias: 'reconcile_context'
-            },
-            reconcileAuthority: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.AuthorityReconcile',
-                oneof: 'payload',
-                alias: 'reconcile_authority'
-            },
-            authorityReceipt: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.AuthorityReceipt',
-                oneof: 'payload',
-                alias: 'authority_receipt'
-            },
             controllerContexts: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ControllerContexts',
+                message: '.sipbridge.control.v1.ControllerContexts',
                 oneof: 'payload',
                 alias: 'controller_contexts'
             },
             controllerContextsResult: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ControllerContextsResult',
+                message: '.sipbridge.control.v1.ControllerContextsResult',
                 oneof: 'payload',
                 alias: 'controller_contexts_result'
             }
         },
         oneofs: ['payload']
     },
-    '.sipbridge.control.v2.ProcessRef': {
+    '.sipbridge.control.v1.ProcessRef': {
         fields: {
             instanceId: {
                 kind: 'string',
@@ -228,7 +198,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.Bounds': {
+    '.sipbridge.control.v1.Bounds': {
         fields: {
             maxEnvelopeBytes: {
                 kind: 'uint32',
@@ -237,11 +207,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.SessionHello': {
+    '.sipbridge.control.v1.SessionHello': {
         fields: {
             controller: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             connectionAttempt: {
                 kind: 'uint64',
@@ -264,20 +234,20 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             bounds: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Bounds'
+                message: '.sipbridge.control.v1.Bounds'
             },
             recovery: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ControllerRecovery'
+                message: '.sipbridge.control.v1.ControllerRecovery'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ControllerRecovery': {
+    '.sipbridge.control.v1.ControllerRecovery': {
         fields: {
             application: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             term: {
                 kind: 'string'
@@ -296,7 +266,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ControllerContexts': {
+    '.sipbridge.control.v1.ControllerContexts': {
         fields: {
             cursor: {
                 kind: 'string'
@@ -307,11 +277,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ControllerContextsResult': {
+    '.sipbridge.control.v1.ControllerContextsResult': {
         fields: {
             contexts: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef',
+                message: '.sipbridge.control.v1.ContextRef',
                 repeated: true
             },
             cursor: {
@@ -320,11 +290,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.SessionHelloAck': {
+    '.sipbridge.control.v1.SessionHelloAck': {
         fields: {
             sipbridge: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             sessionId: {
                 kind: 'string',
@@ -342,7 +312,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             bounds: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Bounds'
+                message: '.sipbridge.control.v1.Bounds'
             },
             heartbeatIntervalMs: {
                 kind: 'uint32',
@@ -354,31 +324,31 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             stateAuthority: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.StateAuthority',
+                message: '.sipbridge.control.v1.StateAuthority',
                 alias: 'state_authority'
             },
             applicationLease: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ApplicationLease',
+                message: '.sipbridge.control.v1.ApplicationLease',
                 alias: 'application_lease'
             },
             inboundAuthPolicy: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.InboundAuthPolicy',
+                message: '.sipbridge.control.v1.InboundAuthPolicy',
                 alias: 'inbound_auth_policy'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ApplicationLease': {
+    '.sipbridge.control.v1.ApplicationLease': {
         fields: {
             application: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             authority: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.StateAuthority'
+                message: '.sipbridge.control.v1.StateAuthority'
             },
             term: {
                 kind: 'string'
@@ -397,7 +367,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             holder: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             attachmentGeneration: {
                 kind: 'uint64',
@@ -418,7 +388,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.SessionStatus': {
+    '.sipbridge.control.v1.SessionStatus': {
         fields: {
             retainedReady: {
                 kind: 'boolean',
@@ -441,13 +411,13 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             digestChallengePolicy: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.DigestChallengePolicy',
+                message: '.sipbridge.control.v1.DigestChallengePolicy',
                 alias: 'digest_challenge_policy'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.InboundAuthPolicy': {
+    '.sipbridge.control.v1.InboundAuthPolicy': {
         fields: {
             requireRegister: {
                 kind: 'boolean',
@@ -464,7 +434,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.DigestChallengePolicy': {
+    '.sipbridge.control.v1.DigestChallengePolicy': {
         fields: {
             realm: {
                 kind: 'string'
@@ -484,7 +454,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.Heartbeat': {
+    '.sipbridge.control.v1.Heartbeat': {
         fields: {
             nonce: {
                 kind: 'string'
@@ -492,11 +462,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.FlowRef': {
+    '.sipbridge.control.v1.FlowRef': {
         fields: {
             ingress: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             connectionId: {
                 kind: 'string',
@@ -519,7 +489,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.StateAuthority': {
+    '.sipbridge.control.v1.StateAuthority': {
         fields: {
             service: {
                 kind: 'string'
@@ -538,11 +508,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.StateRef': {
+    '.sipbridge.control.v1.StateRef': {
         fields: {
             authority: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.StateAuthority'
+                message: '.sipbridge.control.v1.StateAuthority'
             },
             groupId: {
                 kind: 'string',
@@ -561,23 +531,23 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ContextRef': {
+    '.sipbridge.control.v1.ContextRef': {
         fields: {
             owner: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             id: {
                 kind: 'string'
             },
             state: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.StateRef'
+                message: '.sipbridge.control.v1.StateRef'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.Header': {
+    '.sipbridge.control.v1.Header': {
         fields: {
             name: {
                 kind: 'string'
@@ -588,7 +558,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.Address': {
+    '.sipbridge.control.v1.Address': {
         fields: {
             name: {
                 kind: 'string'
@@ -603,17 +573,17 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.AddressList': {
+    '.sipbridge.control.v1.AddressList': {
         fields: {
             values: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Address',
+                message: '.sipbridge.control.v1.Address',
                 repeated: true
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.Via': {
+    '.sipbridge.control.v1.Via': {
         fields: {
             protocol: {
                 kind: 'string'
@@ -631,7 +601,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.DigestCredentials': {
+    '.sipbridge.control.v1.DigestCredentials': {
         fields: {
             username: {
                 kind: 'string'
@@ -663,7 +633,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.SipMessage': {
+    '.sipbridge.control.v1.SipMessage': {
         fields: {
             wire: {
                 kind: 'bytes'
@@ -685,17 +655,17 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             headers: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Header',
+                message: '.sipbridge.control.v1.Header',
                 repeated: true
             },
             addresses: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.AddressList',
+                message: '.sipbridge.control.v1.AddressList',
                 map: true
             },
             vias: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Via',
+                message: '.sipbridge.control.v1.Via',
                 repeated: true
             },
             selectors: {
@@ -704,29 +674,29 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             authorization: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.DigestCredentials'
+                message: '.sipbridge.control.v1.DigestCredentials'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.IngressReceived': {
+    '.sipbridge.control.v1.IngressReceived': {
         fields: {
             flow: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef'
+                message: '.sipbridge.control.v1.FlowRef'
             },
             message: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SipMessage'
+                message: '.sipbridge.control.v1.SipMessage'
             },
             context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
+                message: '.sipbridge.control.v1.ContextRef'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.RouteResult': {
+    '.sipbridge.control.v1.RouteResult': {
         fields: {
             outcome: {
                 kind: 'enum',
@@ -734,7 +704,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             controller: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             sipStatus: {
                 kind: 'uint32',
@@ -743,19 +713,19 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.OwnerIngest': {
+    '.sipbridge.control.v1.OwnerIngest': {
         fields: {
             context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
+                message: '.sipbridge.control.v1.ContextRef'
             },
             application: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             flow: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef'
+                message: '.sipbridge.control.v1.FlowRef'
             },
             wire: {
                 kind: 'bytes'
@@ -778,15 +748,15 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ContextSnapshot': {
+    '.sipbridge.control.v1.ContextSnapshot': {
         fields: {
             context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
+                message: '.sipbridge.control.v1.ContextRef'
             },
             application: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             bindingId: {
                 kind: 'string',
@@ -862,11 +832,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             delivery: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextDelivery'
+                message: '.sipbridge.control.v1.ContextDelivery'
             },
             executor: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             directoryEpoch: {
                 kind: 'string',
@@ -883,11 +853,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.RequestPresented': {
+    '.sipbridge.control.v1.RequestPresented': {
         fields: {
             snapshot: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextSnapshot'
+                message: '.sipbridge.control.v1.ContextSnapshot'
             },
             requestId: {
                 kind: 'string',
@@ -895,16 +865,16 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             message: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SipMessage'
+                message: '.sipbridge.control.v1.SipMessage'
             },
             flow: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef'
+                message: '.sipbridge.control.v1.FlowRef'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ResponseAuthority': {
+    '.sipbridge.control.v1.ResponseAuthority': {
         fields: {
             directoryEpoch: {
                 kind: 'string',
@@ -917,7 +887,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.Respond': {
+    '.sipbridge.control.v1.Respond': {
         fields: {
             requestId: {
                 kind: 'string',
@@ -928,7 +898,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             headers: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Header',
+                message: '.sipbridge.control.v1.Header',
                 repeated: true
             },
             body: {
@@ -944,12 +914,12 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             authority: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ResponseAuthority'
+                message: '.sipbridge.control.v1.ResponseAuthority'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.CredentialRef': {
+    '.sipbridge.control.v1.CredentialRef': {
         fields: {
             id: {
                 kind: 'string'
@@ -960,20 +930,20 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.CredentialLookup': {
+    '.sipbridge.control.v1.CredentialLookup': {
         fields: {
             context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
+                message: '.sipbridge.control.v1.ContextRef'
             },
             credential: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.CredentialRef'
+                message: '.sipbridge.control.v1.CredentialRef'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.CredentialResult': {
+    '.sipbridge.control.v1.CredentialResult': {
         fields: {
             username: {
                 kind: 'string'
@@ -990,7 +960,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.NetworkTarget': {
+    '.sipbridge.control.v1.NetworkTarget': {
         fields: {
             proxy: {
                 kind: 'string'
@@ -998,20 +968,14 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             transport: {
                 kind: 'string'
             },
-            username: {
-                kind: 'string'
-            },
-            password: {
-                kind: 'string'
-            },
             credential: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.CredentialRef'
+                message: '.sipbridge.control.v1.CredentialRef'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.OpenUac': {
+    '.sipbridge.control.v1.OpenUac': {
         fields: {
             uri: {
                 kind: 'string'
@@ -1021,7 +985,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             headers: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Header',
+                message: '.sipbridge.control.v1.Header',
                 repeated: true
             },
             bindingId: {
@@ -1034,7 +998,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             network: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.NetworkTarget'
+                message: '.sipbridge.control.v1.NetworkTarget'
             },
             transport: {
                 kind: 'string'
@@ -1045,7 +1009,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.DialogRequest': {
+    '.sipbridge.control.v1.DialogRequest': {
         fields: {
             method: {
                 kind: 'string'
@@ -1055,17 +1019,17 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             headers: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Header',
+                message: '.sipbridge.control.v1.Header',
                 repeated: true
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.Cancel': {
+    '.sipbridge.control.v1.Cancel': {
         fields: {},
         oneofs: []
     },
-    '.sipbridge.control.v2.CommandAdmission': {
+    '.sipbridge.control.v1.CommandAdmission': {
         fields: {
             directoryEpoch: {
                 kind: 'string',
@@ -1077,56 +1041,56 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             selectedFlow: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef',
+                message: '.sipbridge.control.v1.FlowRef',
                 alias: 'selected_flow'
             },
             expectedDelivery: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextDelivery',
+                message: '.sipbridge.control.v1.ContextDelivery',
                 alias: 'expected_delivery'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.Command': {
+    '.sipbridge.control.v1.Command': {
         fields: {
             context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
+                message: '.sipbridge.control.v1.ContextRef'
             },
             sequence: {
                 kind: 'uint64'
             },
             admission: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.CommandAdmission'
+                message: '.sipbridge.control.v1.CommandAdmission'
             },
             respond: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Respond',
+                message: '.sipbridge.control.v1.Respond',
                 oneof: 'action'
             },
             openUac: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.OpenUac',
+                message: '.sipbridge.control.v1.OpenUac',
                 oneof: 'action',
                 alias: 'open_uac'
             },
             dialogRequest: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.DialogRequest',
+                message: '.sipbridge.control.v1.DialogRequest',
                 oneof: 'action',
                 alias: 'dialog_request'
             },
             cancel: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.Cancel',
+                message: '.sipbridge.control.v1.Cancel',
                 oneof: 'action'
             }
         },
         oneofs: ['action']
     },
-    '.sipbridge.control.v2.OperationResult': {
+    '.sipbridge.control.v1.OperationResult': {
         fields: {
             certainty: {
                 kind: 'enum',
@@ -1141,33 +1105,33 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             snapshot: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextSnapshot'
+                message: '.sipbridge.control.v1.ContextSnapshot'
             },
             request: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SipMessage'
+                message: '.sipbridge.control.v1.SipMessage'
             },
             response: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SipMessage'
+                message: '.sipbridge.control.v1.SipMessage'
             },
             retirementProof: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRetirementProof',
+                message: '.sipbridge.control.v1.ContextRetirementProof',
                 alias: 'retirement_proof'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ContextRetirementProof': {
+    '.sipbridge.control.v1.ContextRetirementProof': {
         fields: {
             context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
+                message: '.sipbridge.control.v1.ContextRef'
             },
             authority: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.StateAuthority'
+                message: '.sipbridge.control.v1.StateAuthority'
             },
             reason: {
                 kind: 'enum',
@@ -1176,11 +1140,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.StateEffectRef': {
+    '.sipbridge.control.v1.StateEffectRef': {
         fields: {
             context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
+                message: '.sipbridge.control.v1.ContextRef'
             },
             id: {
                 kind: 'string'
@@ -1192,11 +1156,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.EffectAuthorization': {
+    '.sipbridge.control.v1.EffectAuthorization': {
         fields: {
             effect: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.StateEffectRef'
+                message: '.sipbridge.control.v1.StateEffectRef'
             },
             authorityClass: {
                 kind: 'enum',
@@ -1221,15 +1185,15 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.SendPermit': {
+    '.sipbridge.control.v1.SendPermit': {
         fields: {
             authorization: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.EffectAuthorization'
+                message: '.sipbridge.control.v1.EffectAuthorization'
             },
             flow: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef'
+                message: '.sipbridge.control.v1.FlowRef'
             },
             directoryEpoch: {
                 kind: 'string',
@@ -1246,57 +1210,46 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.EgressRequest': {
+    '.sipbridge.control.v1.EgressRequest': {
         fields: {
             snapshot: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextSnapshot'
+                message: '.sipbridge.control.v1.ContextSnapshot'
             },
             message: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SipMessage'
+                message: '.sipbridge.control.v1.SipMessage'
             },
             returnFlow: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef',
+                message: '.sipbridge.control.v1.FlowRef',
                 alias: 'return_flow'
             },
             authorization: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.EffectAuthorization'
+                message: '.sipbridge.control.v1.EffectAuthorization'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.FlowWrite': {
+    '.sipbridge.control.v1.FlowWrite': {
         fields: {
             flow: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef'
-            },
-            bindingId: {
-                kind: 'string',
-                alias: 'binding_id'
-            },
-            bindingRevision: {
-                kind: 'uint64',
-                alias: 'binding_revision'
-            },
-            wire: {
-                kind: 'bytes'
+                message: '.sipbridge.control.v1.FlowRef'
             },
             effect: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.StateEffectRef'
+                message: '.sipbridge.control.v1.StateEffectRef'
             },
             permit: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SendPermit'
+                message: '.sipbridge.control.v1.SendPermit'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.DeliveryResult': {
+    '.sipbridge.control.v1.DeliveryResult': {
         fields: {
             outcome: {
                 kind: 'enum',
@@ -1307,7 +1260,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             effect: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.StateEffectRef'
+                message: '.sipbridge.control.v1.StateEffectRef'
             },
             recorded: {
                 kind: 'boolean'
@@ -1315,41 +1268,28 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.EffectSettlement': {
+    '.sipbridge.control.v1.ApplicationProbe': {
         fields: {
-            write: {
+            context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowWrite'
+                message: '.sipbridge.control.v1.ContextRef'
             },
-            delivery: {
+            application: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.DeliveryResult'
+                message: '.sipbridge.control.v1.ProcessRef'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ApplicationProbe': {
+    '.sipbridge.control.v1.ApplicationStatus': {
         fields: {
             context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
+                message: '.sipbridge.control.v1.ContextRef'
             },
             application: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
-            }
-        },
-        oneofs: []
-    },
-    '.sipbridge.control.v2.ApplicationStatus': {
-        fields: {
-            context: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
-            },
-            application: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             directoryEpoch: {
                 kind: 'string',
@@ -1365,16 +1305,16 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.FlowClosed': {
+    '.sipbridge.control.v1.FlowClosed': {
         fields: {
             flow: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef'
+                message: '.sipbridge.control.v1.FlowRef'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.DialogEvent': {
+    '.sipbridge.control.v1.DialogEvent': {
         fields: {
             kind: {
                 kind: 'enum',
@@ -1382,11 +1322,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             snapshot: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextSnapshot'
+                message: '.sipbridge.control.v1.ContextSnapshot'
             },
             message: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.SipMessage'
+                message: '.sipbridge.control.v1.SipMessage'
             },
             operationId: {
                 kind: 'string',
@@ -1398,20 +1338,20 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ContextInspect': {
+    '.sipbridge.control.v1.ContextInspect': {
         fields: {
             context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
+                message: '.sipbridge.control.v1.ContextRef'
             }
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.ContextDelivery': {
+    '.sipbridge.control.v1.ContextDelivery': {
         fields: {
             flow: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef'
+                message: '.sipbridge.control.v1.FlowRef'
             },
             nativeRevision: {
                 kind: 'uint64',
@@ -1428,15 +1368,15 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.FlowAdoptionRequest': {
+    '.sipbridge.control.v1.FlowAdoptionRequest': {
         fields: {
             context: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
+                message: '.sipbridge.control.v1.ContextRef'
             },
             application: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
+                message: '.sipbridge.control.v1.ProcessRef'
             },
             principalId: {
                 kind: 'string',
@@ -1448,7 +1388,7 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             flow: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef'
+                message: '.sipbridge.control.v1.FlowRef'
             },
             nativeRevision: {
                 kind: 'uint64',
@@ -1460,107 +1400,14 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         },
         oneofs: []
     },
-    '.sipbridge.control.v2.FlowAdoptionResult': {
+    '.sipbridge.control.v1.FlowAdoptionResult': {
         fields: {
             receipt: {
                 kind: 'message',
-                message: '.sipbridge.control.v2.ContextDelivery'
+                message: '.sipbridge.control.v1.ContextDelivery'
             },
             error: {
                 kind: 'string'
-            }
-        },
-        oneofs: []
-    },
-    '.sipbridge.control.v2.ContextReconcile': {
-        fields: {
-            context: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
-            },
-            fromDirectoryEpoch: {
-                kind: 'string',
-                alias: 'from_directory_epoch'
-            },
-            directoryEpoch: {
-                kind: 'string',
-                alias: 'directory_epoch'
-            }
-        },
-        oneofs: []
-    },
-    '.sipbridge.control.v2.AuthorityReconcile': {
-        fields: {
-            snapshot: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.ContextSnapshot'
-            },
-            fromDirectoryEpoch: {
-                kind: 'string',
-                alias: 'from_directory_epoch'
-            },
-            directoryEpoch: {
-                kind: 'string',
-                alias: 'directory_epoch'
-            },
-            token: {
-                kind: 'string'
-            },
-            barrierRevision: {
-                kind: 'uint64',
-                alias: 'barrier_revision'
-            },
-            origin: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.SipMessage'
-            },
-            completionScope: {
-                kind: 'string',
-                alias: 'completion_scope'
-            },
-            flow: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.FlowRef'
-            }
-        },
-        oneofs: []
-    },
-    '.sipbridge.control.v2.AuthorityReceipt': {
-        fields: {
-            context: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.ContextRef'
-            },
-            application: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.ProcessRef'
-            },
-            fromDirectoryEpoch: {
-                kind: 'string',
-                alias: 'from_directory_epoch'
-            },
-            directoryEpoch: {
-                kind: 'string',
-                alias: 'directory_epoch'
-            },
-            token: {
-                kind: 'string'
-            },
-            barrierRevision: {
-                kind: 'uint64',
-                alias: 'barrier_revision'
-            },
-            completionScope: {
-                kind: 'string',
-                alias: 'completion_scope'
-            },
-            delivery: {
-                kind: 'message',
-                message: '.sipbridge.control.v2.ContextDelivery'
-            },
-            ownerLost: {
-                kind: 'boolean',
-                alias: 'owner_lost'
             }
         },
         oneofs: []

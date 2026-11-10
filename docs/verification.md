@@ -31,8 +31,8 @@ qualification. Shared-state deployment tests must explicitly select Redis.
 Without `SIPBRIDGE_STATE_TEST_REDIS`, state/engine/startup integration tests may skip.
 An unconfigured `go test -race ./...` is useful locally but is not the Redis-enabled
 qualification gate. CI supplies volatile Redis with `noeviction` and explicitly sets
-the variable. Tests with native 3/9 leases/admission provide current service-path
-evidence; historical 1/7 assertions remain separately named test-only compatibility
+the variable. Tests with native 1/1 leases/admission provide current service-path
+evidence; historical 1/7 assertions remain separately named test-only fixture
 coverage, never an alternative service setting.
 
 ```sh

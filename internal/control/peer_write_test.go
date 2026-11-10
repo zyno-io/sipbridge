@@ -58,7 +58,7 @@ func blockedControlPeer(t *testing.T, writeTimeout time.Duration) (*Peer, *contr
 		}, nil
 	})}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	connection, _, err := websocket.Dial(ctx, "ws://control.invalid/v2/control", &websocket.DialOptions{HTTPClient: client})
+	connection, _, err := websocket.Dial(ctx, "ws://control.invalid/v1/control", &websocket.DialOptions{HTTPClient: client})
 	cancel()
 	if err != nil {
 		local.Close()

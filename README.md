@@ -144,10 +144,10 @@ safe SIP-process replacement procedure. See the
 [runtime method policy](docs/runtime.md#process-local-method-policy).
 
 `--require-auth-methods=REGISTER,INVITE,SUBSCRIBE` optionally moves missing-credential
-initial 401 challenges into sipbridge. It requires an upgraded controller negotiating
+initial 401 challenges into sipbridge. It requires a controller negotiating
 `sip.local-challenge.v1` and publishing a finite issuance policy. Digest verification
-and account/replay authorization remain in the controller and its account backend; neither passwords nor the
-broad trusted RPC secret are copied into sipbridge. Nonces fit Cisco's 127-character
+and account/replay authorization remain in the controller and its account backend; neither passwords nor
+application secrets are copied into sipbridge. Nonces fit Cisco's 127-character
 buffer. Empty configuration preserves existing admission. ACK/CANCEL and retained
 dialog traffic are not challenged. See the
 [local challenge contract](PROTOCOL.md#local-initial-digest-challenges) before activation.

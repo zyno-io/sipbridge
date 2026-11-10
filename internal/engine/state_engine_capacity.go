@@ -128,6 +128,9 @@ func (r *stateReduction) reserveEmission(c *stateContext, tx *stateTransaction, 
 func (r *stateReduction) reclaimEffects() error {
 	retained := r.payload.Effects[:0]
 	for _, effect := range r.payload.Effects {
+		if !stateSupportedEffectKind(effect.Kind) {
+			return state.ErrCorrupt
+		}
 		terminal := effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten || effect.Status == state.EffectCancelled
 		if !terminal {
 			retained = append(retained, effect)

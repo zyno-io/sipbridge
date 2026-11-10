@@ -169,12 +169,6 @@ func stateCanonicalReply(reply *pb.Envelope) *pb.Envelope {
 }
 
 func stateValidateRetainedInput(in stateEngineInput) error {
-	if in.Command != nil {
-		target := in.Command.GetOpenUac().GetNetwork()
-		if target != nil && (target.Password != "" || target.Username != "") {
-			return errors.New("credential reference required")
-		}
-	}
 	if in.Reply != nil && in.Reply.GetCredentialResult() != nil {
 		return errors.New("transient credential result cannot be retained")
 	}

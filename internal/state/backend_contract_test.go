@@ -15,7 +15,7 @@ import (
 
 func contractConfig() Config {
 	return Config{Namespace: "contract-" + uuid.NewString(), NamespaceKey: bytes.Repeat([]byte{23}, 32),
-		Versions: Versions{Schema: "2", Reducer: "9", Timers: "1"}, Partitions: 2,
+		Versions: Versions{Schema: "1", Reducer: "1", Timers: "1"}, Partitions: 2,
 		Limits: Limits{GroupBytes: 32 << 10, InputBytes: 1024, OutcomeBytes: 64, Receipts: 4}}
 }
 func backendContract(t *testing.T, test func(*testing.T, Backend)) {
@@ -30,7 +30,7 @@ func backendContract(t *testing.T, test func(*testing.T, Backend)) {
 	})
 	t.Run("redis", func(t *testing.T) {
 		s := testStore(t, func(cfg *Config) {
-			cfg.Versions = Versions{Schema: "2", Reducer: "9", Timers: "1"}
+			cfg.Versions = Versions{Schema: "1", Reducer: "1", Timers: "1"}
 			cfg.Limits = contractConfig().Limits
 		})
 		readyStore(t, s)

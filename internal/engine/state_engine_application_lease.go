@@ -16,7 +16,7 @@ func (e *StateEngine) applicationLeaseID(application *pb.ProcessRef) string {
 }
 
 func (e *StateEngine) autonomousCompletion() bool {
-	return e.store != nil && e.store.Versions() == (state.Versions{Schema: "3", Reducer: "9", Timers: "1"})
+	return e.store != nil && e.store.Versions() == NativeStateVersions()
 }
 
 // ApplicationLease is called only for the authenticated current control session.

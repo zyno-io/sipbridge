@@ -16,8 +16,8 @@ and command outcomes. The complete rules for every field are in
 
 | Item | Value |
 | --- | --- |
-| URL | `wss://<sipbridge control endpoint>/v2/control` |
-| Subprotocol | `sipbridge.control.json.v2` |
+| URL | `wss://<sipbridge control endpoint>/v1/control` |
+| Subprotocol | `sipbridge.control.json.v1` |
 | Authentication | mTLS by default, or explicit bearer mode; see [Identities and TLS](../guide/security.md#control-connection) |
 | `Origin` header | Must be absent |
 | Compression | Disabled |

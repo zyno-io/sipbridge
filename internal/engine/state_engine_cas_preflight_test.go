@@ -67,7 +67,6 @@ func TestStateCASReservationReadsOnceAndCannotReplayLegacyWireProof(t *testing.T
 		t.Fatal(err)
 	}
 	copy := proto.Clone(write).(*pb.FlowWrite)
-	copy.Wire = nil
 	input := stateEngineInput{Kind: "reserve", Context: write.Effect.Context, Executor: f.engine.cfg.Process, Write: copy, Effect: write.Effect.Id}
 	data, err := json.Marshal(input)
 	if err != nil {

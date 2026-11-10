@@ -40,9 +40,8 @@ Negotiating `sip.controller-reattach.v1` creates a recoverable owner with a
 five-second lease and a ten-second reattach grace. Normal control exchanges renew
 the live lease. The orphan deadline is the old lease expiry plus the frozen grace,
 not the time a worker notices expiry. The default loss/recovery budget is therefore
-15 seconds from the last renewal, leaving room within an unchanged 30-second
-external media timeout. Recovery attempts, reads and failed attachment never
-extend that original deadline. There are no RTC or media-server timeout changes.
+15 seconds from the last renewal. Recovery attempts, reads and failed attachment
+never extend that original deadline.
 Non-recoverable owners retain their existing lease and cleanup behavior.
 
 The first successful hello returns a recovery token. A replacement process sends
@@ -93,10 +92,9 @@ process; Redis requires the same compatible retained state authority. Neither a
 SIP-core restart that loses sockets nor a media-process restart is repaired by
 controller reattachment.
 
-## Consumer boundary
+## Controller responsibilities
 
-This change provides sipbridge recovery only. RTC and other applications may
-implement checkpointing and call/media recovery separately. Existing consumers
-need the v2 wire/generated contract and image receipt when they upgrade; recovery
-is optional. No private SDK, routing tunnel or account service is a runtime
-requirement of sipbridge.
+The controller saves its recovery handle, checkpoints its application state and
+reconciles retained SIP contexts before becoming ready. It also restores any
+application-managed resources needed to continue a call. Recovery is optional
+and available through the public v2 control contract.

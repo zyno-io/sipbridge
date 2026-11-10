@@ -27,9 +27,8 @@ reconnects and heartbeats during pending restoration do not restart the grace.
 Use the deadline in the recovery receipt; do not assume you get a fresh window
 when your replacement process starts.
 
-The 15-second default budget leaves room within a 30-second external media timeout,
-but sipbridge does not reconnect media for you. Both SIP and media must still be
-available, and your application must finish recovery in their remaining windows.
+This deadline covers the SIP state retained by sipbridge. Your controller restores
+its own application state and coordinates any other resources it uses.
 
 ## Save a checkpoint
 
@@ -142,7 +141,3 @@ Memory state supports controller restart only while the same sipbridge process
 stays alive. Redis requires the same compatible retained state authority. Neither
 mode can recover a lost physical socket or recreate erased SIP state. A restarted
 media process also loses its sessions independently.
-
-RTC Session Gateway has not yet implemented this process-recovery path. It still
-needs its own checkpointing, native reattachment and media reattachment work;
-sipbridge support alone does not change that consumer's disconnect behavior.

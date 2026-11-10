@@ -42,11 +42,6 @@ jobs:
 
       - name: Build VitePress site
         working-directory: docs
-        env:
-          # Optional repository variables; unset values fall back to the
-          # canonical repository configured in docs/.vitepress/config.ts.
-          SIPBRIDGE_DOCS_REPOSITORY_URL: ${{ vars.SIPBRIDGE_DOCS_REPOSITORY_URL }}
-          SIPBRIDGE_DOCS_SOURCE_URL: ${{ vars.SIPBRIDGE_DOCS_SOURCE_URL }}
         run: npm run docs:build
 
       - name: Check built links and anchors

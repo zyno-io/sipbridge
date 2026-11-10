@@ -1,8 +1,8 @@
 # Development
 
-This page is for people changing sipbridge itself. The source is in the
-[GitLab repository](https://git.s24.dev/signal24/oss/sipbridge); the GitHub
-repository holds only the documentation site.
+This page is for people changing sipbridge itself. The public project home is
+[the sipbridge repository](https://github.com/zyno-io/sipbridge). The commands
+below run from a sipbridge source checkout.
 
 The specification documents are the design record, and each one covers a
 particular area: [Architecture](../spec/architecture.md) for components and
@@ -27,7 +27,10 @@ in [AGENTS.md](../../AGENTS.md).
 | `internal/controlpb` | Go types generated from the control schema. |
 | `internal/capture` | Optional SIP capture exporter. |
 | `third_party/sipgo` | The pinned copy of the SIP library. Never edited in place. |
-| `dependencies` | Version pins, checksums and the read-only copy of the control schema. |
+| `proto` | Canonical control schema and shared contract fixtures. |
+| `dependencies` | Version pins, checksums and distributed schema copy. |
+| `tools/protocol` | Pinned standalone schema/code generation tools. |
+| `generated/typescript` | Public TypeScript bindings and strict JSON validation. |
 | `docs` | Specification documents and this documentation site. |
 
 ## Rules that protect correctness
@@ -37,8 +40,10 @@ in [AGENTS.md](../../AGENTS.md).
 - Never edit `third_party/sipgo`. It is verified against
   `dependencies/sipgo.json` and its checksum manifest. Generate test fixtures
   for the library only in the disposable copy made by `scripts/test-native.sh`.
-- Do not edit generated control code or the schema copy by hand. The schema's
-  home is the Talk platform repository; regenerate there.
+- Keep the protocol schema, generated control code and recorded hashes in
+  agreement. Change the schema before updating the code that produces or
+  consumes its messages, and verify the generated output rather than editing it
+  by hand.
 - The state store is the only place protocol state lives. Do not add a second
   in-process copy that the service treats as the truth, with either backend.
 - Never add real credentials to tests or artifacts.
@@ -50,7 +55,7 @@ of checks, and what each one covers, is in [Verification](../verification.md).
 
 ```sh
 python3 scripts/verify_dependency.py            # pinned SIP library
-python3 scripts/verify_control_schema.py        # control schema snapshot hashes
+python3 scripts/verify_control_schema.py        # local protocol and generated contract hashes
 test -z "$(gofmt -l cmd internal)" && go vet ./...
 go build -o bin/sipbridge ./cmd/sipbridge
 ```
@@ -96,7 +101,7 @@ things:
 | Service tests | Go race tests, Redis process tests and startup tests against `cmd/sipbridge` | The service behaves as specified when talking to simulated controllers and SIP peers on one machine. |
 | Test programs | `cmd/sipbridge-control`, `cmd/sipbridge-fixture`, the older "1/7" reducer fixtures | One isolated piece works. These programs are not the service. |
 | Dated notes | Entries in [Verification](../verification.md) | What an earlier build did on that date. |
-| Proposals | Drain protocol, context inventory and output queues in PROTOCOL.md | A design that has not been implemented. |
+| Proposals | Drain protocol, global context inventory and output queues in PROTOCOL.md | A design that has not been implemented. |
 
 The automated tests use simulated peers rather than real phones, carriers or
 heavy load, so describe a result in terms of what was actually run.
@@ -121,24 +126,25 @@ the site through wrapper pages in `docs/spec/`; edit the root files, not the
 wrappers. Write relative links as they should work when browsing the
 repository. At build time, links to site pages become site links and links to
 other repository files become links to the source.
-`SIPBRIDGE_DOCS_REPOSITORY_URL` and `SIPBRIDGE_DOCS_SOURCE_URL` override where
-source links point.
+Public source links always point to the GitHub project repository.
 
 `docs/upstream/` holds proposals for the upstream SIP library and is not
 published on the site. The build fails on dead internal links.
 
-Canonical GitLab CI validates the site before `scripts/publish-docs.sh` exports
-only documentation, root specification files, the link checker and the Pages
-workflow to the public GitHub docs repository. It never exports runtime source
-or private Git history. The publisher uses a protected, masked project variable
-`SIPBRIDGE_DOCS_GITHUB_SSH_KEY_B64` containing a repository-scoped write deploy
-key; SSH verifies GitHub's pinned host key. Publication is serialized and uses
-normal fast-forward pushes, so conflicting publication fails rather than
-overwriting history. Make edits in canonical GitLab.
+The [GitHub Pages site](https://zyno-io.github.io/sipbridge/) is built and
+published by `.github/workflows/docs.yml`. Before publishing a documentation
+change, build the site and run `python3 scripts/check-docs-links.py` from the
+repository root to check links and heading anchors.
 
-Adding or changing the GitHub Actions workflow requires a maintainer identity
-with workflow authority. The initial workflow is seeded through maintainer SSH;
-the scoped CI key publishes ordinary documentation changes. If GitHub rejects a
-workflow update for missing OAuth `workflow` scope, publish that reviewed
-canonical revision with maintainer SSH (`bash scripts/publish-docs.sh`) before
-retrying CI. Do not broaden the CI key to a user credential.
+## Protocol generation
+
+The schema and its shared JSON/digest fixtures live under `proto/`. Generation
+needs no other checkout. Install the pinned Node dependencies with
+`npm ci --prefix tools/protocol`, then run `node scripts/generate-control.mjs`.
+Use protoc 3.21.12 and protoc-gen-go 1.36.12; environment variables
+`SIPBRIDGE_PROTOC` and `SIPBRIDGE_PROTOC_GEN_GO` can select their executables.
+
+`python3 scripts/verify_control_schema.py --regenerate` reproduces every
+distributed file and verifies its receipt. `npm test --prefix tools/protocol`
+strict-compiles the TypeScript distribution and runs the shared JSON cases.
+See the [protocol source README](../../proto/README.md) for artifact paths.

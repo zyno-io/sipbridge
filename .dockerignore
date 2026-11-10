@@ -1,0 +1,5 @@
+.git
+artifacts
+bin
+.cache
+__pycache__

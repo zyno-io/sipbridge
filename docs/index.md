@@ -22,9 +22,9 @@ features:
   - title: SIP handled for you
     details: sipbridge listens on UDP, TCP and TLS and takes care of transactions, dialogs, retransmissions and timers, using a pinned build of the sipgo library. Your code never implements a SIP state machine.
   - title: Your application decides
-    details: A controller you write connects over a mutually authenticated WebSocket and exchanges JSON messages. It authenticates accounts, routes requests and chooses responses. sipbridge stores no accounts or passwords.
+    details: A controller you write connects over an authenticated WebSocket and exchanges JSON messages. Choose default mTLS or explicit bearer authentication. It authenticates accounts, routes requests and chooses responses. sipbridge stores no accounts or passwords.
   - title: Connections outlive your deploys
-    details: Phones and trunks connect to sipbridge, not to your application. Restarting or redeploying the controller leaves those connections open, although a call in progress ends if the controller process that owns it goes away.
+    details: Phones and trunks connect to sipbridge. A controller that saves its recovery handle can reattach a replacement process within the negotiated timeout and restore established calls; the SIP process and media must remain available.
   - title: Start in memory, share with Redis
     details: A single instance keeps its state in memory and needs no external datastore; that state is lost when it restarts. Select Redis when several instances need to share state.
   - title: Clear delivery results

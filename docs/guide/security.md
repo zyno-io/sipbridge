@@ -8,7 +8,7 @@ and metrics. Put them on separate networks where you can.
 
 | Surface | Flag | Authentication |
 | --- | --- | --- |
-| Control | `--control-listen` | Mutual TLS. Client chain must verify against `--client-ca`, and the leaf must carry an allowed URI SAN. |
+| Control | `--control-listen` | mTLS by default, or explicit bearer authentication. TLS is default; plain bearer control is loopback-only. |
 | Public SIP over TLS | `--sip-listen` | Server-only TLS. Phones and trunks are not asked for client certificates. |
 | Public SIP over UDP/TCP | `--sip-plain-listen` | None at the transport layer. |
 | Admin | `--admin-listen` | None. Plain HTTP; defaults to loopback. |
@@ -17,53 +17,56 @@ All TLS listeners require TLS 1.2 or later.
 
 ## Control connection
 
-The control connection uses mutual TLS: sipbridge proves its identity to the
-controller with a server certificate, and the controller proves its identity to
-sipbridge with a client certificate. A controller opens:
+The default is mutual TLS: sipbridge proves its server identity and checks the
+controller's client certificate chain plus an exact URI SAN from
+`--allowed-client-uri`. A shared CA alone, common name or IP address does not
+identify an allowed controller.
 
 ```text
-wss://<sipbridge control endpoint>/v1/control
-Sec-WebSocket-Protocol: sipbridge.control.json.v1
+wss://<sipbridge control endpoint>/v2/control
+Sec-WebSocket-Protocol: sipbridge.control.json.v2
 ```
 
-sipbridge accepts the connection only when all of these hold:
+All modes require `GET /v2/control` without a query string, the v2 subprotocol,
+no `Origin` header and text frames. Authentication completes before the upgrade
+or any process/owner claim. A failed mTLS handshake never falls back to bearer.
 
-1. The client presented a certificate whose chain verifies against `--client-ca`.
-2. That certificate has a URI subject alternative name (URI SAN) exactly equal
-   to one entry of `--allowed-client-uri`. Being signed by the trusted CA is not
-   enough by itself, and neither is a matching common name or source IP. This
-   lets you share one CA across many services while allowing only your
-   controllers to connect.
-3. The request is `GET /v1/control` with no query string.
-4. The request has **no** `Origin` header. Browser-originated upgrades are refused.
-5. The client offered the `sipbridge.control.json.v1` subprotocol.
-6. Fewer than 64 control sessions are active.
+### Bearer authentication
 
-WebSocket compression is disabled. On its side, the controller must verify
-sipbridge's certificate chain and check that the certificate names the endpoint
-it meant to reach.
+Choose `--control-auth=bearer` with `--control-bearer-token-file` and a stable
+`--control-principal`. The controller sends `Authorization: Bearer <token>` in
+the upgrade request. TLS still verifies sipbridge's server certificate, but the
+controller needs no client certificate. Do not supply `--client-ca` or
+`--allowed-client-uri` in this mode.
 
-### What the client certificate proves
+Generate a token file without displaying it:
 
-The certificate proves that the peer is one of your controllers. It does not
-prove *which* controller process it is. If all your controller replicas share
-one certificate, sipbridge tells them apart by the `instanceId` and `epoch` they
-state in `hello`, and it takes their word for it (it only checks the claim
-against sessions it already knows about). So give controller certificates only
-to software you trust to identify itself honestly.
+```sh
+umask 077
+openssl rand -hex 32 > control-token
+```
 
-The identities have to line up as in this example, which uses made-up values:
+The token is 32–4,096 printable non-space ASCII bytes. It may end with exactly one
+LF or CRLF; additional newlines are rejected.
+Keep the principal stable across token rotations and controller restarts. It is
+the ownership identity, while each hello still carries the actual process epoch.
 
-| Setting | Value |
-| --- | --- |
-| Controller certificate URI SAN | `spiffe://example.test/sip-controller` |
-| `--allowed-client-uri` | `spiffe://example.test/sip-controller` |
-| sipbridge control certificate DNS SAN | `sipbridge-0.control.example.test` |
-| Controller dial target / TLS server name | `sipbridge-0.control.example.test` |
-| `--instance` | `sipbridge-0` |
+### Local plain WebSocket
 
-Several URI identities can be allowed with a comma-separated list, for example
-during controller identity rotation.
+A local standalone controller can use plain WebSocket with these control flags,
+in addition to the SIP listener options from [Getting Started](./getting-started.md):
+
+```sh
+--control-auth=bearer \
+--control-transport=plain \
+--control-listen=127.0.0.1:8443 \
+--control-bearer-token-file=control-token \
+--control-principal=local-controller
+```
+
+Use `ws://127.0.0.1:8443/v2/control`. Control TLS flags must be omitted, and a
+non-loopback listener is rejected. Bearer authentication remains required.
+Public SIP TLS and account authentication are separate settings and rules.
 
 ## Public SIP TLS
 
@@ -90,8 +93,10 @@ transport.
 
 ## Credential reload
 
-You can renew certificates without restarting sipbridge. It re-reads its
-certificate, key and CA files every five seconds.
+You can renew control credentials without restarting sipbridge. Configured
+certificate/key/CA files and bearer token files are re-read every five seconds.
+A valid bearer replacement applies to new upgrades; an invalid replacement keeps
+the previous token. Existing sessions retain their authenticated principal.
 
 - A changed, valid set takes effect for **new** handshakes. Existing SIP and
   control connections stay open and keep working.

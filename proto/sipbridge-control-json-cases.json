@@ -1,0 +1,322 @@
+[
+    {
+        "name": "hello maximum uint64",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"controller\":{\"instanceId\":\"controller\",\"epoch\":\"epoch\"},\"connectionAttempt\":\"18446744073709551615\",\"major\":2,\"bounds\":{\"maxEnvelopeBytes\":4096}}}"
+    },
+    {
+        "name": "optional unknown fields",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"ping\":{\"nonce\":\"ping\",\"future\":{\"value\":[true,null,4]}},\"future\":{\"enabled\":true}}"
+    },
+    {
+        "name": "binary payload and counter",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"write\":{\"wire\":\"AP+AQQ==\",\"bindingRevision\":\"9007199254740993\"}}"
+    },
+    {
+        "name": "symbolic enum",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"delivery\":{\"outcome\":\"UNKNOWN\"}}"
+    },
+    {
+        "name": "empty command marker",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"command\":{\"sequence\":\"0\",\"cancel\":{}}}"
+    },
+    {
+        "name": "map values and repeated messages",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"ingress\":{\"message\":{\"headers\":[{\"name\":\"X-Test\",\"value\":\"ok\"}],\"addresses\":{\"to\":{\"values\":[{\"uri\":\"sip:a@test\",\"params\":{\"tag\":\"abc\",\"__proto__\":\"safe\"}}]}}}}}"
+    },
+    {
+        "name": "integer source port",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"ingress\":{\"flow\":{\"sourcePort\":65535}}}"
+    },
+    {
+        "name": "missing payload",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\"}"
+    },
+    {
+        "name": "unknown operation",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"futureOperation\":{}}"
+    },
+    {
+        "name": "multiple payload variants",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ping\":{\"nonce\":\"a\"},\"pong\":{\"nonce\":\"b\"}}"
+    },
+    {
+        "name": "missing command action",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"command\":{\"sequence\":\"1\"}}"
+    },
+    {
+        "name": "multiple command actions",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"command\":{\"cancel\":{},\"respond\":{}}}"
+    },
+    {
+        "name": "numeric uint64",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"connectionAttempt\":9007199254740993}}"
+    },
+    {
+        "name": "uint64 overflow",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"connectionAttempt\":\"18446744073709551616\"}}"
+    },
+    {
+        "name": "uint64 leading zero",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"connectionAttempt\":\"01\"}}"
+    },
+    {
+        "name": "uint64 negative",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"connectionAttempt\":\"-1\"}}"
+    },
+    {
+        "name": "uint64 exponent",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"connectionAttempt\":\"1e3\"}}"
+    },
+    {
+        "name": "uint64 plus",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"connectionAttempt\":\"+1\"}}"
+    },
+    {
+        "name": "uint64 empty",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"connectionAttempt\":\"\"}}"
+    },
+    {
+        "name": "null known field",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"connectionAttempt\":null}}"
+    },
+    {
+        "name": "string boolean",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"status\":{\"retainedReady\":\"true\"}}"
+    },
+    {
+        "name": "numeric string uint32",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"major\":\"1\"}}"
+    },
+    {
+        "name": "fractional uint32",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"major\":2.5}}"
+    },
+    {
+        "name": "overflow uint32",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"major\":4294967296}}"
+    },
+    {
+        "name": "negative uint32",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"major\":-1}}"
+    },
+    {
+        "name": "unknown enum",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"delivery\":{\"outcome\":\"FUTURE\"}}"
+    },
+    {
+        "name": "numeric enum",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"delivery\":{\"outcome\":1}}"
+    },
+    {
+        "name": "invalid base64",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"write\":{\"wire\":\"??==\"}}"
+    },
+    {
+        "name": "unpadded base64",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"write\":{\"wire\":\"YQ\"}}"
+    },
+    {
+        "name": "noncanonical base64 pad bits",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"write\":{\"wire\":\"YR==\"}}"
+    },
+    {
+        "name": "URL-safe base64",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"write\":{\"wire\":\"_w==\"}}"
+    },
+    {
+        "name": "snake case alias",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"connection_attempt\":\"1\"}}"
+    },
+    {
+        "name": "scalar message",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ping\":\"hello\"}"
+    },
+    {
+        "name": "array message",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ping\":[]}"
+    },
+    {
+        "name": "object repeated field",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"capabilities\":{}}}"
+    },
+    {
+        "name": "null repeated entry",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"capabilities\":[null]}}"
+    },
+    {
+        "name": "scalar map",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ingress\":{\"message\":{\"addresses\":\"bad\"}}}"
+    },
+    {
+        "name": "null map value",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ingress\":{\"message\":{\"addresses\":{\"to\":null}}}}"
+    },
+    {
+        "name": "duplicate key",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ping\":{\"nonce\":\"a\",\"nonce\":\"b\"}}"
+    },
+    {
+        "name": "escaped duplicate key",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ping\":{\"nonce\":\"a\",\"\\u006eonce\":\"b\"}}"
+    },
+    {
+        "name": "duplicate unknown optional key",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ping\":{},\"future\":{\"a\":1,\"a\":2}}"
+    },
+    {
+        "name": "trailing JSON",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ping\":{}} {}"
+    },
+    {
+        "name": "invalid syntax",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ping\":{"
+    },
+    {
+        "name": "escaped punctuation inside strings",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"ping\":{\"nonce\":\"\\\\\\\"[{\\\\\\\"nonce\\\\\\\":1}]\"}}"
+    },
+    {
+        "name": "Unicode surrogate pair",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"ping\":{\"nonce\":\"\\ud83d\\ude00\"}}"
+    },
+    {
+        "name": "unpaired high surrogate",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ping\":{\"nonce\":\"\\ud800\"}}"
+    },
+    {
+        "name": "unpaired low surrogate",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ping\":{\"nonce\":\"\\udc00\"}}"
+    },
+    {
+        "name": "invalid Unicode map key",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"ingress\":{\"message\":{\"addresses\":{\"\\ud800\":{}}}}}"
+    },
+    {
+        "name": "integer uint32 exponent",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"hello\":{\"major\":2e2}}"
+    },
+    {
+        "name": "maximum accepted nesting",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"ping\":{},\"future\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}"
+    },
+    {
+        "name": "uint64 trailing newline",
+        "valid": false,
+        "json": "{\"correlationId\": \"case\", \"hello\": {\"connectionAttempt\": \"1\\n\"}}"
+    },
+    {
+        "name": "explicit context reconciliation",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"reconcileContext\":{\"context\":{\"id\":\"context\"},\"fromDirectoryEpoch\":\"old\",\"directoryEpoch\":\"new\"}}"
+    },
+    {
+        "name": "barrier authority unsigned revision",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"reconcileAuthority\":{\"token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"barrierRevision\":\"18446744073709551615\",\"snapshot\":{\"directoryEpoch\":\"old\"},\"origin\":{\"wire\":\"SU5WSVRF\"}}}"
+    },
+    {
+        "name": "immutable authority receipt",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"authorityReceipt\":{\"barrierRevision\":\"9007199254740993\",\"directoryEpoch\":\"new\",\"delivery\":{\"nativeRevision\":\"9007199254740993\"}}}"
+    },
+    {
+        "name": "numeric barrier revision",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"reconcileAuthority\":{\"barrierRevision\":9007199254740993}}"
+    },
+    {
+        "name": "invalid authority receipt delivery revision",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"authorityReceipt\":{\"delivery\":{\"nativeRevision\":\"-1\"}}}"
+    },
+    {
+        "name": "conflicting reconciliation payloads",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"reconcileContext\":{},\"authorityReceipt\":{}}"
+    },
+    {
+        "name": "completion-only authority receipt",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"authorityReceipt\":{\"ownerLost\":true}}"
+    },
+    {
+        "name": "invalid completion-only authority receipt flag",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"authorityReceipt\":{\"ownerLost\":\"true\"}}"
+    },
+    {
+        "name": "controller recovery attachment",
+        "valid": true,
+        "json": "{\"correlationId\":\"reattach\",\"hello\":{\"controller\":{\"instanceId\":\"controller-b\",\"epoch\":\"new-process\"},\"connectionAttempt\":\"1\",\"major\":2,\"capabilities\":[\"sip.controller-reattach.v1\"],\"bounds\":{\"maxEnvelopeBytes\":4096},\"recovery\":{\"application\":{\"instanceId\":\"controller-a\",\"epoch\":\"original-process\"},\"term\":\"original-term\",\"token\":\"synthetic-recovery-proof\",\"attemptId\":\"reattach-1\",\"attachmentGeneration\":\"2\"}}}"
+    },
+    {
+        "name": "controller context inventory",
+        "valid": true,
+        "json": "{\"correlationId\":\"list\",\"controllerContexts\":{\"cursor\":\"opaque-cursor\",\"limit\":64}}"
+    },
+    {
+        "name": "controller context inventory result",
+        "valid": true,
+        "json": "{\"correlationId\":\"list\",\"controllerContextsResult\":{\"contexts\":[{\"id\":\"retained-context\"}],\"cursor\":\"next-cursor\"}}"
+    },
+    {
+        "name": "noncanonical numeric attachment generation",
+        "valid": false,
+        "json": "{\"correlationId\":\"reattach\",\"hello\":{\"recovery\":{\"attachmentGeneration\":2}}}"
+    },
+    {
+        "name": "invalid inventory limit",
+        "valid": false,
+        "json": "{\"correlationId\":\"list\",\"controllerContexts\":{\"limit\":-1}}"
+    }
+]

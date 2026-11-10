@@ -56,7 +56,7 @@ The controller answers `ingress` with a `routeResult` whose `outcome` is one of:
 | Outcome | What sipbridge does |
 | --- | --- |
 | `ACCEPTED` | Nothing more at this stage; the controller has admitted the request with `ingest`. |
-| `REDIRECT` | Asks the controller named in `routeResult.nexus` instead. That controller must have a session open, or the request gets `503`. A request can be redirected at most twice, never to a controller already asked, and the original deadline keeps running. |
+| `REDIRECT` | Asks the controller named in `routeResult.controller` instead. That controller must have a session open, or the request gets `503`. A request can be redirected at most twice, never to a controller already asked, and the original deadline keeps running. |
 | `REJECTED` | Sends the SIP status in `routeResult.sipStatus` to the client, where SIP allows a response. |
 | `UNAVAILABLE` | Fails the request, normally with `503`. |
 
@@ -121,3 +121,14 @@ PROTOCOL.md describes a drain protocol (`drain.begin`, `drain.status`,
 `drain.complete`), a way to list an instance's contexts page by page, and
 bounded output queues. These are designs only. They are not in the schema or
 the service, so do not build against them yet.
+
+## Controller recovery inventory
+
+Negotiating `sip.controller-reattach.v1` enables `controllerContexts` and its
+`controllerContextsResult` reply. A request carries an optional opaque cursor and
+a limit up to 64. Cursors are opaque, contain no whitespace, and are limited to
+32,768 bytes; return the cursor unchanged. The reply contains at most 64 `ContextRef` values and the next
+cursor. Listing is confined to the authenticated logical owner and is allowed
+before ready status during recovery; it grants no new command authority.
+Deduplicate results and inspect each context instead of treating pagination as
+event replay. See [Controller Recovery](../guide/controller-recovery.md).

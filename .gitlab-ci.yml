@@ -1,0 +1,233 @@
+default:
+  interruptible: true
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+
+stages:
+  - lint
+  - test
+  - build
+  - release
+
+.go-base:
+  image: golang:1.24.2-bookworm@sha256:79390b5e5af9ee6e7b1173ee3eac7fadf6751a545297672916b59bfa0ecf6f71
+  variables:
+    GOFLAGS: -mod=readonly
+    GOMODCACHE: $CI_PROJECT_DIR/.cache/go-mod
+    GOCACHE: $CI_PROJECT_DIR/.cache/go-build
+  cache:
+    key:
+      prefix: go1242
+      files:
+        - go.sum
+        - third_party/sipgo/go.sum
+    paths:
+      - .cache/go-mod/
+      - .cache/go-build/
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 openssl > /dev/null
+    - python3 scripts/verify_dependency.py
+    - python3 scripts/verify_control_schema.py
+
+lint:
+  extends: .go-base
+  stage: lint
+  script:
+    - test -z "$(gofmt -l cmd internal)"
+    - go vet ./...
+
+test:unit:
+  extends: .go-base
+  stage: test
+  services:
+    - name: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+      alias: redis
+      command: [redis-server, --save, '', --appendonly, 'no', --maxmemory-policy, noeviction]
+  variables:
+    SIPBRIDGE_STATE_TEST_REDIS: redis:6379
+  script:
+    - go test -race ./...
+    - mkdir -p artifacts/redis-restart
+    - CGO_ENABLED=0 go test -tags=redis_restart -c -o artifacts/redis-restart/state-restart.test ./internal/state
+  artifacts:
+    paths:
+      - artifacts/redis-restart/state-restart.test
+    expire_in: 30 days
+
+test:redis-restart:
+  stage: test
+  image:
+    name: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    entrypoint: ['']
+  needs:
+    - job: test:unit
+      artifacts: true
+  script:
+    - ./artifacts/redis-restart/state-restart.test -test.run '^TestState(StandaloneRedisRestartTotalLoss|SentinelDiscoveryAuthority|RetainedAuthoritySurvivesRealSentinelPromotion|ScopedTLSAuthoritySurvivesRealSentinelPromotion)$' -test.count=1 -test.timeout=180s -test.v
+
+test:native:
+  extends: .go-base
+  stage: test
+  script:
+    - sh scripts/test-native.sh
+
+test:wire:
+  extends: .go-base
+  stage: test
+  script:
+    - go build -race -o bin/sipbridge-fixture ./cmd/sipbridge-fixture
+    - python3 test/run.py
+  artifacts:
+    when: always
+    paths:
+      - artifacts/qualification/reconnect-evidence.json
+    expire_in: 30 days
+
+.publish-base:
+  image: ghcr.io/zyno-io/container-tooling:latest
+  dependencies: []
+  variables:
+    BUILDAH_ISOLATION: chroot
+    STORAGE_DRIVER: vfs
+  before_script:
+    - printf '%s' "$CI_REGISTRY_PASSWORD" | buildah login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+
+.build-image:
+  extends: .publish-base
+  stage: build
+  needs:
+    - job: protocol:validate
+      artifacts: false
+    - job: lint
+      artifacts: false
+    - job: test:unit
+      artifacts: false
+    - job: test:native
+      artifacts: false
+    - job: test:wire
+      artifacts: false
+    - job: test:redis-restart
+      artifacts: false
+  script:
+    - bash scripts/ci-build-image.sh
+  artifacts:
+    paths:
+      - image.env
+      - image-version.txt
+      - image.digest
+    reports:
+      dotenv: image.env
+    expire_in: 30 days
+
+build:canary:
+  extends: .build-image
+  resource_group: canary-image
+  variables:
+    IMAGE_CHANNEL: canary
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+
+build:main:
+  extends: .build-image
+  resource_group: main-image
+  variables:
+    IMAGE_CHANNEL: main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+release:latest:
+  extends: .publish-base
+  stage: release
+  interruptible: false
+  resource_group: latest-image
+  needs:
+    - job: build:main
+      artifacts: true
+  dependencies:
+    - build:main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+  script:
+    - test "$(skopeo inspect --format '{{.Digest}}' "docker://${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}")" = "$SIPBRIDGE_IMAGE_DIGEST"
+    - skopeo copy --all --preserve-digests "docker://${CI_REGISTRY_IMAGE}@${SIPBRIDGE_IMAGE_DIGEST}" "docker://${CI_REGISTRY_IMAGE}:latest"
+
+# Validate the same site that the GitHub Pages publication workflow builds.
+docs:validate:
+  stage: lint
+  image: node:24-alpine
+  before_script:
+    - apk add --no-cache python3
+  script:
+    - npm ci --prefix docs --no-fund
+    - npm audit --prefix docs
+    - npm run docs:build --prefix docs
+    - python3 scripts/check-docs-links.py
+  artifacts:
+    paths:
+      - docs/.vitepress/dist/
+    expire_in: 7 days
+
+docs:publish:
+  stage: release
+  image:
+    name: alpine/git
+    entrypoint: ['']
+  resource_group: github-docs
+  needs:
+    - job: docs:validate
+      artifacts: false
+    - job: protocol:validate
+      artifacts: false
+    - job: lint
+      artifacts: false
+    - job: test:unit
+      artifacts: false
+    - job: test:native
+      artifacts: false
+    - job: test:wire
+      artifacts: false
+    - job: test:redis-restart
+      artifacts: false
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash openssh-client
+    - test -n "$SIPBRIDGE_DOCS_GITHUB_SSH_KEY_B64"
+  script:
+    - bash scripts/publish-docs.sh
+
+# Build the exact Go generator with the service's pinned Go toolchain.
+protocol:toolchain:
+  extends: .go-base
+  stage: lint
+  script:
+    - mkdir -p artifacts/protocol
+    - GOBIN="$CI_PROJECT_DIR/artifacts/protocol" CGO_ENABLED=0 go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+  artifacts:
+    paths:
+      - artifacts/protocol/protoc-gen-go
+    expire_in: 7 days
+
+# Canonical schema generation uses only this checkout and public pinned tools.
+protocol:validate:
+  stage: test
+  image: node:24.22.2-bookworm@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40
+  needs:
+    - job: protocol:toolchain
+      artifacts: true
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends protobuf-compiler python3 > /dev/null
+    - npm ci --prefix tools/protocol --no-fund
+  script:
+    - SIPBRIDGE_PROTOC_GEN_GO="$CI_PROJECT_DIR/artifacts/protocol/protoc-gen-go" python3 scripts/verify_control_schema.py --regenerate
+    - npm test --prefix tools/protocol

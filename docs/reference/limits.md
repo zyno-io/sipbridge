@@ -71,7 +71,9 @@ These timers govern how sipbridge detects a lost controller; see
 
 | Timer | Value |
 | --- | --- |
-| Controller lease lifetime | 30 seconds |
+| Ordinary controller lease lifetime | 30 seconds |
+| Recoverable controller lease / grace | 5 seconds / 10 seconds, fixed in this release |
+| Owner context inventory page / quota | 64 references / 4,096 references |
 | Lease renewal | At most every 2 seconds per session |
 | Grace period after a lease is first seen expired | 5 seconds |
 | Typical time to detect a lost controller | About 40 seconds after last renewal |

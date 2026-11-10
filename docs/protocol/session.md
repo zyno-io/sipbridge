@@ -18,9 +18,9 @@ supports.
 {
   "correlationId": "hello-1",
   "hello": {
-    "nexus": { "instanceId": "controller-a", "epoch": "boot-0001" },
+    "controller": { "instanceId": "controller-a", "epoch": "boot-0001" },
     "connectionAttempt": "1",
-    "major": 1,
+    "major": 2,
     "minMinor": 0,
     "maxMinor": 0,
     "capabilities": [
@@ -40,10 +40,10 @@ supports.
 
 | Field | Rule |
 | --- | --- |
-| `nexus.instanceId` | A stable name for this controller, such as its pod name. Pattern `[A-Za-z0-9_.:@+-]{1,96}`. (The field is called `nexus` after the first controller written for sipbridge.) |
-| `nexus.epoch` | A random value generated once each time the controller process starts, and never reused. It lets sipbridge tell a restarted controller from a reconnecting one. |
+| `controller.instanceId` | A stable name for this controller, such as its pod name. Pattern `[A-Za-z0-9_.:@+-]{1,96}`. |
+| `controller.epoch` | A random value generated once each time the controller process starts, and never reused. It lets sipbridge tell a restarted controller from a reconnecting one. |
 | `connectionAttempt` | A counter, sent as a `uint64` string, starting above zero and increased every time this process reconnects. |
-| `major` | Must be `1`. |
+| `major` | Must be `2`. |
 | `minMinor`, `maxMinor` | `minMinor` must be `0` and not exceed `maxMinor`. sipbridge selects minor `0`. |
 | `capabilities` | At most 32 unique strings. Entries sipbridge does not know are ignored. The required ones are listed in [Capabilities](./capabilities.md). |
 | `bounds.maxEnvelopeBytes` | The largest message you will send or accept, 512 to 1,048,576. It applies in both directions for the whole session. |
@@ -52,6 +52,15 @@ supports.
 it, the WebSocket closes with status `1008` and a reason that says why; they
 are listed in
 [Troubleshooting](../guide/troubleshooting.md#controller-cannot-connect).
+
+### Recovering an owner
+
+With `sip.controller-reattach.v1`, the first hello creates a recoverable owner.
+A replacement process sends its actual new `controller` identity plus
+`hello.recovery` containing the saved application, term, token, attachment
+generation and canonical UUID attempt ID. The same authenticated principal is
+required. See [Controller Recovery](../guide/controller-recovery.md) for timing,
+checkpointing, inventory and the ready-status barrier.
 
 ## helloAck
 
@@ -66,7 +75,7 @@ default values are left out:
   "helloAck": {
     "sipbridge": { "instanceId": "sipbridge-0", "epoch": "<sipbridge process UUID>" },
     "sessionId": "<session UUID>",
-    "major": 1,
+    "major": 2,
     "capabilities": [
       "sip.v1",
       "sip.state.v1",
@@ -84,7 +93,7 @@ default values are left out:
       "service": "sipbridge",
       "generation": "default",
       "primaryId": "<state authority ID>",
-      "schemaVersion": 2
+      "schemaVersion": 3
     },
     "applicationLease": {
       "application": { "instanceId": "controller-a", "epoch": "boot-0001" },
@@ -92,7 +101,7 @@ default values are left out:
         "service": "sipbridge",
         "generation": "default",
         "primaryId": "<state authority ID>",
-        "schemaVersion": 2
+        "schemaVersion": 3
       },
       "term": "<opaque owner term>",
       "checkedAtMs": "<uint64 milliseconds>",
@@ -108,7 +117,7 @@ default values are left out:
 | `sessionId` | Put this in every later message. |
 | `capabilities` | The capabilities both sides support, in the order the controller listed them. |
 | `stateAuthority` | Identifies sipbridge's state store. `service` is the namespace. With memory state, `primaryId` is new on every start, so if it differs from last time, the state you knew about is gone. |
-| `applicationLease` | The controller's lease, valid for about 30 seconds from `checkedAtMs` and renewed by heartbeats. Calls this controller sets up are tied to it; see [Owner lease](../guide/lifecycle.md#owner-lease). |
+| `applicationLease` | Ownership receipt. Ordinary owners use a 30-second lease; recoverable owners use `leaseLifetimeMs` (5,000) and `reattachTimeoutMs` (10,000). Save the stable application, term, token and generation; `holder` names the current process. See [Controller recovery](../guide/controller-recovery.md). |
 | `inboundAuthPolicy` | Present only with `--require-auth-methods`: `requireRegister`, `requireInvite`, `requireSubscribe`. |
 
 Keep the `stateAuthority` and `applicationLease` values. Later messages refer

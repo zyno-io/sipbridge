@@ -8,9 +8,9 @@ restarts sipbridge rarely and on purpose.
 
 ## Image
 
-The source code and CI live in the project's
-[GitLab repository](https://git.s24.dev/signal24/oss/sipbridge). The GitHub
-repository contains only this documentation, so build from a GitLab checkout:
+The public project home is the
+[sipbridge repository](https://github.com/zyno-io/sipbridge). To build your own
+image, run these commands from a sipbridge source checkout:
 
 ```sh
 SIPBRIDGE_IMAGE=sipbridge:local BUILD_VERSION=dev bash scripts/build-image.sh
@@ -19,11 +19,6 @@ docker run --rm sipbridge:local --version
 
 The script checks the included SIP library and control schema against their
 recorded checksums, then runs `docker build` with the current Git revision.
-
-GitLab CI also publishes images to the project's registry at
-`gcr.s24.dev/signal24/oss/sipbridge`. Every commit on `main` is tagged with its
-commit SHA and `main`; `latest` is moved by hand to a tested `main` image. If
-you cannot pull from that registry, build the image yourself as shown above.
 
 | Property | Value |
 | --- | --- |
@@ -104,7 +99,7 @@ check first depends on your state backend:
 - **Memory:** a restart loses state anyway, so there is nothing to keep
   compatible. Clients register again as after any restart.
 - **Redis:** all instances sharing a namespace must use the same state format
-  (currently schema 2, reducer 9, timers 1). Do not run builds with different
+  (currently schema 3, reducer 9, timers 1). Do not run builds with different
   state formats against one namespace.
 - **Controller:** your controller must still work with the capabilities the
   older sipbridge build offers. See

@@ -1,7 +1,7 @@
 # Service runtime contract
 
 This is the normative execution and bounds supplement to
-[ARCHITECTURE.md](../ARCHITECTURE.md). It describes the schema 2 / reducer 9 /
+[ARCHITECTURE.md](../ARCHITECTURE.md). It describes the schema 3 / reducer 9 /
 timers 1 CAS service. Historical claimed/relay execution is restricted to
 [test fixtures](fixtures.md); it is not a service configuration or recovery path.
 [PROTOCOL.md](../PROTOCOL.md) owns wire and business-admission semantics.
@@ -18,7 +18,7 @@ Memory requires no Redis connection or credentials. An omitted identity key is
 randomly generated for that process; an explicitly supplied key uses normal key
 validation. Each memory store also has a fresh authority identity, even when its
 configuration/key matches another store. Independent processes and restarts cannot
-execute old references. Nexus remains required for business policy. Memory readiness
+execute old references. A controller remains required for business policy. Memory readiness
 checks local lifecycle/clock health, not Redis; signaling readiness still requires
 an eligible controller. Closing the store fences operations and releases records.
 
@@ -68,12 +68,12 @@ Logical identity is authority, group, incarnation and context ID, independent of
 executor metadata. Inbound Locate reserves a monotonically increasing, non-reused
 ID in the group incarnation. A reservation binds exact initial bytes, expires after
 two seconds without extension and counts against 32-context admission. An identical
-lookup reuses only its live reservation; consumption pins the authenticated Nexus
+lookup reuses only its live reservation; consumption pins the authenticated controller
 term. Unmatched responses and in-dialog requests reserve nothing. Private refusal
 uses separate lookup and releases any matching unconsumed reservation.
 
 Outbound bootstrap groups have a separate namespace and one consumed ID per
-incarnation. The stable HMAC derives the group from authenticated Nexus epoch and
+incarnation. The stable HMAC derives the group from authenticated controller epoch and
 placeholder ID on every replica. Lost first-reference replies can be inspected
 without allocating or restarting OpenUac. Before first allocation, only whole-group
 absence proves bootstrap retirement. Inspection distinguishes retained pending
@@ -133,7 +133,7 @@ releasing its local guard; lost replies leave durable scheduler recovery intact.
 
 Presentation, lifecycle and pure credential effects can dispatch directly from
 Pending without effect-start/executor claim. Fixed receiver/envelope/deadline and
-Nexus receiver deduplication remain mandatory. Result commit checks the exact
+controller receiver deduplication remain mandatory. Result commit checks the exact
 context/application/lease term and live native-owner guard; historical executor-bearing
 results retain their recorded executor check. Network opens, send authorization and
 physical writes keep their separate start/reservation boundaries. A collected effect
@@ -141,7 +141,7 @@ never authorizes another callback or SIP intent.
 
 ## Owner lease and permanent loss
 
-The selected SIP-state adapter owns one opaque term per authenticated Nexus
+The selected SIP-state adapter owns one opaque term per authenticated controller
 process/epoch. Lifetime is 30 seconds; validated live control exchanges renew at most every two seconds per
 session. The hello returns the current lease receipt. Live-term renewal never
 shortens expiry; the receipt allows at most 500 ms additional remaining time for
@@ -169,10 +169,11 @@ connected-owner recovery precedes a fresh reduction and refreshes observations.
 Context admission, business command commits and unstarted APPLICATION reservations
 require the original live pinned term. Reservation checks term/expiry atomically;
 a prior permit cannot outlive it. Commit racing expiry retries against current
-observations. A successor admits new contexts but cannot rebind old INVITE contexts.
-Reconnect within a live term preserves CallSessions; a successor-term Nexus must
-terminate/reconcile old-term local calls rather than wait for callbacks to a fenced
-owner. Directory-approved subscription controller adoption is the sole exception.
+observations. Without `sip.controller-reattach.v1`, a successor admits new contexts but cannot
+rebind old INVITE contexts. Reconnect within a live term preserves application
+calls; a non-recoverable successor must terminate or reconcile old-term local
+calls rather than wait for callbacks to a fenced owner. Directory-approved
+subscription processor adoption retains its separate rules.
 
 Owner loss commits a permanent business fence before native termination. It abandons
 dead-owner nonphysical policy/events/adoption, invalidates unstarted ordinary work,
@@ -184,6 +185,27 @@ about 40 seconds after renewal; outages can delay this. The fixed 64-second prot
 cleanup bound starts at the fence, without extending any earlier native deadline.
 Unsendable cleanup can end locally; physical uncertainty remains retained/charged.
 
+### Opt-in controller reattachment
+
+`sip.controller-reattach.v1` creates a recoverable logical owner. Its original
+application lineage remains stable, while holder and attachment generation name
+the currently authenticated process. The initial release fixes its lease at five
+seconds and its reattach grace at ten seconds. The orphan deadline is anchored to
+the previous lease expiry, never first observation or a retry. Attachment proof
+requires the same principal, owner term, generation and recovery token. One atomic
+adapter operation changes the holder/generation and rotates the token. An exact
+successful attempt can return its retained receipt after a lost reply.
+
+The initial recovery scope is established INVITE dialogs. Fresh ready status is
+required after reconciliation; heartbeat renewal cannot extend a pending
+restoration deadline. Native SIP obligations keep their original timers, and
+UNKNOWN physical evidence stays unknown and charged. Deadline expiry seals the
+owner before normal cleanup. A bounded derivative owner index supplies at most 64
+context references per page, at most 4,096 per owner, with no Redis key scan or
+second resident FSM. See [Controller recovery](controller-recovery.md) for the
+full attachment contract and [the recovery guide](guide/controller-recovery.md)
+for controller steps.
+
 ## Ingress, selectors and completion
 
 ### Process-local method policy
@@ -191,7 +213,7 @@ Unsendable cleanup can end locally; physical uncertainty remains retained/charge
 `--allow-register` and `--allow-subscribe` default to true. Setting either to
 false permanently disables that inbound request method for the process lifetime,
 including expiry-zero and tagged requests. After parsing and before completion
-probing, Redis access or Nexus dispatch, ingress returns a local 405 with an
+probing, Redis access or controller dispatch, ingress returns a local 405 with an
 Allow header excluding disabled methods. This static denial is an explicit
 exception to Redis-committed output: the process never admits those requests,
 so it cannot race a previously selected business final in that process.
@@ -233,14 +255,14 @@ request table or alternate authoritative native state machine is retained.
 
 UDP ingress serializes admitted messages for one exact physical flow and
 case-sensitive Call-ID through route-attempt completion. Accepted authenticated
-Nexus reply follows native ingest commit, so an admitted ACK commits before the
+controller reply follows native ingest commit, so an admitted ACK commits before the
 next INVITE routes. Lost/expired replies cannot establish late-ingest order; absent
 ACK proof can still produce native 491. Unrelated Call-IDs/flows remain independent.
 Active and queued datagrams share 128 slots; overload drops without blocking the
 reader or allocating a lane. Queue wait counts against the original two-second
 route budget. Expired/cancelled work performs no fresh route and preserves predecessor
 ordering while releasing admission. Location, redirects and ingest share that deadline;
-Nexus forwards remaining whole milliseconds. Stream handling is independent.
+The controller forwards remaining whole milliseconds. Stream handling is independent.
 
 Tagged live-context lookup can derive current selectors from one validated read at
 that Redis time without stripe acquisition, revision, retention or owner refresh.
@@ -267,7 +289,7 @@ through exact native client-transaction proof. Admitted completion comprises:
   REGISTER/SUBSCRIBE/NOTIFY, subscription and out-of-dialog contexts are excluded.
 
 No completion arrival authenticates an account, revives an owner, changes ordinary
-delivery, presents business work or creates a CallSession. Matching ACK first commits
+delivery, presents business work or creates an application call. Matching ACK first commits
 its actual acknowledgement and branch completion flow. Acknowledged replay cannot
 republish, advance snapshot/event revision or displace newer delivery. Before owner
 fencing a separate original-owner flow-adoption effect may proceed, without blocking
@@ -313,10 +335,10 @@ or ended snapshot. The transaction/timers/final result continue. Only its curren
 command, exact original BYE and transaction qualify; an out-of-dialog OpenUac BYE,
 UNKNOWN or NOT_WRITTEN cannot. Later retransmission failure cannot revoke the proof;
 peer-final/terminal processing may replace the command result. Other commands await
-their normal final result. Nexus readers must support this and preceding COMPLETED
+their normal final result. controller readers must support this and preceding COMPLETED
 peer-result forms before native early acceptance is enabled.
 
-Nexus/Pilot own account-version registration mutation and ordered flow publication.
+The controller and its account backend own account-version registration mutation and ordered flow publication.
 No-op/older ambiguous unregister results preserve eligibility; explicit removal plus
 unchanged-binding CAS withdraws it. Existing-context registration transport authority
 has a four-hour lease, separate from new-call eligibility. Account identity, not
@@ -449,14 +471,14 @@ Contact fails closed rather than selecting preferred dialog/current worker adver
 REFER NOTIFY uses the INVITE dialog/client transaction without MWI/BLF subscription state.
 
 OpenUac OPTIONS/MESSAGE/NOTIFY uses a standalone transaction and retires its context;
-empty/INVITE creates the dialog path. Nexus selects check-sync. URI remains the called
+empty/INVITE creates the dialog path. The controller selects check-sync. URI remains the called
 URI when proxy supplies next hop. Direct credentials are refused; Redis retains only an
 opaque context-scoped versioned credential reference. A matched 401/407 commits a pure
 digest effect with original request/challenge, fixed cnonce/count and new Via branch;
 at most three retries, no duplicate-challenge allocation. Challenge To-tags do not pin
 successful dialog tags; retry response matches live transaction/current CSeq.
 
-Credential lookup through the original Nexus and sipgo's pure complete-Request-URI
+Credential lookup through the original controller and sipgo's pure complete-Request-URI
 digest builder occur outside reduction. Only derived SIP request enters transition,
 never password, credential reply or credential-bearing errors. Fixed inputs permit
 repeat lookup, but current owner guard and exact result identity admit only one
@@ -508,7 +530,7 @@ an already active context.
 
 Retirement requires native procedures/replay windows, timers and exact physical
 settlement complete; terminal application bits/time alone are insufficient. Native
-settlement is local SIP-state work, not a Nexus settlement/authority-retirement RPC.
+settlement is local SIP-state work, not a controller settlement/authority-retirement RPC.
 True UNKNOWN stays charged. Terminal compaction can remove duplicate wire/snapshots
 but preserves identity/hash/permit/outcome and causal written-ACK proof. Settled terminal
 physical and receiver-acknowledged nonphysical effects alone free slots. Expired obsolete
@@ -681,3 +703,13 @@ Capture v1 indexes request method or response's single valid CSeq method in INVI
 BYE, CANCEL, OPTIONS, REGISTER, PRACK, SUBSCRIBE, NOTIFY, PUBLISH, INFO, REFER, MESSAGE,
 UPDATE; other/missing/invalid/ambiguous use OTHER. Exact valid extension method remains
 structured metadata. It is a search hint, never authorization or SIP validation.
+
+## Recoverable controller owners
+
+The recoverable attachment profile is specified in
+[Controller recovery](controller-recovery.md). Recoverable owners use a five-second
+lease and ten-second fixed post-expiry grace; ordinary owners retain the legacy
+lease profile described above. The memory and Redis adapters atomically guard
+attachment generation together with term/expiry for fresh application commits and
+write reservations. Owner-context metadata is indexed under a bounded quota with
+no second authoritative FSM.

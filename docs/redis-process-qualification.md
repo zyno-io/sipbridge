@@ -3,7 +3,7 @@
 [Architecture](../ARCHITECTURE.md) and its [runtime supplement](runtime.md) own
 service behavior and exact bounds. These tests use
 disposable Redis and synthetic SIP/control peers. They do not replace real
-Nexus/Pilot, account authorization, media or handset qualification.
+application/controller integration, account authorization, media or handset checks.
 
 ## Normal startup and complete state loss
 
@@ -55,7 +55,7 @@ asynchronous Redis rollback.
 SIPBRIDGE_STATE_TEST_REDIS=127.0.0.1:6379 go test -race ./internal/engine
 ```
 
-The Talk backend owns full application/media tests. Its Docker suite includes
-complete SIP-state loss followed by fresh registration and a new call, as well
-as a focused real Sentinel primary-SIGKILL call test. See the backend's
-[E2E instructions](https://git.s24.dev/signal24/products/zyno/zynotalk-cluster-backends/-/blob/_dev/e2e/README.md).
+Full application/media testing is separate. It should cover complete SIP-state
+loss followed by fresh registration and a new call, as well as a real Sentinel
+primary failure while a call is in progress. The synthetic peers in this
+repository do not replace those integration checks.

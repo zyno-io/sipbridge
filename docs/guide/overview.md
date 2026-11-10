@@ -22,8 +22,7 @@ work differently:
   controller. Certificates are reloaded without a restart too.
 - **A dialog can follow a client to another instance.** With shared Redis state,
   a client whose TLS connection drops and reconnects to a different sipbridge
-  instance can continue its existing call or subscription there. This was the
-  original reason for the project.
+  instance can continue its existing call or subscription there.
 - **You are told what actually happened.** Every send is reported as written,
   not written, or unknown. sipbridge does not hide an uncertain send behind an
   automatic retry.
@@ -67,18 +66,11 @@ optional or up to you.
 
 ### Names used in the normative documents
 
-sipbridge was first built for one telephony platform, and the
-[specification](../spec/architecture.md) and the wire schema still use that
-platform's component names. You will meet them in field names.
-
-| Name | Meaning |
-| --- | --- |
-| **Nexus** | The controller. The wire field `hello.nexus` carries the controller's process identity. |
-| **Pilot** | That platform's account backend. Only the controller talks to it; sipbridge never does. |
-| **Talk** | That platform's repository, which owns the control schema and its generated code. |
-| **Drachtio** | Another SIP server that platform runs. sipbridge does not depend on it. |
-| **rtpbridge** | That platform's media server. |
-| **Trusted directory** | The controller's own record of routing and registrations, separate from sipbridge's state store. |
+The [specification](../spec/architecture.md) describes the same roles in more
+detail. A **controller** is your application. Its **trusted directory** is its
+own record of routing and registrations, separate from sipbridge's protocol
+state store. A **media server** handles audio; sipbridge passes the SDP your
+controller chooses without depending on a particular media implementation.
 
 ## What sipbridge does
 
@@ -106,10 +98,11 @@ a WebSocket, with a schema in the repository, so any language works, but the
 controller is real work: it must route, authenticate and answer.
 [Building a Controller](./application.md) lists the duties.
 
-**Calls belong to one controller process.** sipbridge keeps a client's
-connection and SIP dialog alive, but your call logic lives in your controller's
-memory. If that controller process dies, sipbridge handles SIP cleanup rather
-than handing its calls to another controller.
+**Controller recovery is optional.** Your call logic belongs to your application.
+A controller that negotiates recovery and checkpoints its handle can attach a new
+process within the timeout, inspect existing dialogs and restore that logic.
+Without recovery, a lost controller's calls end through cleanup. See
+[Controller recovery](./controller-recovery.md).
 
 **Restarting sipbridge closes its connections.** Sockets cannot move between
 processes, and there is no built-in drain. Plan sipbridge restarts as

@@ -22,6 +22,6 @@ zt_sipbridge_method_rejected_total 0
 ```
 
 Do not confuse this with the control listener, which is a separate server for
-controllers. Apart from `GET /v1/control`, the control listener answers only
+controllers. Apart from `GET /v2/control`, the control listener answers only
 `/sip-readyz`, always with `503` and only to authenticated controllers, and
 returns `404` for everything else.

@@ -25,6 +25,7 @@ is needed only when sipbridge runs with `--require-auth-methods`.
 | `sip.command-admission.v1` | No | `respond`, `openUac` and `dialogRequest` commands carry an `admission` block that sipbridge checks at the moment the command runs. See [Commands](./commands.md#admission). |
 | `sip.command-budget.v1` | No | A `command` may wait up to 40,000 ms instead of 2,000 ms. |
 | `sip.dialog-continuity.v1` | No | Allows `ingest` with `TLS_DIALOG_CONTINUITY` or `TLS_TRANSACTION_CONTINUITY`, which is how a dialog continues on a new TLS connection. |
+| `sip.controller-reattach.v1` | No | Enables recovery tokens, attachment generations and owner-scoped inventory. A replacement process must prove ownership and reconcile before ready status. |
 | `sip.local-challenge.v1` | Only with `--require-auth-methods` | [Local initial digest challenges](../guide/application.md#local-initial-digest-challenges). sipbridge offers it only when configured for them, and then requires it. |
 
 "Required" means sipbridge closes the handshake if the capability is missing.
@@ -39,7 +40,7 @@ The protocol is meant to let sipbridge and controllers be upgraded
 independently. These are the rules it follows, and that your controller can
 rely on:
 
-- The major version changes only for incompatible changes. Only major `1`
+- The major version changes only for incompatible changes. Only major `2`
   exists.
 - Within a major version, new behavior is optional and has its own capability.
   You never get new behavior you did not ask for.

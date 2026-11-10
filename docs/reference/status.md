@@ -12,10 +12,10 @@ The `sipbridge` service, with in-memory state (the default) or Redis:
 - SIP over UDP, TCP and TLS. A dialog stays on the transport it started with.
 - SIP transactions, dialogs and timers, handled by a pinned build of the sipgo
   library.
-- The JSON control protocol over a mutually authenticated WebSocket, with
-  heartbeats, reconnect handling and certificate reload without a restart.
-- Controller leases, so that sipbridge handles SIP completion and cleanup
-  when a controller disappears.
+- The v2 JSON control protocol over authenticated WebSocket: default mTLS,
+  explicit bearer alternatives, heartbeats and credential reload.
+- Controller leases and opt-in timed reattachment, with generation fencing and
+  bounded owner-scoped context listing. Native SIP cleanup handles expired owners.
 - Delivery outcomes reported as `WRITTEN`, `NOT_WRITTEN` or `UNKNOWN`.
 - Continuing a dialog when a client's TLS connection is replaced, including on
   another instance that shares Redis state.
@@ -29,7 +29,7 @@ The `sipbridge` service, with in-memory state (the default) or Redis:
 | Feature | State |
 | --- | --- |
 | Draining an instance before restart (`drain.begin` / `drain.status` / `drain.complete`) | Designed in PROTOCOL.md; not in the schema or the service. Restarting sipbridge closes its connections. See [Replacing a process](../guide/deployment.md#replacing-a-process). |
-| Listing the contexts an instance holds | Designed; not built. |
+| Listing all contexts across an instance | Not available. Recovery exposes only the authenticated owner's bounded context pages. |
 | Output queues and additional operation markers | Designed; not built. |
 | Replacing a sipbridge process without disconnecting clients | Not available. |
 | A client SDK for writing controllers | None. Controllers implement the JSON protocol directly. |
@@ -45,8 +45,9 @@ build. Each is explained where it matters:
 - Redis replication is asynchronous, so a failover can lose recent state and
   drop the calls that depended on it. See
   [Failure and recovery](../guide/state-backends.md#failure-and-recovery).
-- A call belongs to the controller process that set it up and ends if that
-  process is lost. See [Owner lease](../guide/lifecycle.md#owner-lease).
+- Controller restart recovery needs the optional capability, saved token/handle
+  and restored application state. It cannot recreate lost SIP or media processes.
+  See [Controller recovery](../guide/controller-recovery.md).
 - Some commands and sends end as `UNKNOWN`, and the controller has to inspect
   rather than retry. See
   [Commands and Outcomes](../protocol/commands.md#handling-unknown).
@@ -94,9 +95,6 @@ The repository also keeps test data from an earlier internal design (labelled
 
 ## Where to get it
 
-Source code, issues and image builds are in the project's
-[GitLab repository](https://git.s24.dev/signal24/oss/sipbridge), and its CI
-publishes container images to `gcr.s24.dev/signal24/oss/sipbridge`. The GitHub
-repository at [zyno-io/sipbridge](https://github.com/zyno-io/sipbridge) carries
-only this documentation site. If you cannot reach the registry, build the image
-from source as shown in [Deployment](../guide/deployment.md#image).
+The public project home is
+[zyno-io/sipbridge](https://github.com/zyno-io/sipbridge). To build an image from
+a source checkout, follow [Deployment](../guide/deployment.md#image).

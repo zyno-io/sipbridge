@@ -1,3 +1,13 @@
-docs/node_modules/
-docs/.vitepress/dist/
-docs/.vitepress/cache/
+/bin/
+/artifacts/
+__pycache__/
+*.log
+/.cache/
+/image.env
+/image-version.txt
+/image.digest
+/docs/node_modules/
+/docs/.vitepress/dist/
+/docs/.vitepress/cache/
+
+/dev-pki/

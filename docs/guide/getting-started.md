@@ -12,9 +12,9 @@ session. All names, keys and addresses are made up for the example.
   `third_party/sipgo`, so you do not need a separate checkout of it. Go downloads
   the other module dependencies during the build.
 - The `openssl` command-line tool (1.1.1 or later), `curl` and a POSIX shell.
-- A checkout of the source from
-  [GitLab](https://git.s24.dev/signal24/oss/sipbridge). The GitHub repository
-  holds only this documentation.
+- A sipbridge source checkout matching the revision you want to build. The
+  [project repository](https://github.com/zyno-io/sipbridge) is the public
+  project entry point.
 
 ## Build
 
@@ -99,7 +99,7 @@ Keep `dev-pki` out of version control and delete it when you are done.
   --control-cert dev-pki/control.crt --control-key dev-pki/control.key \
   --client-ca dev-pki/ca.crt \
   --allowed-client-uri spiffe://example.test/sip-controller \
-  --initial-nexus controller-a
+  --initial-controller controller-a
 ```
 
 No state settings are given, so the process keeps its state in memory and
@@ -165,8 +165,8 @@ type envelope struct {
 	Ping          *heartbeat      `json:"ping"`
 }
 
-const helloTemplate = `{"correlationId":"hello-1","hello":{"nexus":{"instanceId":"controller-a","epoch":%q},` +
-	`"connectionAttempt":"1","major":1,"minMinor":0,"maxMinor":0,` +
+const helloTemplate = `{"correlationId":"hello-1","hello":{"controller":{"instanceId":"controller-a","epoch":%q},` +
+	`"connectionAttempt":"1","major":2,"minMinor":0,"maxMinor":0,` +
 	`"capabilities":["sip.v1","sip.state.v1","sip.native-completion.v1","sip.directory-reconcile.v1",` +
 	`"sip.completion-relay.v1","sip.command-admission.v1","sip.command-budget.v1","sip.dialog-continuity.v1"],` +
 	`"bounds":{"maxEnvelopeBytes":1048576}}}`
@@ -193,9 +193,9 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	conn, _, err := websocket.Dial(ctx, "wss://127.0.0.1:8443/v1/control", &websocket.DialOptions{
+	conn, _, err := websocket.Dial(ctx, "wss://127.0.0.1:8443/v2/control", &websocket.DialOptions{
 		HTTPClient:      client,
-		Subprotocols:    []string{"sipbridge.control.json.v1"},
+		Subprotocols:    []string{"sipbridge.control.json.v2"},
 		CompressionMode: websocket.CompressionDisabled,
 	})
 	check(err)
@@ -262,7 +262,7 @@ are the pairs that have to agree:
 | --- | --- |
 | `spiffe://example.test/sip-controller` | Controller certificate URI SAN and `--allowed-client-uri` |
 | `sipbridge-0.control.example.test` | Control certificate DNS SAN and the client's `ServerName` |
-| `controller-a` | `hello.nexus.instanceId` and `--initial-nexus` |
+| `controller-a` | `hello.controller.instanceId` and `--initial-controller` |
 | `sipbridge-0` | `--instance` and `helloAck.sipbridge.instanceId` |
 
 While the demo runs, `/sip-readyz` returns `200`. After it exits, readiness

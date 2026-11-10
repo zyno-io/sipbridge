@@ -1,6 +1,6 @@
 # Protocol Overview
 
-The control protocol is how your controller and sipbridge talk. The controller
+The control protocol connects your application to sipbridge. The controller
 opens a WebSocket to sipbridge, and from then on the two exchange JSON
 messages: sipbridge reports SIP requests and events, and the controller sends
 back routing decisions and commands.
@@ -10,16 +10,15 @@ here with the connection, the message format and a typical exchange; the
 following pages cover the session handshake, capabilities, each message type
 and command outcomes. The complete rules for every field are in
 [PROTOCOL.md](../spec/protocol.md), and the field names and types come from the
-[control schema](../../dependencies/sipbridge-control.proto) (protobuf package
-`zyno.sipbridge.v1`).
+[control schema](../../proto/sipbridge-control.proto).
 
 ## Connection
 
 | Item | Value |
 | --- | --- |
-| URL | `wss://<sipbridge control endpoint>/v1/control` |
-| Subprotocol | `sipbridge.control.json.v1` |
-| Authentication | Mutual TLS; the client certificate's URI SAN must be on sipbridge's allowlist |
+| URL | `wss://<sipbridge control endpoint>/v2/control` |
+| Subprotocol | `sipbridge.control.json.v2` |
+| Authentication | mTLS by default, or explicit bearer mode; see [Identities and TLS](../guide/security.md#control-connection) |
 | `Origin` header | Must be absent |
 | Compression | Disabled |
 | Frames | Text only; a binary frame closes the session |

@@ -1,0 +1,282 @@
+syntax = "proto3";
+
+package sipbridge.control.v2;
+option go_package = "sipbridge/internal/controlpb";
+
+// Canonical control contract and source for generated JSON codecs/validation.
+// Wire transport is UTF-8 JSON text only (sipbridge.control.json.v2), with
+// lowerCamelCase keys, symbolic enums, uint64 decimal strings and base64 bytes.
+// Application families require the explicitly
+// negotiated sip.v1 capability; the session-only
+// executable never admits SIP. PROTOCOL.md and ARCHITECTURE.md in sipbridge own
+// behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
+message Envelope {
+  string correlation_id = 1;
+  string session_id = 2;
+  uint32 remaining_budget_ms = 3;
+  oneof payload {
+    SessionHello hello = 10;
+    SessionHelloAck hello_ack = 11;
+    SessionStatus status = 12;
+    Heartbeat ping = 13;
+    Heartbeat pong = 14;
+    IngressReceived ingress = 20;
+    RouteResult route_result = 21;
+    OwnerIngest ingest = 22;
+    RequestPresented request = 23;
+    Command command = 24;
+    OperationResult result = 25;
+    EgressRequest egress = 26;
+    FlowWrite write = 27;
+    DeliveryResult delivery = 28;
+    FlowClosed flow_closed = 29;
+    DialogEvent dialog_event = 30;
+    ContextInspect inspect = 31;
+    FlowAdoptionRequest flow_adoption = 32;
+    FlowAdoptionResult flow_adoption_result = 33;
+    SendPermit send_permit = 34;
+    FlowWrite deliver_effect = 35;
+    CredentialLookup credential_lookup = 36;
+    CredentialResult credential_result = 37;
+    // Reads existing physical attempt evidence only; never authorizes a write.
+    FlowWrite inspect_effect = 38;
+    EffectSettlement settle_effect = 39;
+    // Native proof that all SIP procedures and delivery reconciliation have retired.
+    ContextSnapshot retire_authority = 40;
+    ApplicationProbe probe_application = 41;
+    ApplicationStatus application_status = 42;
+    ContextReconcile reconcile_context = 43;
+    AuthorityReconcile reconcile_authority = 44;
+    AuthorityReceipt authority_receipt = 45;
+    ControllerContexts controller_contexts = 46;
+    ControllerContextsResult controller_contexts_result = 47;
+  }
+}
+
+message ProcessRef {
+  string instance_id = 1;
+  string epoch = 2;
+}
+
+message Bounds {
+  uint32 max_envelope_bytes = 1;
+}
+
+message SessionHello {
+  ProcessRef controller = 1;
+  uint64 connection_attempt = 2;
+  uint32 major = 3;
+  uint32 min_minor = 4;
+  uint32 max_minor = 5;
+  repeated string capabilities = 6;
+  Bounds bounds = 7;
+  ControllerRecovery recovery = 8;
+}
+
+// Possession proof for reattaching a logical controller application. Tokens are
+// sensitive: never include hello/recovery payloads in logs or diagnostics.
+message ControllerRecovery {
+  ProcessRef application = 1;
+  string term = 2;
+  string token = 3;
+  string attempt_id = 4;
+  uint64 attachment_generation = 5;
+}
+
+message ControllerContexts {
+  string cursor = 1;
+  uint32 limit = 2;
+}
+
+message ControllerContextsResult {
+  repeated ContextRef contexts = 1;
+  string cursor = 2;
+}
+
+message SessionHelloAck {
+  ProcessRef sipbridge = 1;
+  string session_id = 2;
+  uint32 major = 3;
+  uint32 minor = 4;
+  repeated string capabilities = 5;
+  Bounds bounds = 6;
+  uint32 heartbeat_interval_ms = 7;
+  uint32 heartbeat_timeout_ms = 8;
+  StateAuthority state_authority = 9;
+  ApplicationLease application_lease = 10;
+  // Static native request policy; present only with sip.local-challenge.v1.
+  InboundAuthPolicy inbound_auth_policy = 11;
+}
+
+// SIP-owner authority in the selected state adapter. Application identifies the
+// original logical owner lineage; holder is the authenticated controller process.
+// Recovery tokens are sensitive and must never appear in logs or diagnostics.
+message ApplicationLease {
+  ProcessRef application = 1; StateAuthority authority = 2; string term = 3;
+  uint64 checked_at_ms = 4; uint64 expires_at_ms = 5;
+  string recovery_token = 6;
+  ProcessRef holder = 7;
+  uint64 attachment_generation = 8;
+  uint64 reattach_until_ms = 9;
+  uint32 lease_lifetime_ms = 10;
+  uint32 reattach_timeout_ms = 11;
+}
+
+message SessionStatus {
+  bool retained_ready = 1;
+  bool admit_calls = 2;
+  bool admit_subscriptions = 3;
+  bool bindings_ready = 4;
+  bool draining = 5;
+  // Sensitive nonce-signing material. Never log status payloads.
+  DigestChallengePolicy digest_challenge_policy = 6;
+}
+
+message InboundAuthPolicy {
+  bool require_register = 1;
+  bool require_invite = 2;
+  bool require_subscribe = 3;
+}
+
+// Short-lived issuance policy, not an account credential or authentication proof.
+// The signing key is a purpose/epoch-scoped derivation, never the trusted SRPC key.
+message DigestChallengePolicy {
+  string realm = 1;
+  string authentication_epoch = 2;
+  bytes signing_key = 3;
+  uint64 expires_at_ms = 4;
+}
+
+message Heartbeat {
+  string nonce = 1;
+}
+
+message FlowRef { ProcessRef ingress = 1; string connection_id = 2; string source_ip = 3; uint32 source_port = 4; string listener = 5; string transport = 6; }
+// Logical identity is negotiated with sip.state.v1 for every state adapter.
+// Memory authorities are process-local; Redis authorities can span workers.
+// owner remains physical executor metadata for either profile.
+message StateAuthority { string service = 1; string generation = 2; string primary_id = 3; uint32 schema_version = 4; }
+message StateRef { StateAuthority authority = 1; string group_id = 2; string incarnation = 3; string call_id = 4; uint32 partition = 5; }
+message ContextRef { ProcessRef owner = 1; string id = 2; StateRef state = 3; }
+message Header { string name = 1; string value = 2; }
+message Address { string name = 1; string uri = 2; map<string,string> params = 3; }
+message AddressList { repeated Address values = 1; }
+message Via { string protocol = 1; string host = 2; uint32 port = 3; map<string,string> params = 4; }
+message DigestCredentials { string username = 1; string realm = 2; string nonce = 3; string uri = 4; string response = 5; string algorithm = 6; string qop = 7; string nc = 8; string cnonce = 9; }
+message SipMessage {
+  bytes wire = 1; string method = 2; string uri = 3; uint32 status = 4; string reason = 5;
+  bytes body = 6; repeated Header headers = 7; map<string,AddressList> addresses = 8; repeated Via vias = 9;
+  repeated string selectors = 10; DigestCredentials authorization = 11;
+}
+message IngressReceived { FlowRef flow = 1; SipMessage message = 2; ContextRef context = 3; }
+message RouteResult {
+  enum Outcome { UNSPECIFIED = 0; ACCEPTED = 1; REDIRECT = 2; REJECTED = 3; UNAVAILABLE = 4; }
+  Outcome outcome = 1; ProcessRef controller = 2; uint32 sip_status = 3;
+}
+message OwnerIngest {
+  ContextRef context = 1; ProcessRef application = 2; FlowRef flow = 3; bytes wire = 4;
+  string binding_id = 5; string principal_id = 6; bool authenticated = 7;
+  enum Admission { UNSPECIFIED = 0; EXISTING_FLOW = 1; AUTHENTICATED_BINDING = 2; TLS_DIALOG_CONTINUITY = 3; TLS_TRANSACTION_CONTINUITY = 4; }
+  Admission admission = 8;
+}
+message ContextSnapshot {
+  ContextRef context = 1; ProcessRef application = 2; string binding_id = 3; string principal_id = 4;
+  enum Kind { UNKNOWN = 0; TRANSACTION = 1; UAS = 2; UAC = 3; SUBSCRIPTION = 4; }
+  Kind kind = 5; string dialog_id = 6; string call_id = 7; string local_tag = 8; string remote_tag = 9;
+  string local_uri = 10; string remote_uri = 11; string remote_target = 12; bytes local_sdp = 13; bytes remote_sdp = 14;
+  bool answered = 15; bool initial_ack = 16; bool ended = 17; uint64 revision = 18; uint64 command_sequence = 19;
+  repeated string selectors = 20; string transport = 21; ContextDelivery delivery = 22; ProcessRef executor = 23; string directory_epoch = 24;
+  string application_lease_term = 25;
+  uint64 attachment_generation = 26;
+}
+message RequestPresented { ContextSnapshot snapshot = 1; string request_id = 2; SipMessage message = 3; FlowRef flow = 4; }
+// Trusted directory admission anchor for a business-selected response. Native
+// completion writes remain independently authorized by the SIP state owner.
+message ResponseAuthority { string directory_epoch = 1; string completion_scope = 2; }
+message Respond { string request_id = 1; uint32 status = 2; repeated Header headers = 3; bytes body = 4; string principal_id = 5; string binding_id = 6; ResponseAuthority authority = 7; }
+message CredentialRef { string id = 1; string version = 2; }
+// Transient authenticated RPC only. CredentialResult must never enter retained
+// protocol inputs/effects/receipts; the executor stores only derived digest data.
+message CredentialLookup { ContextRef context = 1; CredentialRef credential = 2; }
+message CredentialResult { string username = 1; string password = 2; string version = 3; string error = 4; }
+message NetworkTarget { string proxy = 1; string transport = 2; string username = 3; string password = 4; CredentialRef credential = 5; }
+message OpenUac { string uri = 1; bytes body = 2; repeated Header headers = 3; string binding_id = 4; string principal_id = 5; NetworkTarget network = 6; string transport = 7; string method = 8; }
+message DialogRequest { string method = 1; bytes body = 2; repeated Header headers = 3; }
+message Cancel {}
+// One command-time policy/route decision from the authenticated controller.
+// It authorizes only this command's native construction, never arbitrary wire.
+message CommandAdmission {
+  string directory_epoch = 1; uint64 expires_at_ms = 2;
+  FlowRef selected_flow = 3; ContextDelivery expected_delivery = 4;
+}
+message Command {
+  ContextRef context = 1; uint64 sequence = 2; CommandAdmission admission = 3;
+  oneof action { Respond respond = 10; OpenUac open_uac = 11; DialogRequest dialog_request = 12; Cancel cancel = 13; }
+}
+message OperationResult {
+  enum Certainty { UNSPECIFIED = 0; NOT_ACCEPTED = 1; ACCEPTED = 2; COMPLETED = 3; UNKNOWN = 4; }
+  Certainty certainty = 1; string error = 2; uint32 sip_status = 3;
+  ContextSnapshot snapshot = 4; SipMessage request = 5; SipMessage response = 6;
+  ContextRetirementProof retirement_proof = 7;
+}
+// Positive current-authority absence evidence for deferred trusted bookkeeping.
+// Neither a timeout nor a generic SIP error is a retirement proof.
+message ContextRetirementProof {
+  ContextRef context = 1; StateAuthority authority = 2;
+  enum Reason { UNSPECIFIED = 0; GROUP_ABSENT = 1; OBSOLETE_INCARNATION = 2; CONTEXT_ABSENT = 3; }
+  Reason reason = 3;
+}
+message StateEffectRef { ContextRef context = 1; string id = 2; string attempt_id = 3; }
+message EffectAuthorization {
+  enum Class { UNSPECIFIED = 0; APPLICATION = 1; NATIVE_COMPLETION = 2; TERMINAL_CLEANUP = 3; RESPONSE = 4; }
+  StateEffectRef effect = 1; Class authority_class = 2; string completion_scope = 3; string fingerprint = 4; uint64 deadline_ms = 5;
+  string application_lease_term = 6;
+}
+message SendPermit { EffectAuthorization authorization = 1; FlowRef flow = 2; string directory_epoch = 3; string ordering_proof = 4; string completion_scope = 5; }
+message EgressRequest { ContextSnapshot snapshot = 1; SipMessage message = 2; FlowRef return_flow = 3; EffectAuthorization authorization = 4; }
+message FlowWrite { FlowRef flow = 1; string binding_id = 2; uint64 binding_revision = 3; bytes wire = 4; StateEffectRef effect = 5; SendPermit permit = 6; }
+message DeliveryResult {
+  enum Outcome { UNSPECIFIED = 0; WRITTEN = 1; NOT_WRITTEN = 2; UNKNOWN = 3; }
+  Outcome outcome = 1; string error = 2; StateEffectRef effect = 3;
+  // True only after the exact terminal physical outcome is committed in SIP state.
+  bool recorded = 4;
+}
+// Historical reconciliation only; this message cannot start a physical write.
+message EffectSettlement { FlowWrite write = 1; DeliveryResult delivery = 2; }
+// Read-only proof from the current trusted directory; a control disconnect is not owner loss.
+message ApplicationProbe { ContextRef context = 1; ProcessRef application = 2; }
+message ApplicationStatus {
+  ContextRef context = 1; ProcessRef application = 2; string directory_epoch = 3;
+  bool live = 4; uint64 checked_at_ms = 5;
+}
+message FlowClosed { FlowRef flow = 1; }
+message DialogEvent {
+  enum Kind { UNSPECIFIED = 0; PROVISIONAL = 1; ANSWERED = 2; ACKNOWLEDGED = 3; CANCELLED = 4; ENDED = 5; FAILED = 6; SUBSCRIPTION_EXPIRED = 7; }
+  Kind kind = 1; ContextSnapshot snapshot = 2; SipMessage message = 3; string operation_id = 4; string error = 5;
+}
+message ContextInspect { ContextRef context = 1; }
+
+// Context-only delivery authority, never a registration mutation or SIP credential.
+message ContextDelivery {
+  FlowRef flow = 1; uint64 native_revision = 2; string directory_epoch = 3; string registration_ticket = 4;
+}
+message FlowAdoptionRequest {
+  ContextRef context = 1; ProcessRef application = 2; string principal_id = 3; string binding_id = 4;
+  FlowRef flow = 5; uint64 native_revision = 6; bool subscription = 7;
+}
+message FlowAdoptionResult { ContextDelivery receipt = 1; string error = 2; }
+
+// Explicit quiescent native barrier; never an implicit owner/permit reset.
+message ContextReconcile {
+  ContextRef context = 1; string from_directory_epoch = 2; string directory_epoch = 3;
+}
+message AuthorityReconcile {
+  ContextSnapshot snapshot = 1; string from_directory_epoch = 2; string directory_epoch = 3;
+  string token = 4; uint64 barrier_revision = 5; SipMessage origin = 6;
+  string completion_scope = 7; FlowRef flow = 8;
+}
+message AuthorityReceipt {
+  ContextRef context = 1; ProcessRef application = 2; string from_directory_epoch = 3;
+  string directory_epoch = 4; string token = 5; uint64 barrier_revision = 6;
+  string completion_scope = 7; ContextDelivery delivery = 8; bool owner_lost = 9;
+}

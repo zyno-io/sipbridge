@@ -2,7 +2,7 @@
 
 Status: experimental implemented service contract, with proposed conformance and
 drain requirements identified below. The current service uses UDP/TCP/TLS listeners,
-JSON/mTLS control, schema 2 / reducer 9 / timers 1 CAS and autonomous native
+authenticated JSON control, schema 3 / reducer 9 / timers 1 CAS and autonomous native
 completion. [Verification](docs/verification.md) lists the current test coverage
 and its limits; full platform conformance is not yet qualified. The session-only
 and stdio programs are separate [fixtures](docs/fixtures.md).
@@ -15,20 +15,21 @@ fixture success nor a negotiated capability proves complete platform acceptance.
 
 ## 1. Scope and contract authority
 
-sipbridge owns SIP transport and native protocol execution. Nexus owns authorization,
-CallSessions, registration policy and subscription content. Pilot remains behind
-Nexus and rtpbridge owns media. The SIP process receives no business database,
-trusted-directory Redis, Kubernetes or Pilot credentials.
+sipbridge owns SIP transport and native protocol execution. The application controller owns authorization,
+call state, registration policy and subscription content. Account services remain
+behind that controller, while a media server handles RTP. The SIP process receives no business database,
+trusted-directory Redis, Kubernetes or account backend credentials.
 
 The current service supports actual UDP/TCP/TLS transport and explicitly authorized
 registered or network destinations. Existing carrier, media, REFER/Replaces and
 legacy behavior need their own backend acceptance evidence.
 
-The canonical schema is `proto/sipbridge-control.proto` in Talk. It defines both
-session and application messages and owns field numbers/catalogs. Generated
-Go/TypeScript JSON types and validators share that source, with snapshot/provenance
-in `dependencies`. Neither peer maintains a handwritten contract. This document
-owns field behavior; the Drachtio gateway and `nexus-bridge.proto` are different APIs.
+The canonical `proto/sipbridge-control.proto` in this repository defines the
+session and application messages, field numbers and catalogs. Its distribution
+copy is `dependencies/sipbridge-control.proto`. Generated Go/TypeScript JSON
+types and validators use those declarations, with recorded hashes in
+`dependencies`. Neither peer maintains a handwritten contract. This document
+owns field behavior; other SIP server protocols are separate APIs.
 
 ## 2. Identity, execution and capabilities
 
@@ -36,14 +37,14 @@ owns field behavior; the Drachtio gateway and `nexus-bridge.proto` are different
 | --- | --- |
 | Physical flow | Exact live ingress process epoch/socket or UDP listener/peer tuple; sockets never migrate. |
 | Logical SIP context | SIP-state authority, Call-ID group, incarnation and non-reused context ID; compatible workers execute pure transitions. |
-| Nexus application | Original Nexus process/epoch and pinned native lease term; no CallSession migration follows from native portability. |
+| Controller application | Stable original lineage and pinned lease. Optional authenticated reattachment changes the holder and generation; application state must be restored by the controller. |
 
 `ContextRef.state` is authoritative logical identity. `owner` and snapshot executor
 identify the replying physical worker, not another protocol authority. The selected
 SIP-state adapter contains the only retained authoritative protocol values; the
 engine has no second FSM. Memory authorities are process-local and change on
 restart. One CAS read/reduce/commit records effects before I/O. No computation
-stripe/snapshot spans Nexus RPC, socket I/O or response wait. Physical reservation
+stripe/snapshot spans controller RPC, socket I/O or response wait. Physical reservation
 fetches exact committed bytes and never accepts caller-selected replacement wire.
 
 The current service negotiates the following behavior. Negotiation precedes session
@@ -53,7 +54,8 @@ claim admission so an incompatible controller cannot fence a compatible one.
 | --- | --- |
 | `sip.v1` | Typed SIP application/control family, separate from session-only transport. |
 | `sip.state.v1` | Logical contexts, owner leases and CAS execution in the selected state adapter. Memory authority is process-local. |
-| `sip.native-completion.v1` | Retained native completion, physical settlement and retirement without a surviving Nexus. |
+| `sip.native-completion.v1` | Retained native completion, physical settlement and retirement without a surviving controller. |
+| `sip.controller-reattach.v1` | Optional token/principal-bound recovery of a stable owner by a new holder, with generation fencing and bounded owner-scoped context listing. |
 | `sip.command-admission.v1` | Command-time policy/delivery admission for Respond, OpenUac and DialogRequest. |
 | `sip.command-budget.v1` | Commands may carry the 40-second budget; ordinary RPC/write limits remain separate. |
 | `sip.dialog-continuity.v1` | Explicit native validation of same-transport replacement-flow attempts. |
@@ -64,25 +66,29 @@ State execution requires `sip.state.v1` for every backend. Negotiation validates
 state authority before claim admission and acquires the native owner lease before
 publishing a usable peer. There is no backend-specific state capability.
 
-Do not remove compatibility labels, generated fields or consumers independently of
-Talk. Producer-contracted native builds are required rollback targets after Nexus
+Do not remove compatibility labels, generated fields or consumers independently
+of the controllers that still use them. Producer-contracted native builds are required rollback targets after controller
 compatibility consumers retire; an older producer that emits removed RPCs is safe
 only while its consumers remain available. `reconcileContext` is refused: a changed
 business directory epoch requires re-establishing work under current authority.
 No trusted directory receipt poll or authority-retirement RPC gates native retirement.
 
-The hello returns the authenticated Nexus process's SIP-owner lease receipt; contexts
-pin that term. Ordinary renewal requires it live; an existing connected authenticated
-session can resume its exact retained term after outage/expiry until successor or
-owner-loss sealing wins. A successor never revives old contexts. Control transport,
-readiness, directory liveness and SIP-owner authority remain distinct. Exact lease
-and recovery windows are defined in [Runtime](docs/runtime.md#owner-lease-and-permanent-loss).
+The hello returns the controller application's SIP-owner lease receipt; contexts
+pin that stable lineage and term. Without the recovery capability, the existing
+process-bound renewal and loss rules apply. With `sip.controller-reattach.v1`,
+`hello.recovery` proves the same principal and recovery token, atomically changes
+the holder and attachment generation, and preserves only eligible retained work.
+The new holder reconciles its own context inventory and sends fresh ready status
+before business work. Expired, sealed or missing contexts are never resurrected.
+Control transport, readiness, directory liveness and SIP-owner authority remain
+distinct. [Controller recovery](docs/controller-recovery.md) owns attachment rules;
+[Runtime](docs/runtime.md#owner-lease-and-permanent-loss) owns lease execution.
 
-Every eligible Nexus keeps authenticated control sessions to signaling replicas,
+Every eligible controller keeps authenticated control sessions to signaling replicas,
 including retained-work paths during drain. Business routing and receiver callbacks
-use those Nexus-initiated sessions. Current native writes use local SIP-state
+use those controller-initiated sessions. Current native writes use local SIP-state
 permits/reservations and exact physical ingress; no trusted per-send permit ledger,
-Nexus physical-write relay or edge-to-edge credential mesh is required. A recorded
+controller physical-write relay or edge-to-edge credential mesh is required. A recorded
 physical outcome belongs to its immutable attempt. Inspection never starts a write;
 UNKNOWN cannot settle, expire into NOT_WRITTEN or free its retained obligation.
 
@@ -114,35 +120,35 @@ methods and short-lived nonce issuance policy. HelloAck carries the immutable
 that do not negotiate this capability. Empty native required-auth configuration
 preserves existing controller behavior.
 
-Nexus supplies `DigestChallengePolicy` in SessionStatus: realm, authentication
+The controller supplies `DigestChallengePolicy` in SessionStatus: realm, authentication
 epoch, a 32-byte purpose/epoch-scoped nonce-signing key and absolute expiry.
 This is sensitive control material, never loggable payload or an account
 credential. It does not authenticate any SIP request. The broad trusted RPC
 secret, passwords and HA1 hashes never enter this process. Policy acceptance
 requires the negotiated capability, valid shape and an expiry no more than
 60 seconds away. The worker retains a bounded current policy with its original
-fixed expiry. Normal Nexus refresh uses 30 seconds; missing/expired policy cannot
+fixed expiry. Normal controller refresh uses 30 seconds; missing/expired policy cannot
 authorize fresh work. Short-lived retired key material may only validate an ACK
 to a previously rejected local INVITE, never issue a challenge or authenticate.
 
 The local nonce is the canonical unpadded base64url encoding of
 `l1.timestamp.random.signature`: ten Unix-second digits, 16 random bytes in
 lowercase hex and a complete HMAC-SHA256 signature encoded in unpadded base64url.
-It is exactly 120 characters, preserving the Cisco 127-character buffer fix in
-Talk MR !150. The signature includes the `l1.` prefix to prevent conversion into
+It is exactly 120 characters, fitting within clients' 127-character nonce
+buffers. The signature includes the `l1.` prefix to prevent conversion into
 the other active compact `v2` format. Old unversioned nonces are not supported.
 
 The local HMAC input is `sipbridge-digest-v1\n` + epoch + `\n` + scope + `\n` +
-`l1.timestamp.random`. Scope matches Talk's `sipAuthCacheKey` for empty username:
-lowercase From URI host authority without numeric port, then a newline. Nexus
+`l1.timestamp.random`. Scope is the lowercase From URI host authority without
+numeric port, then a newline, using an empty username. controller
 derives the key using HMAC-SHA256 of `sipbridge-local-challenge-key-v1\n` + epoch
-under its SRPC secret. Nexus independently verifies the compact encoding,
+under its application authentication secret. The controller independently verifies the compact encoding,
 120-second window, account credentials, nonce counts and exact-operation
 receipts. Issuing a nonce never grants native account or binding authority.
 
 Only missing/parse-invalid credentials on configured initial methods trigger
-local 401. Credential-bearing requests still use ordinary native and Nexus
-admission. Nexus independently enforces advertised INVITE auth regardless of
+local 401. Credential-bearing requests still use ordinary native and controller
+admission. The controller independently enforces advertised INVITE auth regardless of
 From domain. Missing issuance policy returns local temporary failure; disabled
 method 405 takes precedence. Responses, ACK and CANCEL are never challenged.
 Tagged requests retain ordinary context/continuity admission.
@@ -152,16 +158,21 @@ verifiable ACKs for those challenges. An authenticated retry's new CSeq routes
 normally. The bounded proof only identifies a rejected local transaction; it
 cannot authorize a SIP dialog or account, and does not create a resident FSM.
 
-Nexus opens `wss://<authenticated-ordinal-endpoint>/v1/control`, negotiating the
-WebSocket subprotocol `sipbridge.control.json.v1`. It validates the server chain and
-endpoint DNS SAN. sipbridge validates the client chain and an exact configured
-workload URI-SAN allowlist before accepting the upgrade. A trusted CA alone, CN,
-source IP or caller-supplied workload name is insufficient. Origin policy and
-frame metadata never substitute for mutual TLS.
+The controller opens `/v2/control` and negotiates `sipbridge.control.json.v2`.
+TLS transport uses `wss:` and validates the server chain and endpoint DNS SAN.
+Default mTLS authentication also validates the client chain and exact allowed
+URI SAN; a trusted CA alone, common name or source address is insufficient.
+Explicit bearer mode instead authenticates an Authorization header and stable
+configured principal before upgrade. Explicit plain `ws:` control is limited to
+a loopback listener and still requires bearer authentication. There is no
+unauthenticated mode or automatic fallback. Origin and frame metadata never
+substitute for the configured authenticator. Public SIP TLS continuity still
+uses actual observed SIP transport, independently of control transport.
 
 Each UTF-8 text WebSocket message contains one JSON `Envelope`. JSON is the only
-wire encoding; binary messages are rejected. The Talk-owned `.proto` remains the
-single contract definition used to generate Go/TypeScript messages and JSON field
+wire encoding; binary messages are rejected. The repository
+[protocol schema](proto/sipbridge-control.proto) defines Go/TypeScript
+messages and JSON field
 validation metadata. Its JSON mapping uses lowerCamelCase keys and symbolic enum
 names. Oneof variants appear as named fields, such as `hello` or `command`, with
 exactly one variant present. This is a strict profile of the
@@ -189,13 +200,13 @@ For example, the initial session message is ordinary JSON; its attempt counter
 remains lossless beyond JavaScript's safe integer range:
 
 ```json
-{"correlationId":"hello-1","hello":{"nexus":{"instanceId":"nexus-a","epoch":"boot-a"},"connectionAttempt":"9007199254740993","major":1,"bounds":{"maxEnvelopeBytes":262144}}}
+{"correlationId":"hello-1","hello":{"controller":{"instanceId":"controller-a","epoch":"boot-a"},"connectionAttempt":"9007199254740993","major":2,"bounds":{"maxEnvelopeBytes":262144}}}
 ```
 
 An envelope contains a bounded correlation ID, a remaining deadline budget where
 applicable, and exactly one typed payload. Replies echo the request ID. A session
 may multiplex bounded independent operations; ordered WebSocket delivery is not a
-global order across sessions, contexts or Nexus instances. IDs are opaque, unique
+global order across sessions, contexts or controller instances. IDs are opaque, unique
 within the issuing process epoch, and not authority. Counter/revision fields are
 lossless unsigned integers; TypeScript must use bigint or generated lossless
 representations rather than JavaScript floating-point conversion.
@@ -210,23 +221,23 @@ authorization material MUST NOT appear in routine protocol logs.
 
 ### Session establishment and supersession
 
-1. After TLS/upgrade, Nexus sends `session.hello` with its instance/epoch, monotonic
+1. After TLS/upgrade, controller sends `session.hello` with its instance/epoch, monotonic
    connection attempt number, supported major/minor range, capabilities and bounds.
 2. sipbridge returns `session.helloAck` with its instance/epoch, issued session ID,
    selected version, negotiated capabilities and effective limits. Incompatible
    peers fail explicitly before any application operation is accepted. The major
    must agree with the selected WebSocket subprotocol.
-3. The accepted higher connection attempt for the same Nexus instance/epoch
+3. The accepted higher connection attempt for the same controller instance/epoch
    fences its predecessor immediately. The replacement remains undiscoverable
    until lease acquisition and successful HelloAck write; failed handshakes publish
    no usable peer. Old-session commands/results cannot acquire new authority.
    In-flight predecessor mutations are unknown unless already proven; the old
    session is closed.
-4. Nexus reconciles retained contexts and binding readiness, then sends
+4. controller reconciles retained contexts and binding readiness, then sends
    `session.status`. Authenticated retained-work delivery and fresh-call admission
    are separate states. A hello or heartbeat alone does not admit calls.
 
-A shared workload certificate authenticates the Nexus workload, not a particular
+A shared workload certificate authenticates the controller workload, not a particular
 Pod. Instance/epoch fields are trusted-workload assertions, checked against the
 trusted instance lease and existing session claim; they are not cryptographic
 per-Pod identities. A different epoch cannot supersede an active call owner merely
@@ -237,7 +248,7 @@ valid reply to that session's heartbeat fences and closes that control session.
 Unrelated SIP traffic or a late pong from an old session cannot reset the deadline.
 Session failure removes fresh-work eligibility and fails pending operations. It
 MUST NOT close client TLS sockets, delete native contexts or reset SIP timers.
-Nexus reconnects with bounded backoff while the endpoint remains authenticated.
+The controller reconnects with bounded backoff while the endpoint remains authenticated.
 
 Capabilities describe negotiated behavior, not runtime readiness; `session.status`
 separately states retained/binding readiness and new-work classes. Proposed drain and
@@ -267,11 +278,11 @@ No new application queue/replay permission follows from frame completion or time
 | `FlowRef`        | Ingress ProcessRef plus non-reused connection ID. The observed numeric source IP/port, actual transport and local listener identity accompany ingress evidence. |
 | `BindingRef`     | Opaque authorized account/device/registration scope plus monotonic committed revision. It is not merely an AOR, Contact URI or source IP.                       |
 | `ContextRef` | Logical StateRef plus non-reused context ID; owner is physical executor metadata. Native transaction and directional dialog evidence remain explicit. |
-| `ApplicationRef` | Nexus ProcessRef plus call/leg identity where live call ownership applies. It is absent for policy work without a live CallSession.                             |
+| `ApplicationLease.application` | Stable original controller lineage (`ProcessRef`). A recoverable owner separately records its current holder and attachment generation. |
 | `RequestRef` | Native request handle scoped to logical context/group incarnation; physical executor epoch does not change its authority. Call-ID alone is not a handle. |
 | `OperationRef`   | Issuing process epoch and opaque operation ID, stable through pre-execution routing.                                                                            |
 
-Only ingress creates socket/source evidence. Nexus forwards it over authenticated
+Only ingress creates socket/source evidence. controller forwards it over authenticated
 sessions and is a trusted relay; SIP headers cannot invent it. The receiving owner
 checks expected issuer, epoch, context identity, current authorization and target.
 The egress ingress accepts only a reference to its own live socket under an
@@ -282,23 +293,24 @@ TLS without a client certificate authenticates the server to the phone. A succes
 TLS handshake, From/Contact, Call-ID, source NAT address or internal redirect does
 not authorize replacing an account/device binding.
 
-Original observed source stays available to Nexus abuse/account policy. Builders
+Original observed source stays available to controller abuse/account policy. Builders
 use explicit public advertisement. Fixture virtual-pool keys are private test
 mechanics, never service client-source fields or advertised headers.
 
 ## 5. Owner lookup, redirects and native ingress
 
 Ingress parses/fragments SIP using the library but MUST NOT create a second native
-transaction while resolving an existing context. Nexus's trusted routing index
-maps native selectors to logical context and original Nexus owner. SIP-state
+transaction while resolving an existing context. controller's trusted routing index
+maps native selectors to logical context and original controller owner. SIP-state
 lookup proves retained native completions before ordinary business routing.
 This index is transport-routing metadata, not migrated SIP state or a second
 registrar. Existing call/registration/subscription locators are reused where valid;
-any new fields and atomic operations belong to Nexus and its shared contracts.
-sipbridge never accesses trusted Redis directly.
+any new directory fields and atomic operations belong to the controller's
+application contract. sipbridge never accesses the application's directory store.
 
-Nexus uses its existing trusted Redis primary for serialized binding revisions
-and business context-claim CAS. It adds no new storage service. New
+The controller's trusted directory serializes binding revisions and business
+context-claim CAS. The application chooses that directory's storage; sipbridge
+does not add or access a business storage service. New
 context creation is admitted only after an exclusive owner claim succeeds. Claims
 cover native transaction/timer lifetime and live dialog lifetime; TTL expiry alone
 is not permission to recreate a live context. Unavailable/inconsistent directory
@@ -316,26 +328,26 @@ Lookup returns one typed result:
 
 | Result        | Dispatcher action                                                                                                                                            |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `owned`       | Use the exact SIP/Nexus owner generations, including a draining owner retaining this context.                                                                |
-| `redirect`    | Before acceptance only, repeat dispatch to a known authenticated Nexus ProcessRef. Preserve the OperationRef, SIP bytes, source, flow and original deadline. |
+| `owned`       | Use the exact SIP/controller owner generations, including a draining owner retaining this context.                                                                |
+| `redirect`    | Before acceptance only, repeat dispatch to a known authenticated controller ProcessRef. Preserve the OperationRef, SIP bytes, source, flow and original deadline. |
 | `absent`      | Only an authoritative absence allows a genuinely new request to claim ownership. An unknown in-dialog request is not a fresh call.                           |
 | `unavailable` | Known owner or directory cannot be reached. Fail boundedly; do not adopt the context elsewhere.                                                              |
 | `reject`      | Apply the explicit policy/SIP failure permitted for this request.                                                                                            |
 
-A selected Nexus may redirect before acceptance. At most two redirects and no
+A selected controller may redirect before acceptance. At most two redirects and no
 repeated ProcessRef are allowed within the original deadline. Destinations resolve
 through authenticated inventory/control sessions, never a returned URL. Internal
-redirect is not SIP 3xx and does not move the socket, SIP context or CallSession.
+redirect is not SIP 3xx and does not move the socket, SIP context or application call.
 
 `owner.ingest` transfers original SIP bytes plus trusted ingress evidence to the
 selected native owner. It adds no Via, Record-Route or Contact and performs no
 string-based header rewriting. Portable reduction uses actual observed source and
 transport without a resident UA/pool. Native matching and frame/context authorization
-precede policy-event delivery; SIP account authentication remains Nexus policy.
+precede policy-event delivery; SIP account authentication remains controller policy.
 A redirect is forbidden after the native/policy operation has been accepted.
 
 Existing-context ingress carries an explicit admission basis. `AUTHENTICATED_BINDING`
-means Nexus checked the exact authorized account binding; `EXISTING_FLOW` permits
+means controller checked the exact authorized account binding; `EXISTING_FLOW` permits
 only the retained physical flow; `TLS_DIALOG_CONTINUITY` permits a native attempt
 at continuity for one retained context. It does not assert digest authentication
 or authorize a new INVITE, another dialog, or registration mutation. The native
@@ -364,7 +376,7 @@ mapping.
 
 ## 6. Binding acceptance and replacement flow
 
-Nexus is the binding authority. sipbridge keeps only the bounded delivery state
+The controller is the binding authority. sipbridge keeps only the bounded delivery state
 needed by retained contexts and live flows. A binding distinguishes account,
 device and provisioned endpoint-account identity. A Contact or ephemeral source-port
 change on the same authenticated account replaces its delivery flow; shared NAT
@@ -374,14 +386,14 @@ not inferred by an edge Contact cache.
 
 A fresh REGISTER may have its own transient native transaction on B while the
 same device's existing call and subscription contexts remain on A. Accepting that
-registration does not move those contexts or their Nexus call owners.
+registration does not move those contexts or their controller call owners.
 
 For an accepted replacement:
 
-1. Nexus resolves the registration scope and reserves an ordered candidate ticket
+1. controller resolves the registration scope and reserves an ordered candidate ticket
    before executing the policy mutation. The same native operation reuses its
    ticket; replay never obtains a fresh ticket. Tickets alone grant no authority.
-2. Authenticate and authorize the request through existing Nexus/Pilot policy.
+2. Authenticate and authorize the request through the controller and account backend policy.
    A failed or rejected operation cannot change the committed binding.
 3. Atomically commit the candidate only if it is newer than the committed ticket
    and its native-operation/CSeq replay guard permits it. The authoritative record
@@ -393,16 +405,16 @@ For an accepted replacement:
 5. Return the successful REGISTER response only after the binding is usable. A
    failed response write does not undo an already committed registration/binding.
 
-Durable policy writes use a separate account-version precondition. Nexus reads the
-current Pilot version, then sends a non-retried mutation with that expected
-version. Pilot revalidates and increments it under the physical endpoint row lock
+Durable policy writes use a separate account-version precondition. controller reads the
+current account backend version, then sends a non-retried mutation with that expected
+version. account backend revalidates and increments it under the physical endpoint row lock
 in the same transaction as the account registration mutation. Stale versions fail
 before mutation; a later fresh operation can proceed after an uncertain response
 without taking over a process lock. The accepted database version and the latest
 reserved publication ticket both fence Redis publication. A later reservation
 blocks every older response, even while the newer policy result is unknown.
 
-MySQL and Redis are not one atomic transaction. A failed or superseded publication
+The account database and registration directory are not one atomic transaction. A failed or superseded publication
 returns failure and leaves the preceding transport binding intact; it never
 reports REGISTER success or replays the policy mutation. The database may already
 name the new Contact, which remains unreachable until a fresh authenticated
@@ -424,7 +436,7 @@ new-call reachability, unrelated dialogs, or independent subscription flows.
 
 After native validation of a fresh continuing INVITE-dialog request and before application
 execution, the owner sends `flowAdoption` containing exact context/application,
-principal/binding, observed flow and increasing native revision. Nexus verifies
+principal/binding, observed flow and increasing native revision. controller verifies
 native issuer and original application ownership, then atomically publishes one
 current `ContextDelivery` and returns `flowAdoptionResult`. The receipt retains
 the native revision, flow, directory epoch and current highest reserved registration
@@ -445,7 +457,7 @@ transaction or timer migration across transport classes is provided.
 
 For SUBSCRIBE renewal, read-only retained-account/resource policy precedes flow
 publication. The native successful response publishes before committing accepted
-Contact/expiry; Nexus persists the renewal only after that success. Policy denial
+Contact/expiry; controller persists the renewal only after that success. Policy denial
 leaves the accepted subscription flow unchanged. Every retained renewal publishes,
 including an unchanged flow over UDP, TCP or TLS; initial subscription bootstrap
 uses its admitted flow without requiring a context receipt. Publication refusal
@@ -495,12 +507,12 @@ SRF tunnel or arbitrary raw-wire interface.
 | Family | Direction / boundary |
 | --- | --- |
 | hello/helloAck, status, ping/pong | Session negotiation/readiness/heartbeat; no SIP mutation. |
-| ingress/routeResult | Ingress to Nexus and reply; original bytes, observed flow, bounded routing before native acceptance. |
-| ingest/result | Nexus to worker; exact logical context/native input, not proof of successful business policy or socket write. |
-| request, dialogEvent | Worker to original Nexus; exact request handle, immutable observations and lifecycle. |
-| command/result | Nexus to worker; sequenced Respond/OpenUac/DialogRequest/Cancel with owner/admission checks. |
-| flowAdoption/flowAdoptionResult | Worker to Nexus and receipt; ordered future context delivery, separate from response-return flow. |
-| credentialLookup/credentialResult | Pure original-Nexus lookup; credentials stay transient and never enter retained protocol input/outcome. |
+| ingress/routeResult | Ingress to controller and reply; original bytes, observed flow, bounded routing before native acceptance. |
+| ingest/result | controller to worker; exact logical context/native input, not proof of successful business policy or socket write. |
+| request, dialogEvent | Worker to original controller; exact request handle, immutable observations and lifecycle. |
+| command/result | controller to worker; sequenced Respond/OpenUac/DialogRequest/Cancel with owner/admission checks. |
+| flowAdoption/flowAdoptionResult | Worker to controller and receipt; ordered future context delivery, separate from response-return flow. |
+| credentialLookup/credentialResult | Pure original-controller lookup; credentials stay transient and never enter retained protocol input/outcome. |
 | flowClosed | Exact ingress flow invalidation; no effect on other flows or logical owner. |
 | inspect/result | Existing logical context/latest operation and positive retirement proof; no allocation or adoption. |
 
@@ -518,10 +530,10 @@ second leg. Normal SIP responses produce transaction/dialog events, not another
 control-command execution. SIP final response and control-operation result are
 different objects with different lifetimes.
 
-Nexus supplies SDP/content and permitted application headers. sipbridge constructs
+The controller supplies SDP/content and permitted application headers. sipbridge constructs
 protocol identity, public Contact/Via, route/CSeq and native transaction fields.
 Header allowlists must forbid overriding those owned fields, internal credentials
-or trusted-source evidence. Digest challenge/verification remains Nexus policy;
+or trusted-source evidence. Digest challenge/verification remains controller policy;
 the SIP process is not given business account credentials as configuration.
 
 Public advertisement is explicit listener/context configuration, independent of
@@ -532,26 +544,26 @@ Contact/Via identity consistently on fresh and reused connections.
 
 ### Call adapter boundary
 
-Nexus adapts the typed service operations to its existing SignalingAdapter contract.
+The controller adapts the typed service operations to its own call-control interface.
 Request/dialog wrappers retain native identity, provisional/final events, initial
 answer ACK, cancellation, late 2xx, negotiation and termination observations. SDP
-and media readiness policy remain in Nexus. Creating an opposite leg, accepting
-an answer or destroying a losing winner is explicit Nexus work. Supporting a
+and media readiness policy remain in the controller. Creating an opposite leg, accepting
+an answer or destroying a losing winner is explicit controller work. Supporting a
 single answered call is not evidence for REFER/Replaces, PRACK, early UPDATE,
 forking, media bypass or legacy integration; these remain conformance gates.
 
 OpenUac names an authorized registered binding or explicit network target and SIP
 URI. The URI alone is not permission to dial an arbitrary network address.
-Nexus chooses the protocol owner, allocates the leg/operation identity, obtains
+The controller chooses the protocol owner, allocates the leg/operation identity, obtains
 its exclusive claim, then asks the owner to originate the INVITE. Native response
-events expose provisional/final state and child dialog references. Nexus explicitly
+events expose provisional/final state and child dialog references. controller explicitly
 answers the incoming leg after its own media/application conditions are satisfied;
 each leg's ACK/BYE and timers remain native. Authorized network targets retain
 separate carrier, route and transport acceptance requirements; local fixtures do not qualify every proxy route-set traversal.
 
 ### Subscription boundary
 
-An accepted subscription may replace its Nexus application processor after the
+An accepted subscription may replace its controller application processor after the
 trusted directory proves the previous process lease released or expired. A CAS
 selects one live replacement; native owner, context, tags, sequence state and
 expiry remain unchanged. Authenticated SUBSCRIBE control adopts that processor
@@ -560,12 +572,12 @@ admission, before native transaction ingress can emit a cached or validation
 response. Stale CSeq, wrong Event and digest challenges do not prevent this
 processor-only handoff. It changes no accepted flow, receipt, Contact, expiry or
 SIP sequence state; successful renewal publication remains a separate step.
-INVITE dialogs retain their original Nexus owner
-and are never adopted through this path. Graceful Nexus shutdown releases only
+INVITE dialogs retain their original controller owner
+and are never adopted through this path. Graceful controller shutdown releases only
 its exact epoch lease after draining work; a crash uses lease expiry.
 
 SIP owner retains Call-ID/tags, Event package/id, route set, accepted remote target,
-remote request sequence, independent local NOTIFY CSeq and expiry. Nexus retains
+remote request sequence, independent local NOTIFY CSeq and expiry. controller retains
 BLF/MWI content, authorization, application subscription records and content
 version continuity. Redis availability does not recreate a lost native dialog.
 
@@ -573,7 +585,7 @@ An accepted SUBSCRIBE commits permitted Contact/source/expiry exactly once. A
 rejected refresh preserves the previous accepted target and lease. Exact replay
 is response-only; stale CSeq and same-CSeq different operations cannot trigger
 policy or another NOTIFY. Serialization occurs at the SIP owner even when policy
-requests are served by different Nexus processes. A fresh successful operation
+requests are served by different controller processes. A fresh successful operation
 does not require a new subscription dialog.
 
 NOTIFY increments its own local CSeq and uses the accepted target/route set plus
@@ -589,7 +601,7 @@ registration-flow replacement.
 
 Every library output traverses the same egress boundary: application requests,
 cached responses, CANCEL 200, INVITE 487, ACK, retransmissions and native timers.
-Using a replacement flow only for Nexus-issued commands is non-conformant.
+Using a replacement flow only for controller-issued commands is non-conformant.
 
 Replacement selects delivery to a directly attached authorized UA. It does not
 authorize bypassing a required SIP next hop or changing a route set. This profile
@@ -598,7 +610,7 @@ header in the fixture is not evidence of real proxy traversal. Strict and loose
 route interoperability need separate native-routing and transport qualification.
 
 The current service records physical outcomes through exact native Reserve/Complete
-transitions. Queue admission, WebSocket success and Nexus receipt are not completion.
+transitions. Queue admission, WebSocket success and controller receipt are not completion.
 One immutable attempt/effect identifies its wire and selected flow. Completion must
 match retained authority/identity; a stale reply cannot mutate bindings or another
 write. Historical logical-connection blocking belongs only to the stdio fixture.
@@ -626,8 +638,10 @@ remain unknown. Closing a partial stream never changes its outcome to notWritten
 An operation is `pending`, `accepted`, then `completed` or `failed`; lost evidence
 after acceptance yields `unknown`. Redirects are legal only while pending. An
 acceptance acknowledgement is useful evidence, but its loss does not prove that
-execution did not start. Timeout/disconnect MUST NOT create a new attempt or adopt
-the call on another Nexus. A compatible native worker can inspect/continue the same retained
+execution did not start. Timeout or disconnect MUST NOT create a new command
+attempt. A replacement controller can recover ownership only through the negotiated
+attachment contract, then inspect the existing operation; it cannot replay an
+uncertain mutation. A compatible native worker can inspect or continue the retained
 logical operation under current CAS guards.
 
 The authority serializes mutation admission per context and retains the highest
@@ -645,14 +659,14 @@ ACK state, accepted target/lease, terminal state and latest command outcome as
 applicable. A UAC transaction and each forked dialog have distinct references and
 an explicit parent relationship. Completing a transaction does not remove its
 live dialogs or application route; every later final/child dialog remains
-observable for Nexus's winner/loser cleanup.
+observable for controller's winner/loser cleanup.
 
 Control reconnect reconciles current snapshots and outstanding native requests;
 it does not replay a general event history. Preserve a bounded terminal outcome
 tombstone after context removal within the original replay cutoff. Tombstone
 expiry/capacity and unknown outcomes are explicit; a missing marker is not proof that a terminal
 operation never occurred. Pending native request material survives only for its
-actual transaction lifetime. Nexus must reuse its known policy result when
+actual transaction lifetime. controller must reuse its known policy result when
 completing that request, rather than rerunning policy merely because an event or
 response was lost. There is no recovery of every transient provisional event.
 
@@ -669,11 +683,11 @@ than evict an in-progress marker and execute its replay.
 | Control connection/heartbeat loss, same processes alive | Fence that session; retain sockets/native contexts; reconnect and inspect. Pending delivery/mutation may be unknown.                       |
 | Discovery replacement/unavailable endpoint              | Fence fresh admission as appropriate; retain existing authenticated sessions and context-specific routes.                                  |
 | Binding/index authority unavailable                     | Reject new claims/commits and operations requiring a fresh authoritative read; never restore a cached old socket or restart sipbridge.     |
-| Current flow closes                                     | Invalidate that exact FlowRef. Retain logical contexts under their native/Nexus policy; no automatic dial-back or old-flow fallback.       |
+| Current flow closes                                     | Invalidate that exact FlowRef. Retain logical contexts under their native/controller policy; no automatic dial-back or old-flow fallback.       |
 | Ingress restarts under same ordinal | Its old sockets/FlowRefs are lost; retained Redis contexts remain logical state, and replacement flow needs independent native admission. |
-| Native executor dies | Compatible worker may continue retained Redis transitions. Dead ingress sockets and Nexus CallSessions do not migrate; erased/incompatible state cannot be reconstructed. |
-| Nexus CallSession owner dies                            | Do not adopt that in-memory call on another Nexus based only on Redis locators. Apply existing terminal/cleanup policy.                    |
-| New Nexus epoch during a rolling deployment             | Admit new work separately; the draining old owner retains its calls and control paths until completion.                                    |
+| Native executor dies | Compatible worker may continue retained Redis transitions. Dead ingress sockets and application calls do not migrate; erased/incompatible state cannot be reconstructed. |
+| application call owner dies                            | Do not adopt that in-memory call on another controller based only on Redis locators. Apply existing terminal/cleanup policy.                    |
+| New controller epoch during a rolling deployment             | Admit new work separately; the draining old owner retains its calls and control paths until completion.                                    |
 | Malformed/authentication/direction error                | Reject before execution and close the offending session; do not tear down unrelated sessions or client sockets.                            |
 
 Errors distinguish `invalid`, `unauthorized`, `unsupported`, `staleGeneration`,
@@ -689,15 +703,15 @@ covering native 32-second waits and bounded connection setup. Ordinary RPCs and
 individual socket delivery remain two seconds; heartbeat runs independently.
 Timeout after admission stays UNKNOWN and fences dependent context work; a late
 result cannot clear that fence or replay the command. Peers lacking the capability
-retain two-second envelope caps. Nexus requires it before ready admission, so a
-core update needed by that Nexus profile must finish explicitly before selection.
+retain two-second envelope caps. controller requires it before ready admission, so a
+core update needed by that controller profile must finish explicitly before selection.
 
 Public AD BYE can return request-bearing ACCEPTED once its exact original first
 write is retained WRITTEN. It proves neither peer response nor ended snapshot;
 native transaction/timers continue and a terminal result may replace acceptance.
 UNKNOWN, NOT_WRITTEN or another BYE cannot prove it. Other in-dialog/standalone
 commands await their final result; initial INVITE UAC accepts before SIP answer.
-Nexus readers must support both this and the preceding COMPLETED peer-result form.
+Controller readers must support both this and the preceding COMPLETED peer-result form.
 
 Respond.authority supplies actual trusted directory epoch; initial INVITE 2xx also
 requires original policy-admitted scope. Native pins this receipt under the live
@@ -759,18 +773,20 @@ semantics require an explicit negotiated capability even if decoding still works
 JSON names are part of the wire contract; protobuf field-number compatibility alone
 does not prove JSON compatibility.
 
-The first integration must test both directions of Nexus version skew before
-freezing v1. The supported rollout window is the active Nexus release and its
+Protocol v2 replaces the earlier controller field names and control endpoint;
+there are no old-name wire or CLI aliases. Upgrade consumers with the v2 schema,
+generated bindings and image receipt. Both directions of version skew must be
+tested before extending the supported v2 baseline. The supported rollout window is the active controller release and its
 immediate predecessor; schema/behavior compatibility fixtures are stored with the
-contract. An ordinary Nexus rollout cannot require the SIP process to restart.
+contract. An ordinary controller rollout cannot require the SIP process to restart.
 An incompatible peer stays ineligible with a precise diagnostic. Existing sessions
 do not renegotiate their contract midway through a call.
 
-Nexus release numbers do not advance the protocol or force a new sipbridge image.
-New Nexus releases must retain the baseline understood by the deployed SIP core;
+controller release numbers do not advance the protocol or force a new sipbridge image.
+New controller releases must retain the baseline understood by the deployed SIP core;
 capability additions enable new behavior only where supported. The two-release
-window is a Nexus rolling-update test requirement, not permission to drop support
-for an older, still-deployed v1 sipbridge. A genuinely incompatible core upgrade
+window is a controller rolling-update test requirement, not permission to drop support
+for an older, still-deployed v2 sipbridge. A genuinely incompatible core upgrade
 requires an explicit migration and SIP maintenance decision.
 
 Validated certificate/key/trust reload applies to new handshakes and preserves
@@ -788,7 +804,7 @@ rollout requirement that must be implemented and qualified before production use
 It retains reconnects needed by existing authorized contexts, ingress/egress relay,
 private sessions, native timers and terminal signaling. `drain.status` reports
 native contexts, pending/unknown writes, local client flows leased by remote
-protocol owners, and acknowledged Nexus application work. Missing owner evidence
+protocol owners, and acknowledged controller application work. Missing owner evidence
 is unknown, never zero. Heartbeat counts alone cannot authorize deletion.
 
 `drain.complete` requires no retained native/application/relay dependencies and
@@ -797,33 +813,34 @@ otherwise retain the process indefinitely, an explicit maintenance policy must
 settle or end them and expire their leases before withdrawal. OnDelete stages
 image/template changes; it does not upgrade a live process or preserve its sockets
 when it is actually restarted. Planned SIP-core replacement still closes its
-remaining client TLS connections; Nexus CallSession migration is not provided.
+remaining client TLS connections; controller reattachment preserves neither those
+sockets nor application memory.
 
 ## 12. Required conformance evidence
 
-Conformance uses two real sipbridge processes and at least two Nexus instances;
+Conformance uses two real sipbridge processes and at least two controller instances;
 one process hosting two fixture listeners is insufficient. Establish contexts on
-A, replace the client TLS flow on B while A and the original Nexus remain alive,
+A, replace the client TLS flow on B while A and the original controller remain alive,
 and assert both protocol/application ownership and actual socket delivery.
 
 | Test group                   | Required observations                                                                                                                                                                                                           |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reconnect and routing        | FIN/RST and old A socket left open/unresponsive; new source port; mixed Nexus owners on one B socket; initial lookup, wrong-owner redirect, loop/deadline rejection and draining retained owner.                                |
+| Reconnect and routing        | FIN/RST and old A socket left open/unresponsive; new source port; mixed controller owners on one B socket; initial lookup, wrong-owner redirect, loop/deadline rejection and draining retained owner.                                |
 | Registration/binding         | REGISTER-only discovery moves server-originated output; rejected auth/policy cannot steal flow; delayed older commit and cached replay cannot undo B; same NAT/port, Contact-port change and multiple accounts remain isolated. |
 | Calls and transaction output | INVITE/provisional/200/ACK/BYE, hold/re-INVITE, CANCEL before/after final, concurrent final/CANCEL and timer/cached output all use the correct owner and current flow; tags and native transaction identity remain correct.     |
-| Subscriptions                | Existing-dialog refresh/unsubscribe, accepted/rejected Contact changes, Event isolation, expiry, NOTIFY sequence/content continuity and 481 cleanup through real Nexus policy/storage.                                          |
+| Subscriptions                | Existing-dialog refresh/unsubscribe, accepted/rejected Contact changes, Event isolation, expiry, NOTIFY sequence/content continuity and 481 cleanup through real controller policy/storage.                                          |
 | Delivery and uncertainty     | Closed current flow, write rejection, partial/failed write and lost acknowledgement; no fallback/replay; native errors and unknown outcomes remain visible.                                                                     |
 | Control/security/bounds      | Trusted CA with wrong URI SAN, untrusted/missing cert, forged source/epoch/context, arbitrary target, wrong-direction/oversized frames, saturation and reserved completion capacity.                                            |
-| Operations                   | Same SIP PID/start time and held TLS socket through leaf renewal, control reconnect, registry restart and ordinary Nexus rollout; indirect flow dependencies block unsafe drain completion.                                     |
-| Failure and retention        | Protocol-owner death, Nexus-owner death, same ordinal/new epoch, directory outage/recovery fencing, duplicate terminal work and reclamation after actual native timer bounds.                                                   |
+| Operations                   | Same SIP PID/start time and held TLS socket through leaf renewal, control reconnect, registry restart and ordinary controller rollout; indirect flow dependencies block unsafe drain completion.                                     |
+| Failure and retention        | Protocol-owner death, controller-owner death, same ordinal/new epoch, directory outage/recovery fencing, duplicate terminal work and reclamation after actual native timer bounds.                                                   |
 
-Carry forward all retained Drachtio/SDK behavior families: registration identity,
+Carry forward the retained consumer behavior families: registration identity,
 accepted/rejected subscription target refresh, public advertisement on reused
 connections, application/control disconnect handling, method-scoped admission and
 completed-transaction versus live-dialog lifetime. Full acceptance also covers
 forked UAC finals, REFER/Replaces/PRACK/early UPDATE, media/CDR and legacy paths.
 
-Staging tests that stop/replace Drachtio require a recorded
+Staging tests that replace an existing SIP server require a recorded
 configuration/restoration procedure and proof that no hidden SRF fallback remains.
 
 Protocol grounding: native SIP transaction/dialog behavior remains governed by
@@ -831,3 +848,10 @@ Protocol grounding: native SIP transaction/dialog behavior remains governed by
 [RFC 6665](https://www.rfc-editor.org/rfc/rfc6665.html). The cross-ingress authority,
 relay and fencing rules above are our service design, not claims that ordinary
 SIP clients implement this private protocol or support RFC 5626.
+
+## Controller attachment in v2
+
+[Controller recovery](docs/controller-recovery.md) owns the opt-in recoverable
+owner, authentication and generation-fencing rules. A recovery hello authenticates
+a real new process and acts for the retained logical owner; it does not reuse the
+old process epoch. Existing certainty and native SIP completion rules still apply.

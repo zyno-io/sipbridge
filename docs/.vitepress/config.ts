@@ -1,11 +1,9 @@
 import { posix } from 'node:path'
 import { defineConfig } from 'vitepress'
 
-// Source links point at a browsable repository. The canonical repository is
-// GitLab; a publication workflow can override both values for a mirror.
-const repository = (process.env.SIPBRIDGE_DOCS_REPOSITORY_URL || 'https://git.s24.dev/signal24/oss/sipbridge').replace(/\/+$/, '')
-const sourceBase = (process.env.SIPBRIDGE_DOCS_SOURCE_URL ||
-  `${repository}${new URL(repository).hostname === 'github.com' ? '/blob/main' : '/-/blob/main'}`).replace(/\/+$/, '')
+// Public documentation and source links use the project's GitHub repository.
+const repository = 'https://github.com/zyno-io/sipbridge'
+const sourceBase = `${repository}/blob/main`
 
 // Root normative documents are rendered in place by include wrappers under
 // spec/. Their repository paths stay authoritative and unchanged.
@@ -76,7 +74,7 @@ export default defineConfig({
       { text: 'Protocol', link: '/protocol/overview' },
       { text: 'Reference', link: '/reference/limits' },
       { text: 'Specification', link: '/spec/architecture' },
-      { text: 'Source', link: repository }
+      { text: 'GitHub', link: repository }
     ],
     sidebar: [
       {
@@ -90,6 +88,7 @@ export default defineConfig({
           { text: 'Building a Controller', link: '/guide/application' },
           { text: 'Health and Readiness', link: '/guide/health' },
           { text: 'Lifecycle and Retention', link: '/guide/lifecycle' },
+          { text: 'Controller Recovery', link: '/guide/controller-recovery' },
           { text: 'Deployment', link: '/guide/deployment' },
           { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           { text: 'Observability', link: '/guide/observability' },
@@ -128,7 +127,7 @@ export default defineConfig({
       }
     ],
     socialLinks: [
-      { icon: new URL(repository).hostname === 'github.com' ? 'github' : 'gitlab', link: repository }
+      { icon: 'github', link: repository }
     ],
     footer: {
       message: 'sipbridge holds SIP connections and runs the protocol; your application decides what happens on each call.'

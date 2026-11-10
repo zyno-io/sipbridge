@@ -15,7 +15,7 @@ different lifetimes, and none of them can stand in for another.
 | --- | --- | --- |
 | **Flow** (`FlowRef`) | One actual network connection: a TCP or TLS socket, or a UDP listener and peer address pair, in one run of a sipbridge process. sipbridge creates it from what it observes on the network, never from SIP headers. | No. When the socket closes or the process restarts, the flow is gone. |
 | **Context** (`ContextRef`) | One SIP conversation that sipbridge tracks: a call leg, a subscription or a standalone transaction. It is identified by its Call-ID group plus an ID that is never reused. | With Redis, any instance sharing the state can continue it. With memory state it belongs to one process. |
-| **Controller application** (`ApplicationRef`) | The controller process that set up a call and holds its logic. | No. A call does not move to another controller. The one exception is subscriptions, whose processing a controller can hand to another controller it approves. |
+| **Controller application** (`ApplicationLease.application`) | The stable application lineage and the process currently holding its lease. | A recoverable owner can attach a new holder within its deadline using its saved proof; the application restores its own call logic. Ordinary process-bound owners cannot transfer calls. |
 | **Directory epoch** | The controller's version stamp for its own routing and registration data. | A change makes sipbridge refuse commands issued under the old version. |
 
 The separation between flow and context is what lets a client reconnect: the
@@ -52,30 +52,28 @@ controller command.
 
 ## Owner lease
 
-sipbridge needs to know when a controller process is gone for good, so that its
-calls do not linger. It does this with a **lease**: when a controller connects,
-sipbridge gives it a time-limited ownership token (the `applicationLease` in
-`helloAck`), and every call the controller sets up is tied to that lease. The
-controller keeps the lease alive simply by answering heartbeats.
+A controller holds a time-limited lease for its calls. Answering heartbeats keeps
+it live. Calls also keep the original application lineage, so a new process cannot
+claim them just by choosing the same instance name.
 
-| Parameter | Value |
-| --- | --- |
-| Lease lifetime | 30 seconds |
-| Renewal | On each answered heartbeat, at most every 2 seconds per session |
-| Grace period after the lease is first seen expired | Fixed 5 seconds |
-| Typical time to detect a lost controller | About 40 seconds after the last renewal; longer during a state store outage |
-| Time allowed for SIP cleanup afterwards | Fixed 64 seconds |
+| Owner mode | Live lease | What happens after expiry |
+| --- | --- | --- |
+| Ordinary process-bound owner | 30 seconds | Existing loss detection/recovery checks fence the owner and start cleanup, typically about 40 seconds after its last renewal. |
+| Negotiated `sip.controller-reattach.v1` | 5 seconds | The same principal and saved recovery proof may attach a replacement holder for 10 seconds after the old lease expiry. |
 
-A controller that is still connected can resume its lease after a state store
-outage, even if the lease expired in the meantime, as long as sipbridge has not
-yet declared it lost.
+For recovery, `applicationLease.application` is the original lineage,
+`holder` is the actual current process and `attachmentGeneration` rejects work
+from every older attachment. Save the recovery token and handle before restarting.
+A new holder must inspect retained calls, restore its own application state and
+send ready status before issuing fresh business work. Failed attempts and
+heartbeats during restoration do not move the original deadline.
 
-Once a controller is declared lost, the decision is final. sipbridge stops
-accepting commands for that controller's calls and then winds the calls down
-itself: outgoing calls still being set up are cancelled, incoming requests
-awaiting an answer get `503`, and in-progress ACK and CANCEL exchanges are
-completed. A restarted controller gets a new lease and can take new calls,
-but it cannot reclaim the old ones.
+If no holder completes recovery before that deadline, sipbridge seals ownership
+and runs its normal SIP cleanup. Pending outgoing setup is cancelled, unanswered
+incoming requests receive `503`, and native ACK/CANCEL obligations still finish
+within their own timers. Already-started writes may settle as written or UNKNOWN;
+reattachment never retries them. [Controller recovery](./controller-recovery.md)
+walks through the protocol.
 
 ## Commands and certainty
 
@@ -117,7 +115,7 @@ it to: late retransmissions and repeated requests still need the right answer.
 | Event | Result |
 | --- | --- |
 | Control session drops; both processes still running | Client connections and contexts remain. The controller reconnects and inspects; outcomes of commands that were in flight may be `UNKNOWN`. |
-| Controller process restarts | It gets a new lease. Its old calls are not handed back; sipbridge ends them as described under [Owner lease](#owner-lease). |
+| Controller process restarts | With negotiated recovery and a saved checkpoint, the new holder may reattach before the fixed deadline. Without that proof, old calls end through normal cleanup. |
 | sipbridge restarts, memory state | All connections, contexts and leases are lost. Clients must register again and calls must be set up again. |
 | sipbridge restarts, Redis state | Its connections are lost. Contexts remain in Redis, and a client that reconnects can continue once its request passes the usual checks. |
 | Redis failover | State that survived continues; operations on missing state fail; new work proceeds. |

@@ -14,7 +14,7 @@ The endpoints are served over plain HTTP on the admin listener
 | --- | --- | --- |
 | `/healthz` | The admin server is answering. | (never `503`) |
 | `/sip-servingz` | Listeners have started, shutdown has not begun, and the public TLS certificate is within its validity period. | `SIP listeners unavailable` |
-| `/sip-readyz` | At least one controller session is ready, both TLS certificates are valid, the state store passes its readiness checks, and (with `--require-auth-methods`) a current challenge policy is installed. | `signaling unavailable` or `authentication policy unavailable` |
+| `/sip-readyz` | At least one controller session is ready, the configured control credentials and public SIP TLS certificate are valid, and the state store passes its readiness checks, and (with `--require-auth-methods`) a current challenge policy is installed. | `signaling unavailable` or `authentication policy unavailable` |
 
 A controller session counts as ready when its most recent `status` message had
 both `retainedReady` and `bindingsReady` set to `true`. The other `status`

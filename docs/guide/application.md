@@ -7,11 +7,11 @@ themselves, and [PROTOCOL.md](../spec/protocol.md) holds the exact rules.
 
 There is no client SDK. A controller is any program that speaks the
 [JSON profile](../protocol/overview.md#json-encoding) over a WebSocket. Field
-names and types come from a protobuf schema; the repository carries a read-only
-[copy](../../dependencies/sipbridge-control.proto) of it, with hashes recorded
-in [`control-schema.json`](../../dependencies/control-schema.json), which you
-can use to generate types for your language. The first controller written for
-sipbridge is called Nexus, which is why some wire fields are named `nexus`.
+names and types are owned by the [schema](../../proto/sipbridge-control.proto)
+in this repository. The pinned local generator produces Go/TypeScript contracts
+and strict JSON validation, with hashes recorded in
+[`control-schema.json`](../../dependencies/control-schema.json). You can also
+generate types for another language from the same schema.
 
 ## Division of responsibility
 
@@ -33,8 +33,8 @@ Everything starts with a control session, and the controller is always the one
 that connects. [Getting Started](./getting-started.md) has a working example of
 steps 1 to 5.
 
-1. Connect with a client certificate carrying an allowed URI SAN, and verify
-   sipbridge's server certificate.
+1. Authenticate with the configured client certificate or bearer token, and
+   verify sipbridge's server certificate when TLS is enabled.
 2. Send `hello` with a stable instance ID, a random `epoch` generated once per
    controller process start, a connection attempt number that increases on each
    reconnect, and the [required capabilities](../protocol/capabilities.md).
@@ -101,11 +101,13 @@ Use `inspect` to read the current state and continue from there. The same
 applies to trying a different connection: don't.
 [Commands and Outcomes](../protocol/commands.md) covers this in detail.
 
-**Do not take over another controller's calls.** A call's logic lives in the
-controller process that set it up. If that process dies, sipbridge notices,
-typically after about 40 seconds, and begins SIP cleanup for its calls (see
+**Recover only calls your application owns.** With negotiated recovery, the
+same principal and saved handle can attach a replacement process within the
+fixed deadline; restore your application state before sending ready status.
+Without recovery, sipbridge detects the lost owner and starts cleanup (see
 [Owner lease](./lifecycle.md#owner-lease)). The SIP state sipbridge still holds
-for those calls is not an invitation for a different controller to carry on.
+for those calls is not enough to claim them. A bare Call-ID, process name or
+snapshot never substitutes for the [recovery proof](./controller-recovery.md).
 
 **Start afresh when your own routing data changes.** Commands carry a
 `directoryEpoch`, your controller's version stamp for its routing and
@@ -138,8 +140,8 @@ Nonce construction and key derivation are specified in
 
 ## Not yet available
 
-The protocol has no way to drain a sipbridge instance or list everything it
-holds. PROTOCOL.md proposes messages for both, but they are not in the schema
+The protocol has no way to drain a sipbridge instance or list every owner's
+contexts globally. Recovery exposes only the authenticated owner's bounded list. PROTOCOL.md proposes messages for both, but they are not in the schema
 or the service yet, so plan restarts as described in
 [Deployment](./deployment.md#replacing-a-process).
 

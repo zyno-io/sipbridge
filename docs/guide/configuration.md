@@ -24,7 +24,7 @@ sipbridge [flags]
 | --- | --- | --- |
 | `--sip-listen` | `:5061` | Public SIP over TLS listener. Always enabled. |
 | `--sip-plain-listen` | `:5060` | Public SIP over UDP and TCP, on the same address. An empty value disables both. |
-| `--control-listen` | `:8443` | Private control listener (mutual TLS WebSocket). |
+| `--control-listen` | `:8443` | Controller WebSocket listener. Plain transport requires an explicit loopback address. |
 | `--admin-listen` | `127.0.0.1:8800` | Plain-HTTP health and metrics listener with no authentication. See [Admin Endpoints](../reference/admin-endpoints.md). |
 | `--sip-interface` | empty | Name of a network interface. When set, the public SIP listeners and outbound TCP/TLS dials bind its single global-unicast IPv4 address. |
 
@@ -33,9 +33,13 @@ sipbridge [flags]
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--instance` | none, **required** | Stable name for this process, for example a StatefulSet pod name such as `sipbridge-0`. Must match `[A-Za-z0-9_.:@+-]{1,96}`. sipbridge adds a random per-start ID (the "epoch") so a restarted process is never mistaken for its predecessor. |
-| `--control-cert`, `--control-key` | none, **required** | PEM certificate and key for the control listener. |
-| `--client-ca` | none, **required** | PEM bundle trusted to issue controller client certificates. |
-| `--allowed-client-uri` | none, **required** | Comma-separated list of exact controller certificate URI SANs. No wildcards, empty entries or spaces. |
+| `--control-auth` | `mtls` | `mtls` or explicit `bearer`. There is no unauthenticated mode or fallback. |
+| `--control-transport` | `tls` | `tls` or explicit `plain`; plain control requires bearer authentication and a loopback listener. |
+| `--control-cert`, `--control-key` | required with TLS | PEM server certificate and key for the control listener; omit for plain transport. |
+| `--client-ca` | required with mTLS | PEM trust bundle for controller client certificates. Not used in bearer mode. |
+| `--allowed-client-uri` | required with mTLS | Exact comma-separated controller URI SANs, without wildcards, empty entries or spaces. Not used in bearer mode. |
+| `--control-bearer-token-file` | required with bearer | File containing 32–4,096 printable non-space ASCII bytes; one terminal LF or CRLF is accepted. Renewed tokens are reloaded for new connections. |
+| `--control-principal` | required with bearer | Stable printable ASCII identity, 1–256 bytes, used to bind controller ownership across processes and token rotation. |
 | `--sip-cert`, `--sip-key` | none, **required** | PEM certificate and key for the public SIP TLS listener. |
 
 ### Public advertisement
@@ -56,7 +60,7 @@ an existing dialog to a different transport or connection.
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--initial-nexus` | empty | Instance ID of the controller that should be asked first about new requests. It is used only while that controller is ready, and the controller can still redirect. Without it, new requests rotate across ready controllers. Requests for an existing call prefer the controller that owns it. |
+| `--initial-controller` | empty | Instance ID of the controller that should be asked first about new requests. It is used only while that controller is ready, and the controller can still redirect. Without it, new requests rotate across ready controllers. Requests for an existing call prefer the controller that owns it. |
 | `--allow-register` | `true` | `false` rejects every inbound REGISTER with `405` without consulting the state store or a controller. Useful on an instance that only faces carriers. |
 | `--allow-subscribe` | `true` | `false` rejects every inbound SUBSCRIBE with `405` in the same way. |
 | `--require-auth-methods` | empty | Comma-separated subset of `REGISTER`, `INVITE`, `SUBSCRIBE` (uppercase) that receive a local initial digest challenge when they carry no parseable credentials. Requires controller support; see [Local challenges](./application.md#local-initial-digest-challenges). |
@@ -77,8 +81,10 @@ lists the methods this process still accepts.
   credentials, query or fragment. When the plain listener is enabled it must be
   bound to a specific IP address, not `:5060` or `0.0.0.0`.
 - `--advertise-plain` must use a numeric port from 1 to 65535.
-- Certificates must be valid now. The control trust bundle must contain at least
-  one certificate.
+- Configured TLS certificates must be valid now. mTLS also requires a nonempty
+  client trust bundle and URI allowlist. Bearer mode rejects client CA/URI settings.
+- Plain control rejects control TLS flags and non-loopback listeners. Public SIP
+  TLS remains separately enabled and still needs its certificate and key.
 
 ## Environment variables
 

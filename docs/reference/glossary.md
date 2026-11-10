@@ -38,16 +38,12 @@ subscription or a standalone transaction. With Redis, any instance sharing the
 state can continue it; with memory state it belongs to one process.
 
 **Controller.** Your application: the program that connects to sipbridge over
-the control protocol and makes the decisions. The specification and wire field
-names (such as `hello.nexus`) call it Nexus.
+the control protocol and decides how requests are routed, authenticated and
+answered.
 
 **Directory epoch.** A version stamp for the controller's own routing and
 registration data. Commands carry it, and sipbridge refuses commands issued
 under an out-of-date one.
-
-**Drachtio.** A different SIP server, mentioned in the specification because
-the platform sipbridge was first built for also runs it. sipbridge does not
-depend on it.
 
 **Epoch.** A random ID generated each time a process starts. Together with an
 instance ID it identifies one particular run of a process (a `ProcessRef`), so a
@@ -72,18 +68,13 @@ and parses messages, notes where they came from and performs the actual sends.
 
 **Native.** Done by sipbridge's own SIP layer rather than by the controller.
 
-**Nexus.** The name used in the specification and wire fields for the
-controller.
-
 **Owner lease (term).** A time-limited token that says a controller process is
 alive and owns its calls. It is issued in `helloAck` and renewed by heartbeats.
-When it lapses for good, sipbridge ends that controller's calls. See
+Without recovery, permanent lease loss starts cleanup. A recoverable owner may
+reattach with its saved proof before the fixed deadline; after that, cleanup runs. See
 [Owner lease](../guide/lifecycle.md#owner-lease).
 
-**Pilot.** The account backend of the platform sipbridge was first built for.
-Only the controller talks to it.
-
-**Profile (2/9/1).** The version of sipbridge's state format: schema 2, reducer
+**Profile (3/9/1).** The version of sipbridge's state format: schema 3, reducer
 9, timers 1. Instances sharing Redis must all use the same one. The current
 service has only this one.
 
@@ -96,9 +87,6 @@ pinned sipgo library.
 
 **State store.** Where sipbridge keeps its SIP state: process memory by
 default, or Redis. See [State Backends](../guide/state-backends.md).
-
-**Talk.** The repository of the platform sipbridge was first built for. It owns
-the control schema and its generated code.
 
 **UNKNOWN.** The outcome reported when sipbridge cannot tell whether a send or a
 command took effect. It is never retried automatically and never quietly

@@ -1,0 +1,4552 @@
+diff --git a/client.go b/client.go
+index dfa7d98..20e0c9e 100644
+--- a/client.go
++++ b/client.go
+@@ -270,7 +270,7 @@ func (c *Client) TransactionDigestAuth(ctx context.Context, req *sip.Request, re
+ 	if res.StatusCode == sip.StatusProxyAuthRequired {
+ 		return digestProxyAuthRequest(ctx, c, req, res, digest.Options{
+ 			Method:   req.Method.String(),
+-			URI:      req.Recipient.Addr(),
++			URI:      req.Recipient.String(),
+ 			Username: auth.Username,
+ 			Password: auth.Password,
+ 		})
+@@ -278,7 +278,7 @@ func (c *Client) TransactionDigestAuth(ctx context.Context, req *sip.Request, re
+ 
+ 	return c.digestTransactionRequest(ctx, req, res, digest.Options{
+ 		Method:   req.Method.String(),
+-		URI:      req.Recipient.Addr(),
++		URI:      req.Recipient.String(),
+ 		Username: auth.Username,
+ 		Password: auth.Password,
+ 	})
+diff --git a/dialog.go b/dialog.go
+index a10bb18..19c19a0 100644
+--- a/dialog.go
++++ b/dialog.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
++	"sync"
+ 	"sync/atomic"
+ 
+ 	"github.com/emiago/sipgo/sip"
+@@ -32,9 +33,15 @@ type Dialog struct {
+ 	// Use it only as read only and use methods to change headers
+ 	InviteRequest *sip.Request
+ 
+-	// lastCSeqNo is set for every request within dialog except ACK CANCEL
+-	lastCSeqNo   atomic.Uint32
+-	remoteCSeqNo atomic.Uint32
++	// Local and remote request sequences are independent. ACK and CANCEL
++	// reuse their INVITE sequence and never advance either sequence space.
++	lastCSeqNo        atomic.Uint32
++	localInviteCSeqNo atomic.Uint32
++	remoteCSeqMu      sync.Mutex
++	remoteCSeqNo      uint32
++	remoteCSeqSet     bool
++	remoteInviteCSeq  uint32
++	remoteInviteSet   bool
+ 
+ 	// InviteResponse is last response received or sent. It is not thread safe!
+ 	// Use it only as read only and do not change values
+@@ -48,16 +55,21 @@ type Dialog struct {
+ 	onStatePointer atomic.Pointer[DialogStateFn]
+ }
+ 
+-// Init setups dialog state
++// Init sets up a dialog created by a received request (UAS role).
+ func (d *Dialog) Init() {
+ 	d.ctx, d.cancel = context.WithCancelCause(context.Background())
+ 	d.state = atomic.Int32{}
+ 	d.lastCSeqNo = atomic.Uint32{}
++	d.localInviteCSeqNo = atomic.Uint32{}
++	d.remoteCSeqNo, d.remoteInviteCSeq = 0, 0
++	d.remoteCSeqSet, d.remoteInviteSet = false, false
+ 
+ 	// We may have sequence number initialized
+ 	if cseq := d.InviteRequest.CSeq(); cseq != nil {
+-		d.lastCSeqNo.Store(cseq.SeqNo)
+-		d.remoteCSeqNo.Store(cseq.SeqNo)
++		d.remoteCSeqNo, d.remoteCSeqSet = cseq.SeqNo, true
++		if d.InviteRequest.IsInvite() {
++			d.remoteInviteCSeq, d.remoteInviteSet = cseq.SeqNo, true
++		}
+ 	}
+ 	d.onStatePointer = atomic.Pointer[DialogStateFn]{}
+ }
+@@ -155,22 +167,57 @@ func (d *Dialog) Context() context.Context {
+ 	return d.ctx
+ }
+ 
++// validateRequestIdentity checks all three directional dialog identifiers.
++// Transaction lookup alone is insufficient to establish dialog membership.
++func (d *Dialog) validateRequestIdentity(req *sip.Request, localTag, remoteTag string) error {
++	if req.CallID() == nil || d.InviteRequest.CallID() == nil ||
++		*req.CallID() != *d.InviteRequest.CallID() || req.To() == nil || req.From() == nil ||
++		localTag == "" || remoteTag == "" {
++		return ErrDialogOutsideDialog
++	}
++	toTag, _ := req.To().Params.Get("tag")
++	fromTag, _ := req.From().Params.Get("tag")
++	if toTag != localTag || fromTag != remoteTag {
++		return ErrDialogOutsideDialog
++	}
++	return nil
++}
++
+ func (d *Dialog) ReadRequest(req *sip.Request, tx sip.ServerTransaction) error {
+-	// UAS role of dialog SHOULD be
+-	// prepared to receive and process requests with CSeq values more than
+-	// one higher than the previous received request.
+-	oldCseq := d.remoteCSeqNo.Load()
+-	newSeqNo := req.CSeq().SeqNo
+-	if newSeqNo < oldCseq {
++	cseq := req.CSeq()
++	if cseq == nil || cseq.MethodName != req.Method {
+ 		return ErrDialogInvalidCseq
+ 	}
+-
+-	// 	A UAS that receives a second INVITE before it sends the final
+-	//    response to a first INVITE with a lower CSeq sequence number on the
+-	//    same dialog MUST return a 500 (Server Internal Error) respons
+-	if !d.remoteCSeqNo.CompareAndSwap(oldCseq, newSeqNo) {
++	d.remoteCSeqMu.Lock()
++	defer d.remoteCSeqMu.Unlock()
++	if req.IsAck() || req.IsCancel() {
++		if !d.remoteInviteSet || cseq.SeqNo != d.remoteInviteCSeq {
++			return ErrDialogInvalidCseq
++		}
++		return nil
++	}
++	// A retransmission is handled by its native server transaction before
++	// reaching the dialog. A new transaction must advance remote CSeq.
++	if d.remoteCSeqSet && cseq.SeqNo <= d.remoteCSeqNo {
+ 		return ErrDialogInvalidCseq
+ 	}
+-
++	d.remoteCSeqNo, d.remoteCSeqSet = cseq.SeqNo, true
++	if req.IsInvite() {
++		d.remoteInviteCSeq, d.remoteInviteSet = cseq.SeqNo, true
++	}
+ 	return nil
+ }
++
++func (d *Dialog) buildLocalCSeq(req *sip.Request, cseq *sip.CSeqHeader, provided bool) {
++	cseq.MethodName = req.Method
++	if req.IsAck() || req.IsCancel() {
++		if !provided {
++			cseq.SeqNo = d.localInviteCSeqNo.Load()
++		}
++		return
++	}
++	cseq.SeqNo = d.lastCSeqNo.Add(1)
++	if req.IsInvite() {
++		d.localInviteCSeqNo.Store(cseq.SeqNo)
++	}
++}
+diff --git a/dialog_client.go b/dialog_client.go
+index bc17a2f..be94cde 100644
+--- a/dialog_client.go
++++ b/dialog_client.go
+@@ -21,7 +21,21 @@ type DialogClientSession struct {
+ 	onClose func()
+ }
+ 
++// Init sets up the independent local/remote sequences of an outbound dialog.
++func (s *DialogClientSession) Init() {
++	s.Dialog.Init()
++	s.remoteCSeqNo, s.remoteCSeqSet = 0, false
++	s.remoteInviteCSeq, s.remoteInviteSet = 0, false
++	if cseq := s.InviteRequest.CSeq(); cseq != nil {
++		s.lastCSeqNo.Store(cseq.SeqNo)
++		s.localInviteCSeqNo.Store(cseq.SeqNo)
++	}
++}
++
+ func (s *DialogClientSession) ReadBye(req *sip.Request, tx sip.ServerTransaction) error {
++	if err := s.ReadRequest(req, tx); err != nil {
++		return err
++	}
+ 	s.setState(sip.DialogStateEnded)
+ 
+ 	res := sip.NewResponseFromRequest(req, 200, "OK", nil)
+@@ -38,6 +52,20 @@ func (s *DialogClientSession) ReadBye(req *sip.Request, tx sip.ServerTransaction
+ 	return nil
+ }
+ 
++// ReadRequest validates an incoming request against this UAC dialog before
++// updating the remote request sequence. Native transactions own retransmissions.
++func (s *DialogClientSession) ReadRequest(req *sip.Request, tx sip.ServerTransaction) error {
++	if s.InviteResponse == nil || s.InviteRequest.From() == nil || s.InviteResponse.To() == nil {
++		return ErrDialogOutsideDialog
++	}
++	localTag, _ := s.InviteRequest.From().Params.Get("tag")
++	remoteTag, _ := s.InviteResponse.To().Params.Get("tag")
++	if err := s.validateRequestIdentity(req, localTag, remoteTag); err != nil {
++		return err
++	}
++	return s.Dialog.ReadRequest(req, tx)
++}
++
+ // Do sends request and waits final response using Dialog rules
+ // For more control use TransactionRequest
+ //
+@@ -115,6 +143,7 @@ func (s *DialogClientSession) buildReq(req *sip.Request) {
+ 	}
+ 
+ 	cseq := req.CSeq()
++	cseqProvided := cseq != nil
+ 	if cseq == nil {
+ 		cseq = &sip.CSeqHeader{
+ 			SeqNo:      s.InviteRequest.CSeq().SeqNo,
+@@ -126,13 +155,7 @@ func (s *DialogClientSession) buildReq(req *sip.Request) {
+ 		req.PrependHeader(mustHaveHeaders...)
+ 	}
+ 
+-	// For safety make sure we are starting with our last dialog cseq num
+-	cseq.SeqNo = s.lastCSeqNo.Load()
+-
+-	if !req.IsAck() && !req.IsCancel() {
+-		// Do cseq increment within dialog
+-		cseq.SeqNo++
+-	}
++	s.buildLocalCSeq(req, cseq, cseqProvided)
+ 
+ 	// Check record route header
+ 	if s.InviteResponse != nil {
+@@ -161,7 +184,6 @@ func (s *DialogClientSession) buildReq(req *sip.Request) {
+ 		req.AppendHeader(sip.HeaderClone(&s.UA.ContactHDR))
+ 	}
+ 
+-	s.lastCSeqNo.Store(cseq.SeqNo)
+ 	// Make sure transport matches original invite
+ 	req.SetTransport(s.InviteRequest.Transport())
+ }
+@@ -211,6 +233,7 @@ func (d *DialogClientSession) Invite(ctx context.Context, options ...ClientReque
+ 
+ 	if err == nil {
+ 		d.lastCSeqNo.Store(inviteReq.CSeq().SeqNo)
++		d.localInviteCSeqNo.Store(inviteReq.CSeq().SeqNo)
+ 	}
+ 
+ 	return err
+@@ -297,7 +320,7 @@ func (s *DialogClientSession) WaitAnswer(ctx context.Context, opts AnswerOptions
+ 			tx.Terminate()
+ 			digopts := digest.Options{
+ 				Method:   sip.INVITE.String(),
+-				URI:      inviteRequest.Recipient.Addr(),
++				URI:      inviteRequest.Recipient.String(),
+ 				Username: opts.Username,
+ 				Password: opts.Password,
+ 			}
+@@ -494,11 +517,11 @@ func newAckRequestUAC(inviteRequest *sip.Request, inviteResponse *sip.Response,
+ 	ackRequest.SipVersion = inviteRequest.SipVersion
+ 
+ 	// ACK to 2xx response should not copy over Route header(s) from original INVITE request.
+-	// Instead the ACK should include Route header(s) derived from reversing the order of 
+-	// Record-Route header(s) in the 2xx response. 
++	// Instead the ACK should include Route header(s) derived from reversing the order of
++	// Record-Route header(s) in the 2xx response.
+ 	// https://datatracker.ietf.org/doc/html/rfc3261#section-12.1.2
+ 	// https://datatracker.ietf.org/doc/html/rfc3261#section-12.2.1.1
+-	
++
+ 	if h := inviteRequest.From(); h != nil {
+ 		ackRequest.AppendHeader(sip.HeaderClone(h))
+ 	}
+@@ -559,9 +582,9 @@ func newByeRequestUAC(inviteRequest *sip.Request, inviteResponse *sip.Response,
+ 	)
+ 	byeRequest.SipVersion = inviteRequest.SipVersion
+ 
+-	// For the UAC side, the Route header field(s) in the BYE request are constructed from reversing the order 
++	// For the UAC side, the Route header field(s) in the BYE request are constructed from reversing the order
+ 	// of Record-Route header field(s) in the dialogue-establishing INVITE response such as a 2xx response.
+-	// For the UAS side, the dialog route set is the list of Record-Route header fields from the 
++	// For the UAS side, the dialog route set is the list of Record-Route header fields from the
+ 	// dialogue-establishing INVITE request, taken in the same order.
+ 	// https://datatracker.ietf.org/doc/html/rfc3261#section-12.1.1
+ 	// https://datatracker.ietf.org/doc/html/rfc3261#section-12.1.2
+diff --git a/dialog_identity_test.go b/dialog_identity_test.go
+new file mode 100644
+index 0000000..a1ef4ea
+--- /dev/null
++++ b/dialog_identity_test.go
+@@ -0,0 +1,95 @@
++package sipgo
++
++import (
++	"testing"
++
++	"github.com/emiago/sipgo/sip"
++	"github.com/emiago/sipgo/siptest"
++	"github.com/stretchr/testify/require"
++)
++
++func identityDialog(t *testing.T) (*DialogServerSession, *DialogClientSession) {
++	t.Helper()
++	client := testClient(t, func(req *sip.Request) *sip.Response {
++		return sip.NewResponseFromRequest(req, 200, "OK", nil)
++	})
++	invite, _, _ := createTestInvite(t, "sip:callee@example.com", "udp", "127.0.0.1:5090")
++	invite.AppendHeader(&sip.ContactHeader{Address: sip.Uri{Host: "caller.example.com"}})
++	ua := &DialogUA{Client: client}
++	server, err := ua.ReadInvite(invite, siptest.NewServerTxRecorder(invite))
++	require.NoError(t, err)
++	server.InviteResponse = sip.NewResponseFromRequest(server.InviteRequest, 200, "OK", nil)
++	caller := &DialogClientSession{Dialog: Dialog{
++		InviteRequest: invite, InviteResponse: server.InviteResponse,
++	}, UA: ua}
++	caller.Init()
++	return server, caller
++}
++
++func TestDialogDirectionalRequestIdentity(t *testing.T) {
++	for _, role := range []string{"UAS", "UAC"} {
++		for _, mutation := range []string{"call-id", "local-tag", "remote-tag", "swapped-tags", "missing-from", "missing-to", "empty-tag"} {
++			t.Run(role+"/"+mutation, func(t *testing.T) {
++				server, caller := identityDialog(t)
++				req := newByeRequestUAC(server.InviteRequest, server.InviteResponse, nil)
++				read := server.ReadRequest
++				if role == "UAC" {
++					from, to := req.To().AsFrom(), req.From().AsTo()
++					req.ReplaceHeader(&from)
++					req.ReplaceHeader(&to)
++					read = caller.ReadRequest
++				}
++				req.CSeq().SeqNo++
++				valid := req.Clone()
++				switch mutation {
++				case "call-id":
++					id := sip.CallIDHeader("another-call")
++					req.ReplaceHeader(&id)
++				case "local-tag":
++					req.To().Params.Add("tag", "wrong-local")
++				case "remote-tag":
++					req.From().Params.Add("tag", "wrong-remote")
++				case "swapped-tags":
++					local, _ := req.To().Params.Get("tag")
++					remote, _ := req.From().Params.Get("tag")
++					req.To().Params.Add("tag", remote)
++					req.From().Params.Add("tag", local)
++				case "missing-from":
++					req.RemoveHeader("From")
++				case "missing-to":
++					req.RemoveHeader("To")
++				case "empty-tag":
++					req.From().Params.Add("tag", "")
++				}
++				require.ErrorIs(t, read(req, nil), ErrDialogOutsideDialog)
++				require.NoError(t, read(valid, nil), "invalid identity must not consume CSeq")
++			})
++		}
++	}
++}
++
++func TestDialogByeAndAckValidateIdentity(t *testing.T) {
++	for _, method := range []sip.RequestMethod{sip.BYE, sip.ACK} {
++		t.Run(string(method), func(t *testing.T) {
++			server, caller := identityDialog(t)
++			req := newByeRequestUAC(server.InviteRequest, server.InviteResponse, nil)
++			req.Method = method
++			req.CSeq().MethodName = method
++			if method == sip.ACK {
++				req.CSeq().SeqNo = server.InviteRequest.CSeq().SeqNo
++			}
++			req.From().Params.Add("tag", "wrong-remote")
++			if method == sip.ACK {
++				require.ErrorIs(t, server.ReadAck(req, nil), ErrDialogOutsideDialog)
++			} else {
++				require.ErrorIs(t, server.ReadBye(req, nil), ErrDialogOutsideDialog)
++				from, to := req.To().AsFrom(), req.From().AsTo()
++				req.ReplaceHeader(&from)
++				req.ReplaceHeader(&to)
++				require.ErrorIs(t, caller.ReadBye(req, nil), ErrDialogOutsideDialog)
++			}
++			require.Equal(t, sip.DialogState(0), server.LoadState())
++			require.Equal(t, sip.DialogState(0), caller.LoadState())
++		})
++	}
++}
+diff --git a/dialog_sequence_test.go b/dialog_sequence_test.go
+new file mode 100644
+index 0000000..094292b
+--- /dev/null
++++ b/dialog_sequence_test.go
+@@ -0,0 +1,217 @@
++package sipgo
++
++import (
++	"context"
++	"net"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/emiago/sipgo/sip"
++	"github.com/emiago/sipgo/siptest"
++	"github.com/stretchr/testify/require"
++)
++
++func sequenceDialog(t *testing.T, initial uint32) (*DialogClientSession, *DialogServerSession) {
++	t.Helper()
++	client := testClient(t, func(req *sip.Request) *sip.Response {
++		return sip.NewResponseFromRequest(req, 200, "OK", nil)
++	})
++	ua := &DialogUA{Client: client, ContactHDR: sip.ContactHeader{Address: sip.Uri{Host: "local.example.com"}}}
++	invite := sip.NewRequest(sip.INVITE, sip.Uri{Host: "remote.example.com"})
++	invite.AppendHeader(&sip.CSeqHeader{SeqNo: initial, MethodName: sip.INVITE})
++	caller, err := ua.WriteInvite(context.Background(), invite)
++	require.NoError(t, err)
++	t.Cleanup(func() { caller.inviteTx.Terminate() })
++	require.NoError(t, caller.WaitAnswer(context.Background(), AnswerOptions{}))
++	server, err := ua.ReadInvite(invite, siptest.NewServerTxRecorder(invite))
++	require.NoError(t, err)
++	server.InviteResponse = sip.NewResponseFromRequest(server.InviteRequest, 200, "OK", nil)
++	return caller, server
++}
++
++func sequenceRequest(method sip.RequestMethod, seq uint32) *sip.Request {
++	req := sip.NewRequest(method, sip.Uri{Host: "local.example.com"})
++	req.AppendHeader(&sip.CSeqHeader{SeqNo: seq, MethodName: method})
++	return req
++}
++
++func TestDialogIndependentRemoteSequence(t *testing.T) {
++	caller, server := sequenceDialog(t, 121787510)
++	// The phone may start its independent in-dialog sequence at 2 even when
++	// the INVITE sent by this UAC had a much larger CSeq.
++	require.NoError(t, caller.Dialog.ReadRequest(sequenceRequest(sip.INVITE, 2), nil))
++	require.NoError(t, caller.Dialog.ReadRequest(sequenceRequest(sip.INFO, 7), nil))
++	require.ErrorIs(t, caller.Dialog.ReadRequest(sequenceRequest(sip.INFO, 7), nil), ErrDialogInvalidCseq)
++	require.ErrorIs(t, caller.Dialog.ReadRequest(sequenceRequest(sip.BYE, 6), nil), ErrDialogInvalidCseq)
++	require.NoError(t, caller.Dialog.ReadRequest(sequenceRequest(sip.ACK, 2), nil), "ACK follows its INVITE, not the latest non-INVITE")
++	require.ErrorIs(t, caller.Dialog.ReadRequest(sequenceRequest(sip.ACK, 7), nil), ErrDialogInvalidCseq)
++	require.NoError(t, caller.Dialog.ReadRequest(sequenceRequest(sip.CANCEL, 2), nil))
++	require.NoError(t, caller.Dialog.ReadRequest(sequenceRequest(sip.BYE, 8), nil))
++	require.Equal(t, uint32(121787510), caller.CSEQ(), "remote requests must not change local sequence")
++
++	request := sip.NewRequest(sip.INFO, sip.Uri{Host: "remote.example.com"})
++	server.buildReq(request)
++	require.Equal(t, uint32(1), request.CSeq().SeqNo, "UAS chooses its own first local sequence")
++	require.ErrorIs(t, server.Dialog.ReadRequest(sequenceRequest(sip.BYE, 121787510), nil), ErrDialogInvalidCseq)
++	require.NoError(t, server.Dialog.ReadRequest(sequenceRequest(sip.BYE, 121787511), nil))
++}
++
++func TestDialogFirstRemoteZeroAndMalformedCSeq(t *testing.T) {
++	caller, _ := sequenceDialog(t, 100)
++	require.NoError(t, caller.Dialog.ReadRequest(sequenceRequest(sip.INFO, 0), nil))
++	require.ErrorIs(t, caller.Dialog.ReadRequest(sequenceRequest(sip.INFO, 0), nil), ErrDialogInvalidCseq)
++	req := sequenceRequest(sip.INFO, 1)
++	req.CSeq().MethodName = sip.BYE
++	require.ErrorIs(t, caller.Dialog.ReadRequest(req, nil), ErrDialogInvalidCseq)
++	req.RemoveHeader("CSeq")
++	require.ErrorIs(t, caller.Dialog.ReadRequest(req, nil), ErrDialogInvalidCseq)
++}
++
++func TestDialogLocalSequenceAndAck(t *testing.T) {
++	caller, _ := sequenceDialog(t, 100)
++	req := sip.NewRequest(sip.INFO, sip.Uri{Host: "remote.example.com"})
++	caller.buildReq(req)
++	require.Equal(t, uint32(101), req.CSeq().SeqNo)
++	ack := newAckRequestUAC(caller.InviteRequest, caller.InviteResponse, nil)
++	caller.buildReq(ack)
++	require.Equal(t, uint32(100), ack.CSeq().SeqNo, "initial ACK must retain INVITE CSeq after INFO")
++	require.Equal(t, uint32(101), caller.CSEQ())
++
++	const count = 32
++	sequences := make(chan uint32, count)
++	var wg sync.WaitGroup
++	for range count {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			req := sip.NewRequest(sip.INFO, sip.Uri{Host: "remote.example.com"})
++			caller.buildReq(req)
++			sequences <- req.CSeq().SeqNo
++		}()
++	}
++	wg.Wait()
++	close(sequences)
++	seen := make(map[uint32]bool)
++	for seq := range sequences {
++		require.False(t, seen[seq], "concurrent request must allocate unique CSeq")
++		seen[seq] = true
++	}
++	require.Equal(t, uint32(101+count), caller.CSEQ())
++}
++
++func TestDialogServerAckAfterRemoteInfo(t *testing.T) {
++	_, server := sequenceDialog(t, 100)
++	require.NoError(t, server.Dialog.ReadRequest(sequenceRequest(sip.INFO, 101), nil))
++	ack := newAckRequestUAC(server.InviteRequest, server.InviteResponse, nil)
++	require.NoError(t, server.ReadAck(ack, nil))
++}
++
++func TestDialogByeRemoteSequence(t *testing.T) {
++	for _, role := range []string{"UAC", "UAS"} {
++		t.Run(role, func(t *testing.T) {
++			caller, server := sequenceDialog(t, 100)
++			dialog := &caller.Dialog
++			readBye := caller.ReadBye
++			if role == "UAS" {
++				dialog, readBye = &server.Dialog, server.ReadBye
++			}
++			require.NoError(t, dialog.ReadRequest(sequenceRequest(sip.INFO, 101), nil))
++			bye := newByeRequestUAC(server.InviteRequest, server.InviteResponse, nil)
++			if role == "UAC" {
++				from, to := caller.InviteResponse.To().AsFrom(), caller.InviteRequest.From().AsTo()
++				bye.ReplaceHeader(&from)
++				bye.ReplaceHeader(&to)
++			}
++			bye.CSeq().SeqNo = 101
++			require.ErrorIs(t, readBye(bye, nil), ErrDialogInvalidCseq)
++			require.NotEqual(t, sip.DialogStateEnded, dialog.LoadState())
++			bye.CSeq().SeqNo = 102
++			bye.AppendHeader(sip.HeaderClone(caller.InviteRequest.Via()))
++			tx := siptest.NewServerTxRecorder(bye)
++			defer tx.Terminate()
++			require.NoError(t, readBye(bye, tx))
++			require.Equal(t, sip.DialogStateEnded, dialog.LoadState())
++			require.Len(t, tx.Result(), 1)
++		})
++	}
++}
++
++func TestDialogLocalByeUsesIndependentSequence(t *testing.T) {
++	for _, role := range []string{"UAC", "UAS"} {
++		t.Run(role, func(t *testing.T) {
++			caller, server := sequenceDialog(t, 100)
++			dialog, bye, want := &caller.Dialog, caller.Bye, uint32(101)
++			if role == "UAS" {
++				dialog, bye, want = &server.Dialog, server.Bye, 1
++			}
++			dialog.setState(sip.DialogStateConfirmed)
++			require.NoError(t, dialog.ReadRequest(sequenceRequest(sip.INFO, 200), nil))
++			var sent *sip.Request
++			caller.UA.Client.TxRequester = &siptest.ClientTxRequester{OnRequest: func(req *sip.Request) *sip.Response {
++				sent = req.Clone()
++				return sip.NewResponseFromRequest(req, 200, "OK", nil)
++			}}
++			require.NoError(t, bye(context.Background()))
++			require.NotNil(t, sent)
++			require.Equal(t, sip.BYE, sent.CSeq().MethodName)
++			require.Equal(t, want, sent.CSeq().SeqNo)
++		})
++	}
++}
++
++func TestDialogRemoteCSeqRetransmissionStaysNative(t *testing.T) {
++	ua, err := NewUA()
++	require.NoError(t, err)
++	t.Cleanup(func() { ua.Close() })
++	server, err := NewServer(ua)
++	require.NoError(t, err)
++	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
++	require.NoError(t, err)
++	t.Cleanup(func() { listener.Close() })
++	peer, err := net.Dial("udp", listener.LocalAddr().String())
++	require.NoError(t, err)
++	t.Cleanup(func() { peer.Close() })
++	invite, _, _ := createTestInvite(t, "sip:callee@example.com", "udp", peer.LocalAddr().String())
++	invite.CSeq().SeqNo = 1
++	dialog := &Dialog{InviteRequest: invite}
++	dialog.Init()
++	var handled atomic.Int32
++	server.OnInfo(func(req *sip.Request, tx sip.ServerTransaction) {
++		handled.Add(1)
++		code := 200
++		if err := dialog.ReadRequest(req, tx); err != nil {
++			code = 500
++		}
++		if err := tx.Respond(sip.NewResponseFromRequest(req, code, "Sequence result", nil)); err != nil {
++			t.Error(err)
++		}
++	})
++	go server.ServeUDP(listener)
++	req := invite.Clone()
++	req.Method, req.CSeq().MethodName = sip.INFO, sip.INFO
++	req.CSeq().SeqNo = 2
++	req.SetBody(nil)
++	exchange := func(want int) {
++		t.Helper()
++		require.NoError(t, peer.SetDeadline(time.Now().Add(2*time.Second)))
++		_, err := peer.Write([]byte(req.String()))
++		require.NoError(t, err)
++		buf := make([]byte, 4096)
++		n, err := peer.Read(buf)
++		require.NoError(t, err)
++		message, err := sip.ParseMessage(buf[:n])
++		require.NoError(t, err)
++		require.Equal(t, want, message.(*sip.Response).StatusCode)
++	}
++	exchange(200)
++	exchange(200) // The same branch returns the transaction's cached response.
++	require.Equal(t, int32(1), handled.Load())
++	req.Via().Params.Add("branch", sip.GenerateBranch())
++	exchange(500) // A new transaction cannot reuse the accepted CSeq.
++	req.Via().Params.Add("branch", sip.GenerateBranch())
++	req.CSeq().SeqNo++
++	exchange(200)
++	require.Equal(t, int32(3), handled.Load())
++}
+diff --git a/dialog_server.go b/dialog_server.go
+index 74d3b54..742107a 100644
+--- a/dialog_server.go
++++ b/dialog_server.go
+@@ -22,8 +22,12 @@ type DialogServerSession struct {
+ 
+ // ReadAck changes dialog state to confiremed
+ func (s *DialogServerSession) ReadAck(req *sip.Request, tx sip.ServerTransaction) error {
+-	// cseq must match to our last dialog cseq
+-	if req.CSeq().SeqNo != s.remoteCSeqNo.Load() {
++	if err := s.validateRequest(req); err != nil {
++		return err
++	}
++	// The initial ACK belongs to the initial INVITE, even if another remote
++	// request (e.g. INFO) has already advanced the dialog's remote sequence.
++	if !req.IsAck() || req.CSeq() == nil || req.CSeq().MethodName != sip.ACK || req.CSeq().SeqNo != s.InviteRequest.CSeq().SeqNo {
+ 		return ErrDialogInvalidCseq
+ 	}
+ 	s.setState(sip.DialogStateConfirmed)
+@@ -32,7 +36,7 @@ func (s *DialogServerSession) ReadAck(req *sip.Request, tx sip.ServerTransaction
+ 
+ func (s *DialogServerSession) ReadBye(req *sip.Request, tx sip.ServerTransaction) error {
+ 	// Make sure this is bye for this dialog
+-	if err := s.validateRequest(req); err != nil {
++	if err := s.ReadRequest(req, tx); err != nil {
+ 		return err
+ 	}
+ 
+@@ -118,6 +122,7 @@ func (s *DialogServerSession) buildReq(req *sip.Request) {
+ 	}
+ 
+ 	cseq := req.CSeq()
++	cseqProvided := cseq != nil
+ 	if cseq == nil {
+ 		cseq = &sip.CSeqHeader{
+ 			SeqNo:      s.InviteRequest.CSeq().SeqNo,
+@@ -129,13 +134,7 @@ func (s *DialogServerSession) buildReq(req *sip.Request) {
+ 		req.PrependHeader(mustHaveHeaders...)
+ 	}
+ 
+-	// For safety make sure we are starting with our last dialog cseq num
+-	cseq.SeqNo = s.lastCSeqNo.Load()
+-
+-	if !req.IsAck() && !req.IsCancel() {
+-		// Do cseq increment within dialog
+-		cseq.SeqNo++
+-	}
++	s.buildLocalCSeq(req, cseq, cseqProvided)
+ 
+ 	// https://datatracker.ietf.org/doc/html/rfc3261#section-16.12.1.2
+ 	rrs := s.InviteRequest.GetHeaders("Record-Route")
+@@ -167,8 +166,6 @@ func (s *DialogServerSession) buildReq(req *sip.Request) {
+ 	// 	}
+ 	// }
+ 
+-	s.lastCSeqNo.Store(cseq.SeqNo)
+-
+ 	if h := req.Contact(); h == nil {
+ 		req.AppendHeader(sip.HeaderClone(&s.ua.ContactHDR))
+ 	}
+@@ -421,13 +418,22 @@ func (s *DialogServerSession) WriteBye(ctx context.Context, bye *sip.Request) er
+ 	}
+ }
+ 
+-func (dt *DialogServerSession) validateRequest(req *sip.Request) (err error) {
+-	// Make sure this is bye for this dialog
++// ReadRequest validates an incoming request against this UAS dialog before
++// updating the remote request sequence. Native transactions own retransmissions.
++func (s *DialogServerSession) ReadRequest(req *sip.Request, tx sip.ServerTransaction) error {
++	if err := s.validateRequest(req); err != nil {
++		return err
++	}
++	return s.Dialog.ReadRequest(req, tx)
++}
+ 
+-	if req.CSeq().SeqNo < dt.InviteRequest.CSeq().SeqNo {
+-		return ErrDialogInvalidCseq
++func (s *DialogServerSession) validateRequest(req *sip.Request) error {
++	if s.InviteRequest.To() == nil || s.InviteRequest.From() == nil {
++		return ErrDialogOutsideDialog
+ 	}
+-	return nil
++	localTag, _ := s.InviteRequest.To().Params.Get("tag")
++	remoteTag, _ := s.InviteRequest.From().Params.Get("tag")
++	return s.validateRequestIdentity(req, localTag, remoteTag)
+ }
+ 
+ // DialogServerCache serves as quick way to start building dialog server
+diff --git a/dialog_server_test.go b/dialog_server_test.go
+index 6d32f47..a432ab3 100644
+--- a/dialog_server_test.go
++++ b/dialog_server_test.go
+@@ -144,7 +144,7 @@ func TestDialogServerRequestsWithinDialog(t *testing.T) {
+ 		require.NoError(t, err)
+ 		defer dialog.Close()
+ 
+-		byeWrongCseq := newByeRequestUAC(invite, sip.NewResponseFromRequest(invite, 200, "OK", nil), nil)
++		byeWrongCseq := newByeRequestUAC(dialog.InviteRequest, sip.NewResponseFromRequest(dialog.InviteRequest, 200, "OK", nil), nil)
+ 		byeWrongCseq.CSeq().SeqNo--
+ 		tx = sip.NewServerTx("test", byeWrongCseq, conn, slog.Default())
+ 		tx.Init()
+@@ -173,7 +173,8 @@ func TestDialogServerRequestsWithinDialog(t *testing.T) {
+ 		_, err = dialog.TransactionRequest(context.TODO(), reinvite)
+ 		require.NoError(t, err)
+ 
+-		bye := newByeRequestUAC(invite, sip.NewResponseFromRequest(invite, 200, "OK", nil), nil)
++		bye := newByeRequestUAC(dialog.InviteRequest, sip.NewResponseFromRequest(dialog.InviteRequest, 200, "OK", nil), nil)
++		bye.CSeq().SeqNo++ // The helper leaves CSeq allocation to the sending dialog.
+ 		tx = sip.NewServerTx("test-bye", bye, conn, slog.Default())
+ 		tx.Init()
+ 		err = dialog.ReadBye(bye, tx)
+diff --git a/dialog_ua.go b/dialog_ua.go
+index 1e2b9d4..ca1b774 100644
+--- a/dialog_ua.go
++++ b/dialog_ua.go
+@@ -125,7 +125,7 @@ func (c *DialogUA) WriteInvite(ctx context.Context, inviteReq *sip.Request, opti
+ 		UA: c,
+ 	}
+ 	// Init our dialog
+-	dtx.Dialog.Init()
++	dtx.Init()
+ 
+ 	return dtx, dtx.Invite(ctx, options...)
+ }
+diff --git a/digest_request_uri_test.go b/digest_request_uri_test.go
+new file mode 100644
+index 0000000..d580d78
+--- /dev/null
++++ b/digest_request_uri_test.go
+@@ -0,0 +1,67 @@
++package sipgo
++
++import (
++	"context"
++	"crypto/md5"
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/emiago/sipgo/sip"
++	"github.com/icholy/digest"
++	"github.com/stretchr/testify/require"
++)
++
++func TestDigestUsesCompleteRequestURI(t *testing.T) {
++	for _, status := range []int{401, 407} {
++		for _, dialog := range []bool{false, true} {
++			t.Run(fmt.Sprintf("%d/dialog=%t", status, dialog), func(t *testing.T) {
++				const uri = "sip:alice@example.test:5070;transport=tcp;user=phone?subject=hello"
++				const challenge = `Digest realm="carrier", nonce="test-nonce", algorithm=MD5, qop="auth"`
++				credentialHeader, challengeHeader := "Authorization", "WWW-Authenticate"
++				if status == 407 {
++					credentialHeader, challengeHeader = "Proxy-Authorization", "Proxy-Authenticate"
++				}
++				attempts := 0
++				hash := func(value string) string { return fmt.Sprintf("%x", md5.Sum([]byte(value))) }
++				client := testClient(t, func(req *sip.Request) *sip.Response {
++					attempts++
++					actualURI := strings.Fields(req.StartLine())[1]
++					require.Equal(t, uri, actualURI)
++					credentials := req.GetHeader(credentialHeader)
++					if credentials == nil {
++						response := sip.NewResponseFromRequest(req, status, "Authenticate", nil)
++						response.AppendHeader(sip.NewHeader(challengeHeader, challenge))
++						return response
++					}
++					parsed, err := digest.ParseCredentials(credentials.Value())
++					require.NoError(t, err)
++					require.Equal(t, actualURI, parsed.URI, "digest uri must match the complete wire request target")
++					expected := hash(fmt.Sprintf("%s:test-nonce:%08x:%s:auth:%s", hash("alice:carrier:secret"), parsed.Nc, parsed.Cnonce, hash(string(req.Method)+":"+actualURI)))
++					require.Equal(t, expected, parsed.Response, "digest must hash the complete wire request target")
++					response := sip.NewResponseFromRequest(req, 200, "OK", nil)
++					response.To().Params.Add("tag", "carrier")
++					response.AppendHeader(sip.NewHeader("Contact", "<sip:carrier@example.test>"))
++					return response
++				})
++				var target sip.Uri
++				require.NoError(t, sip.ParseUri(uri, &target))
++				if dialog {
++					ua := &DialogUA{Client: client}
++					session, err := ua.Invite(context.Background(), target, nil)
++					require.NoError(t, err)
++					require.NoError(t, session.WaitAnswer(context.Background(), AnswerOptions{Username: "alice", Password: "secret"}))
++				} else {
++					request := sip.NewRequest(sip.OPTIONS, target)
++					response, err := client.Do(context.Background(), request)
++					require.NoError(t, err)
++					require.Equal(t, status, response.StatusCode)
++					accepted, err := client.DoDigestAuth(context.Background(), request, response, DigestAuth{Username: "alice", Password: "secret"})
++					require.NoError(t, err)
++					require.Equal(t, 200, accepted.StatusCode)
++				}
++				require.Equal(t, 2, attempts)
++			})
++		}
++	}
++}
+diff --git a/sip/portable/README.md b/sip/portable/README.md
+new file mode 100644
+index 0000000..2d329dc
+--- /dev/null
++++ b/sip/portable/README.md
+@@ -0,0 +1,86 @@
++# Portable protocol values
++
++This experimental package exposes native SIP transaction/dialog decisions as
++serializable values. The driver supplies event time in milliseconds and all
++random identifiers. Reducers clone their inputs and return values plus ordered
++effects; they never open connections, start timers, read entropy, wait on
++channels, call applications or access storage. `Message` contains immutable wire
++bytes and separately observed transport/source/destination metadata.
++
++Commit the resulting state and effects together before interpreting effects.
++Timer notifications carry the exact saved name/generation and may be duplicated;
++the saved absolute deadline is authoritative. Delivery results are later inputs.
++An effect is an instruction, not evidence of a successful socket write. Storage
++fences, effect IDs, exclusive dispatch, uncertainty, authorization and bounded
++retention belong to the driver. A transaction key locates a candidate; full native
++origin identity matching remains mandatory.
++
++Four transaction families use explicit phases. Dialog values retain directional
++identity, independent sequence spaces, fixed route sets, accepted target,
++pending INVITE/offer/ACK procedures and absolute successful-final ACK deadlines.
++Create a separate dialog value for each remote-tag fork. The transaction reducer
++reports every accepted-transaction 2xx; the driver dispatches it to that child.
++Transaction presentation effects must pass dialog admission before application
++execution. A dialog `respond` effect is submitted to its server transaction, not
++written directly; `start_transaction` creates a client transaction. Direct `send`
++is reserved for stateless ACK or a transaction-owned wire effect.
++
++The legacy goroutine/timer API remains unchanged in this intermediate extraction.
++It must never run beside a portable FSM for the same transaction/dialog. Migrating
++that convenience driver onto these reducers remains separate work. The package
++does not itself provide a Redis runtime or qualify unsupported SIP extensions.
++
++Deliberate corrections relative to the legacy storage/action implementation are
++explicit non-INVITE E/F/K timers, a fixed TU ACK deadline and exponentially capped
++TU retransmission interval, no sleeping ACK action, and Accepted-state retention
++after transport failure. These are covered by deterministic event traces. Strict
++and loose route construction use the complete persisted route set. PRACK/session
++timers and proxy forking policy are outside this package's supported profile.
++
++## Driver API
++
++- `NewTransaction` and `StepTransaction` implement the four transaction families.
++  `RequestCancel` records client INVITE cancellation, deferring its single
++  `start_transaction` effect until a provisional response permits CANCEL.
++  Emitting that CANCEL also commits a fixed `64*T1` cancellation watchdog for
++  the original INVITE, following the UAC-core recommendation in
++  [RFC 3261 section 9.1](https://www.rfc-editor.org/rfc/rfc3261#section-9.1).
++  Repeated cancellation/provisional input cannot extend it; an INVITE final or
++  termination stops it. CANCEL's own transaction remains independent.
++  An elapsed B/F/H terminal deadline takes precedence over a delayed A/E/G
++  retransmission notification, so scheduler recovery cannot emit fresh traffic
++  after that procedure's original absolute timeout.
++- `StepServerCancel` returns both INVITE and CANCEL transaction values. Commit
++  them together; retain CANCEL's own non-INVITE replay state independently of
++  INVITE retirement. Later CANCEL duplicates can use `StepTransaction` on the
++  retained CANCEL value without the original INVITE being alive.
++- `NewDialog` creates one tagged branch. `StepDialog` owns its local/remote
++  sequence allocation, target refresh, fixed routes and successful-INVITE ACK
++  procedure. `DialogCancel` marks the branch for cleanup; it does not create a
++  second CANCEL alongside the client transaction's cancellation procedure.
++- `BuildInitialRequest`, `BuildResponseWithHeaders` and
++  `BuildDialogRequestWithHeaders` accept explicit committed identities and
++  application content. Native identity/routing/framing headers cannot be
++  overridden by the arbitrary header list. Initial From/To may be supplied in
++  structured fields or once in the header list; a supplied From tag must match
++  the reserved native tag. Dialog response Contact is an explicit URI or name-addr
++  argument; bare URI parameters stay inside the URI rather than becoming header
++  parameters.
++  Successful REGISTER response Contacts are registration-policy content: validated
++  ordered Contact headers (including expires parameters) come from the application
++  header list, and the builder never adds its own dialog Contact to REGISTER.
++- `BuildDigestRetry` requires the original complete URI, explicit cnonce/count
++  and new branch. It is a transient credential-executor helper, not a durable
++  reducer input. Password is excluded from JSON encoding and is never retained
++  in transaction/dialog state.
++
++`Dialog.Retiring` is monotonic. A late successful re-INVITE or its ACK cannot
++reopen a dialog after local termination. `LocalBye` retains the one allocated
++request; its final response ends the dialog even on failure. Native completion
++and wire-result certainty remain separate from application acceptance.
++
++Validate hydrated values before interpreting effects. Unknown versions, phases,
++transaction keys or transport profiles fail rather than calling initialization.
++The driver supplies bounded storage/concurrency and dispatches transaction
++effects to the correct dialog branch. This package has no per-dialog actor,
++timer goroutine or persistence implementation.
+diff --git a/sip/portable/build.go b/sip/portable/build.go
+new file mode 100644
+index 0000000..60d5804
+--- /dev/null
++++ b/sip/portable/build.go
+@@ -0,0 +1,257 @@
++package portable
++
++import (
++	"bytes"
++	"errors"
++	"math"
++	"net"
++	"strconv"
++	"strings"
++
++	"github.com/emiago/sipgo/sip"
++)
++
++// Header preserves application header order and repeated values. Protocol-owned
++// identity, routing and framing headers cannot be overridden through this list.
++type Header struct {
++	Name  string `json:"name"`
++	Value string `json:"value"`
++}
++
++// InitialRequest supplies every random/native identity explicitly. The driver
++// must commit the resulting message before interpreting a send effect.
++type InitialRequest struct {
++	Method                        sip.RequestMethod
++	URI, From, To                 string
++	CallID, LocalTag, Branch      string
++	CSeq                          uint32
++	Advertise, Contact, Transport string
++	Headers                       []Header
++	Body                          []byte
++}
++
++func BuildInitialRequest(in InitialRequest) (Message, error) {
++	if !validToken(string(in.Method)) || in.Method == sip.ACK || in.Method == sip.CANCEL || in.CSeq > math.MaxInt32 ||
++		in.CallID == "" || !validToken(in.LocalTag) || !validBranch(in.Branch) || strings.ContainsAny(in.CallID, " \t\r\n\x00") || strings.ContainsAny(in.URI, "\r\n\x00") {
++		return Message{}, errors.New("explicit initial method, Call-ID, tag, branch and CSeq required")
++	}
++	if in.Transport != "udp" && in.Transport != "tcp" && in.Transport != "tls" {
++		return Message{}, errors.New("observed transport required")
++	}
++	var target sip.Uri
++	if err := sip.ParseUri(in.URI, &target); err != nil || target.Host == "" {
++		return Message{}, errors.New("invalid initial Request-URI")
++	}
++	if target.IsEncrypted() && in.Transport != "tls" {
++		return Message{}, errors.New("SIPS requires TLS")
++	}
++	fromText, toText := in.From, in.To
++	remaining := make([]Header, 0, len(in.Headers))
++	for _, h := range in.Headers {
++		switch strings.ToLower(h.Name) {
++		case "from", "f":
++			if fromText != "" {
++				return Message{}, errors.New("duplicate initial From")
++			}
++			fromText = h.Value
++		case "to", "t":
++			if toText != "" {
++				return Message{}, errors.New("duplicate initial To")
++			}
++			toText = h.Value
++		default:
++			remaining = append(remaining, h)
++		}
++	}
++	if fromText == "" {
++		fromText = "<sip:sipbridge@" + in.Advertise + ">"
++	}
++	if toText == "" {
++		toText = "<" + target.String() + ">"
++	}
++	from, err := parseAddress(fromText)
++	if err != nil {
++		return Message{}, err
++	}
++	if existing := tag(from.Params); existing != "" && existing != in.LocalTag {
++		return Message{}, errors.New("application From conflicts with native tag")
++	}
++	from.Params.Add("tag", in.LocalTag)
++	to, err := parseAddress(toText)
++	if err != nil {
++		return Message{}, err
++	}
++	if tag(to.Params) != "" {
++		return Message{}, errors.New("initial To must not claim a dialog")
++	}
++	r := sip.NewRequest(in.Method, target)
++	r.AppendHeader(&sip.FromHeader{DisplayName: from.DisplayName, Address: from.Address, Params: from.Params})
++	r.AppendHeader(&sip.ToHeader{DisplayName: to.DisplayName, Address: to.Address, Params: to.Params})
++	id := sip.CallIDHeader(in.CallID)
++	r.AppendHeader(&id)
++	r.AppendHeader(&sip.CSeqHeader{SeqNo: in.CSeq, MethodName: in.Method})
++	fwd := sip.MaxForwardsHeader(70)
++	r.AppendHeader(&fwd)
++	via, err := buildVia(in.Advertise, in.Transport, in.Branch)
++	if err != nil {
++		return Message{}, err
++	}
++	r.PrependHeader(via)
++	if in.Contact != "" {
++		contact, err := parseNativeContact(in.Contact)
++		if err != nil {
++			return Message{}, err
++		}
++		r.AppendHeader(&sip.ContactHeader{DisplayName: contact.DisplayName, Address: contact.Address, Params: contact.Params})
++	}
++	r.SetBody(bytes.Clone(in.Body))
++	if len(in.Body) > 0 {
++		r.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
++	}
++	if err := applyHeaders(r, remaining); err != nil {
++		return Message{}, err
++	}
++	return wire(r, in.Transport, "", ""), nil
++}
++
++func BuildResponseWithHeaders(origin Message, status int, reason string, body []byte, localTag, contact string, headers []Header) (Message, error) {
++	if strings.ContainsAny(reason, "\r\n\x00") {
++		return Message{}, errors.New("invalid reason phrase")
++	}
++	m, err := ResponseFor(origin, status, reason, body, localTag)
++	if err != nil {
++		return Message{}, err
++	}
++	r, err := response(m)
++	if err != nil {
++		return Message{}, err
++	}
++	o, err := request(origin)
++	if err != nil {
++		return Message{}, err
++	}
++	registration := o.Method == sip.REGISTER
++	if contact != "" && status != 100 && !registration {
++		value, err := parseNativeContact(contact)
++		if err != nil {
++			return Message{}, err
++		}
++		r.AppendHeader(&sip.ContactHeader{DisplayName: value.DisplayName, Address: value.Address, Params: value.Params})
++	}
++	if len(body) > 0 {
++		r.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
++	}
++	contentHeaders := headers
++	if registration && status >= 200 && status < 300 {
++		contentHeaders = make([]Header, 0, len(headers))
++		for _, h := range headers {
++			if strings.EqualFold(h.Name, "Contact") || strings.EqualFold(h.Name, "m") {
++				if strings.TrimSpace(h.Value) == "*" {
++					return Message{}, errors.New("REGISTER response requires concrete binding Contacts")
++				}
++				value, err := parseAddress(h.Value)
++				if err != nil {
++					return Message{}, err
++				}
++				r.AppendHeader(&sip.ContactHeader{DisplayName: value.DisplayName, Address: value.Address, Params: value.Params})
++			} else {
++				contentHeaders = append(contentHeaders, h)
++			}
++		}
++	}
++	if err := applyHeaders(r, contentHeaders); err != nil {
++		return Message{}, err
++	}
++	return wire(r, m.Transport, m.Source, m.Destination), nil
++}
++
++func BuildDialogRequestWithHeaders(s Dialog, method sip.RequestMethod, sequence uint32, body []byte, branch string, headers []Header) (Message, error) {
++	m, err := BuildDialogRequest(s, method, sequence, body, branch)
++	if err != nil {
++		return Message{}, err
++	}
++	r, err := request(m)
++	if err != nil {
++		return Message{}, err
++	}
++	if err := applyHeaders(r, headers); err != nil {
++		return Message{}, err
++	}
++	return wire(r, m.Transport, m.Source, m.Destination), nil
++}
++
++func validToken(v string) bool {
++	if v == "" {
++		return false
++	}
++	for _, c := range v {
++		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("-.!%*_+`'~", c) {
++			continue
++		}
++		return false
++	}
++	return true
++}
++
++func buildVia(advertise, transport, branch string) (*sip.ViaHeader, error) {
++	host, portText, err := net.SplitHostPort(advertise)
++	if err != nil || host == "" || strings.ContainsAny(host, "\r\n\x00") {
++		return nil, errors.New("local Via host:port required")
++	}
++	port, err := strconv.Atoi(portText)
++	if err != nil || port < 1 || port > 65535 {
++		return nil, errors.New("invalid Via port")
++	}
++	params := sip.NewParams()
++	params.Add("branch", branch)
++	params.Add("rport", "")
++	return &sip.ViaHeader{ProtocolName: "SIP", ProtocolVersion: "2.0", Transport: strings.ToUpper(transport), Host: host, Port: port, Params: params}, nil
++}
++
++func parseAddress(value string) (*sip.ContactHeader, error) {
++	if strings.ContainsAny(value, "\r\n\x00") {
++		return nil, errors.New("invalid address value")
++	}
++	var uri sip.Uri
++	params := sip.NewParams()
++	name, err := sip.ParseAddressValue(value, &uri, &params)
++	if err != nil || uri.Host == "" {
++		return nil, errors.New("invalid address value")
++	}
++	return &sip.ContactHeader{DisplayName: name, Address: uri, Params: params}, nil
++}
++
++func parseNativeContact(value string) (*sip.ContactHeader, error) {
++	if strings.Contains(value, "<") {
++		return parseAddress(value)
++	}
++	if strings.ContainsAny(value, "\r\n\x00") {
++		return nil, errors.New("invalid native Contact")
++	}
++	var uri sip.Uri
++	if err := sip.ParseUri(value, &uri); err != nil || uri.Host == "" {
++		return nil, errors.New("invalid native Contact URI")
++	}
++	return &sip.ContactHeader{Address: uri, Params: sip.NewParams()}, nil
++}
++
++type headerMessage interface {
++	sip.Message
++	RemoveHeader(string) bool
++}
++
++func applyHeaders(m headerMessage, headers []Header) error {
++	for _, h := range headers {
++		if !validToken(h.Name) || strings.ContainsAny(h.Value, "\r\n\x00") {
++			return errors.New("invalid application header")
++		}
++		switch strings.ToLower(h.Name) {
++		case "via", "v", "from", "f", "to", "t", "call-id", "i", "cseq", "route", "record-route", "max-forwards", "contact", "m", "content-length", "l":
++			return errors.New("application header conflicts with native identity/routing/framing")
++		case "content-type", "c":
++			m.RemoveHeader("Content-Type")
++		}
++		m.AppendHeader(sip.NewHeader(h.Name, h.Value))
++	}
++	return nil
++}
+diff --git a/sip/portable/build_test.go b/sip/portable/build_test.go
+new file mode 100644
+index 0000000..37d7521
+--- /dev/null
++++ b/sip/portable/build_test.go
+@@ -0,0 +1,187 @@
++package portable
++
++import (
++	"bytes"
++	"strings"
++	"testing"
++
++	"github.com/emiago/sipgo/sip"
++	"github.com/icholy/digest"
++)
++
++func TestPortableBuildersRequireExplicitNativeIdentity(t *testing.T) {
++	in := InitialRequest{Method: sip.INVITE, URI: "sip:phone@example.test", CallID: "build-call", LocalTag: "local-tag", Branch: "z9hG4bK-build", CSeq: 7, Advertise: "192.0.2.1:5061", Contact: "sip:controller@192.0.2.1:5061", Transport: "tls", Body: []byte("body"), Headers: []Header{{Name: "From", Value: "\"Caller\" <sip:alice@example.test>"}, {Name: "To", Value: "<sip:bob@example.test>"}, {Name: "Content-Type", Value: "text/plain"}, {Name: "X-Test", Value: "one"}, {Name: "X-Test", Value: "two"}}}
++	m, e := BuildInitialRequest(in)
++	if e != nil {
++		t.Fatal(e)
++	}
++	r, _ := request(m)
++	if tag(r.From().Params) != "local-tag" || r.From().DisplayName != "Caller" || r.To().Address.User != "bob" || r.GetHeader("Content-Type").Value() != "text/plain" || len(r.GetHeaders("X-Test")) != 2 {
++		t.Fatal("application headers/identity lost")
++	}
++	in.LocalTag = ""
++	if _, e = BuildInitialRequest(in); e == nil {
++		t.Fatal("native entropy silently generated")
++	}
++	in.LocalTag = "local-tag"
++	in.Headers = append(in.Headers, Header{Name: "Call-ID", Value: "forged"})
++	if _, e = BuildInitialRequest(in); e == nil {
++		t.Fatal("caller overrode native Call-ID")
++	}
++	in.Headers = nil
++	in.URI = "sips:phone@example.test"
++	in.Transport = "tcp"
++	if _, e = BuildInitialRequest(in); e == nil {
++		t.Fatal("SIPS downgraded")
++	}
++	in.URI = "sip:phone@example.test"
++	in.Transport = "tls"
++	in.LocalTag = "bad;injected=tag"
++	if _, e = BuildInitialRequest(in); e == nil {
++		t.Fatal("invalid tag admitted")
++	}
++}
++
++func TestPortableResponseBuilderPreservesChosenTagAndBodies(t *testing.T) {
++	o := origin(t, sip.INVITE, "tls")
++	before := bytes.Clone(o.Wire)
++	m, e := BuildResponseWithHeaders(o, 200, "OK", []byte("accepted"), "chosen-tag", "sip:controller@192.0.2.1:5061", []Header{{Name: "Content-Type", Value: "text/plain"}, {Name: "X-Test", Value: "kept"}})
++	if e != nil {
++		t.Fatal(e)
++	}
++	r, _ := response(m)
++	if tag(r.To().Params) != "chosen-tag" || r.Contact() == nil || string(r.Body()) != "accepted" || !bytes.Equal(o.Wire, before) {
++		t.Fatal("response mutated identity/input")
++	}
++	if _, e = BuildResponseWithHeaders(o, 200, "OK", nil, "chosen-tag", "", []Header{{Name: "To", Value: "<sip:forged@example.test>;tag=other"}}); e == nil {
++		t.Fatal("response identity override")
++	}
++	initial, err := NewTransaction(InviteServer, o, DefaultTimers(), "chosen-tag")
++	if err != nil {
++		t.Fatal(err)
++	}
++	s, _ := step(t, initial, Input{Kind: Start, Now: 1})
++	s, _ = step(t, s, Input{Kind: SendResponse, Message: m, Now: 2})
++	different := mutate(t, m, func(v sip.Message) { v.SetBody([]byte("different")) })
++	if _, _, e = StepTransaction(s, Input{Kind: SendResponse, Message: different, Now: 3}); e == nil {
++		t.Fatal("selected final changed")
++	}
++}
++
++func TestPortableRegisterResponseRetainsApplicationBindingsWithoutDialogContact(t *testing.T) {
++	o := origin(t, sip.REGISTER, "tls")
++	headers := []Header{{Name: "Contact", Value: "<sip:alice@192.0.2.10:5061;transport=tls>;expires=90"}, {Name: "m", Value: "<sip:alice@192.0.2.11:5061;transport=tls>;expires=120"}, {Name: "Expires", Value: "90"}}
++	m, err := BuildResponseWithHeaders(o, 200, "OK", nil, "registrar-tag", "sip:bridge@192.0.2.1:5061", headers)
++	if err != nil {
++		t.Fatal(err)
++	}
++	r, _ := response(m)
++	contacts := r.GetHeaders("Contact")
++	if len(contacts) != 2 || contacts[0].Value() != headers[0].Value || contacts[1].Value() != headers[1].Value || tag(r.To().Params) != "registrar-tag" || r.CSeq().MethodName != sip.REGISTER {
++		t.Fatalf("registration policy/identity lost: %s", r.String())
++	}
++	m, err = BuildResponseWithHeaders(o, 200, "OK", nil, "registrar-tag", "sip:bridge@192.0.2.1:5061", nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	r, _ = response(m)
++	if r.Contact() != nil {
++		t.Fatal("registrar advertised an unrelated dialog target")
++	}
++	for _, invalid := range []Header{{Name: "Contact", Value: "*"}, {Name: "Contact", Value: "<sip:alice@192.0.2.10>\r\nVia: forged"}, {Name: "To", Value: "<sip:forged@example.test>;tag=other"}} {
++		if _, err := BuildResponseWithHeaders(o, 200, "OK", nil, "registrar-tag", "", []Header{invalid}); err == nil {
++			t.Fatalf("invalid registration header accepted: %s", invalid.Name)
++		}
++	}
++	invite := origin(t, sip.INVITE, "tls")
++	if _, err := BuildResponseWithHeaders(invite, 200, "OK", nil, "dialog-tag", "", headers); err == nil {
++		t.Fatal("application replaced native dialog Contact")
++	}
++}
++
++func TestPortableNativeContactPreservesBareURIParameters(t *testing.T) {
++	o := origin(t, sip.INVITE, "tls")
++	m, err := BuildResponseWithHeaders(o, 200, "OK", nil, "native-tag", "sip:bridge@192.0.2.1:5061;transport=tls;user=phone", nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	r, _ := response(m)
++	if r.Contact().Address.String() != "sip:bridge@192.0.2.1:5061;transport=tls;user=phone" || r.Contact().Params.Has("transport") {
++		t.Fatalf("Contact URI parameters became header parameters: %s", r.Contact().Value())
++	}
++	d, err := NewDialog(UAC, o, m, DefaultTimers())
++	if err != nil || d.Target != "sip:bridge@192.0.2.1:5061;transport=tls;user=phone" {
++		t.Fatalf("dialog target changed URI: %+v %v", d, err)
++	}
++}
++
++func TestPortableDigestRetryUsesFullURIAndCommittedIdentity(t *testing.T) {
++	o := origin(t, sip.INVITE, "tls")
++	challenge := reply(t, o, 407, "challenge-tag")
++	challenge = mutate(t, challenge, func(v sip.Message) {
++		v.AppendHeader(sip.NewHeader("Proxy-Authenticate", `Digest realm="example.test", nonce="fixed-nonce", algorithm=MD5, qop="auth"`))
++	})
++	creds := DigestCredentials{Username: "alice", Password: "test-only-secret", Cnonce: "fixed-cnonce", Count: 1}
++	m, e := BuildDigestRetry(o, challenge, creds, "z9hG4bK-authenticated")
++	if e != nil {
++		t.Fatal(e)
++	}
++	r, _ := request(m)
++	original, _ := request(o)
++	if r.CSeq().SeqNo != original.CSeq().SeqNo+1 || r.Via().Params.GetOr("branch", "") != "z9hG4bK-authenticated" || tag(r.To().Params) != "" {
++		t.Fatal("retry native identity wrong")
++	}
++	full := original.Recipient.String()
++	if !strings.Contains(full, "user=phone") || !strings.Contains(full, "Subject=test") {
++		t.Fatal("test lacks full URI")
++	}
++	parsed, e := digest.ParseCredentials(r.GetHeader("Proxy-Authorization").Value())
++	if e != nil {
++		t.Fatal(e)
++	}
++	if parsed.URI != full {
++		t.Fatal("URI parameters/query dropped")
++	}
++	c, e := digest.ParseChallenge(`Digest realm="example.test", nonce="fixed-nonce", algorithm=MD5, qop="auth"`)
++	if e != nil {
++		t.Fatal(e)
++	}
++	expected, e := digest.Digest(c, digest.Options{Method: "INVITE", URI: full, Username: creds.Username, Password: creds.Password, Cnonce: creds.Cnonce, Count: 1})
++	if e != nil {
++		t.Fatal(e)
++	}
++	if parsed.Response != expected.Response {
++		t.Fatal("digest response mismatch")
++	}
++	if bytes.Contains(m.Wire, []byte(creds.Password)) {
++		t.Fatal("plaintext secret in retry")
++	}
++	if _, e = BuildDigestRetry(o, challenge, DigestCredentials{Username: "alice", Password: creds.Password}, "z9hG4bK-auth"); e == nil {
++		t.Fatal("missing entropy silently generated")
++	}
++}
++
++func TestPortableResponseMatchingChecksFullNativeOrigin(t *testing.T) {
++	o := origin(t, sip.INVITE, "tls")
++	res := reply(t, o, 200, "remote-tag")
++	if !MatchResponse(o, res) {
++		t.Fatal("valid response")
++	}
++	for name, change := range map[string]func(sip.Message){"call-id": func(v sip.Message) { *v.CallID() = "other" }, "from-tag": func(v sip.Message) { v.From().Params.Add("tag", "other") }, "cseq": func(v sip.Message) { v.CSeq().SeqNo++ }, "branch": func(v sip.Message) { v.Via().Params.Add("branch", "z9hG4bK-other") }, "sent-by": func(v sip.Message) { v.Via().Host = "other.example.test" }} {
++		t.Run(name, func(t *testing.T) {
++			if MatchResponse(o, mutate(t, res, change)) {
++				t.Fatal("borrowed transaction proof")
++			}
++		})
++	}
++	changed := res.Clone()
++	changed.Transport = "tcp"
++	if MatchResponse(o, changed) {
++		t.Fatal("observed transport downgrade")
++	}
++	inDialog := mutate(t, o, func(v sip.Message) { v.To().Params.Add("tag", "fixed-remote") })
++	response := reply(t, inDialog, 200, "fixed-remote")
++	if !MatchResponse(inDialog, response) || MatchResponse(inDialog, mutate(t, response, func(v sip.Message) { v.To().Params.Add("tag", "other") })) {
++		t.Fatal("in-dialog remote tag not pinned")
++	}
++}
+diff --git a/sip/portable/cancel_deadline_test.go b/sip/portable/cancel_deadline_test.go
+new file mode 100644
+index 0000000..1b6fe7c
+--- /dev/null
++++ b/sip/portable/cancel_deadline_test.go
+@@ -0,0 +1,52 @@
++package portable
++
++import (
++	"testing"
++
++	"github.com/emiago/sipgo/sip"
++)
++
++func TestPortableCancelledInviteHasFixedFinalResponseDeadline(t *testing.T) {
++	for _, transport := range []string{"udp", "tcp", "tls"} {
++		t.Run(transport, func(t *testing.T) {
++			request := origin(t, sip.INVITE, transport)
++			s, _ := step(t, tx(t, InviteClient, request), Input{Kind: Start, Now: 1000})
++			s, effects := step(t, s, Input{Kind: RequestCancel, Now: 1100})
++			if count(effects, StartTransaction) != 0 || s.Timers[TimerCancel].Active {
++				t.Fatal("CANCEL started before a provisional response")
++			}
++			s, effects = step(t, s, Input{Kind: ReceiveResponse, Now: 1200, Message: reply(t, request, 180, "remote-tag")})
++			deadline := s.Timers[TimerCancel]
++			if count(effects, StartTransaction) != 1 || !deadline.Active || deadline.At != 1200+64*s.Profile.T1 {
++				t.Fatal("original INVITE cancellation deadline missing")
++			}
++			s, _ = step(t, s, Input{Kind: RequestCancel, Now: 1300})
++			s, _ = step(t, s, Input{Kind: ReceiveResponse, Now: 1400, Message: reply(t, request, 183, "remote-tag")})
++			if s.Timers[TimerCancel] != deadline {
++				t.Fatal("duplicate cancellation or provisional response extended the deadline")
++			}
++			before, effects := step(t, s, Input{Kind: TimerFired, Timer: TimerCancel, Generation: deadline.Generation, Now: deadline.At - 1})
++			if before.Phase != Proceeding || count(effects, Ended) != 0 {
++				t.Fatal("cancellation ended before its original deadline")
++			}
++			ended, effects := step(t, s, Input{Kind: TimerFired, Timer: TimerCancel, Generation: deadline.Generation, Now: deadline.At})
++			if ended.Phase != Terminated || ended.Timers[TimerCancel].Active || count(effects, Ended) != 1 {
++				t.Fatal("original INVITE did not terminate after cancellation timeout")
++			}
++			_, effects = step(t, ended, Input{Kind: TimerFired, Timer: TimerCancel, Generation: deadline.Generation, Now: deadline.At + 1})
++			if count(effects, Ended) != 0 {
++				t.Fatal("cancellation timeout terminated twice")
++			}
++			for _, status := range []int{200, 487} {
++				final, _ := step(t, s, Input{Kind: ReceiveResponse, Now: 1500, Message: reply(t, request, status, "remote-tag")})
++				if final.Timers[TimerCancel].Active {
++					t.Fatal("INVITE final retained the cancellation watchdog")
++				}
++				late, effects := step(t, final, Input{Kind: TimerFired, Timer: TimerCancel, Generation: deadline.Generation, Now: deadline.At})
++				if late.Phase != final.Phase || count(effects, Ended) != 0 {
++					t.Fatal("stale cancellation timer terminated a completed INVITE")
++				}
++			}
++		})
++	}
++}
+diff --git a/sip/portable/dialog.go b/sip/portable/dialog.go
+new file mode 100644
+index 0000000..cd04012
+--- /dev/null
++++ b/sip/portable/dialog.go
+@@ -0,0 +1,725 @@
++package portable
++
++import (
++	"bytes"
++	"errors"
++	"math"
++	"net"
++	"strconv"
++	"strings"
++
++	"github.com/emiago/sipgo/sip"
++)
++
++type Role string
++
++const (
++	UAC Role = "uac"
++	UAS Role = "uas"
++)
++
++type DialogPhase string
++
++const (
++	DialogEarly       DialogPhase = "early"
++	DialogAwaitingACK DialogPhase = "awaiting_ack"
++	DialogConfirmed   DialogPhase = "confirmed"
++	DialogTerminating DialogPhase = "terminating"
++	DialogEnded       DialogPhase = "ended"
++)
++
++type OfferState string
++
++const (
++	NoOffer          OfferState = "none"
++	LocalOffer       OfferState = "local"
++	RemoteOffer      OfferState = "remote"
++	LocalOfferInACK  OfferState = "local_ack"
++	RemoteOfferInACK OfferState = "remote_ack"
++)
++
++type InviteState string
++
++const (
++	InvitePending     InviteState = "pending"
++	InviteAwaitingACK InviteState = "awaiting_ack"
++	InviteAcked       InviteState = "acked"
++	InviteRejected    InviteState = "rejected"
++)
++
++type InviteProcedure struct {
++	State           InviteState `json:"state"`
++	Sequence        uint32      `json:"sequence"`
++	Initial         bool        `json:"initial"`
++	Request         Message     `json:"request"`
++	Final           *Message    `json:"final,omitempty"`
++	ACK             *Message    `json:"ack,omitempty"`
++	CancelRequested bool        `json:"cancel_requested,omitempty"`
++}
++type Dialog struct {
++	Version      int                `json:"version"`
++	Role         Role               `json:"role"`
++	Phase        DialogPhase        `json:"phase"`
++	CallID       string             `json:"call_id"`
++	LocalTag     string             `json:"local_tag"`
++	RemoteTag    string             `json:"remote_tag"`
++	LocalURI     string             `json:"local_uri"`
++	RemoteURI    string             `json:"remote_uri"`
++	Contact      string             `json:"contact"`
++	SentBy       string             `json:"sent_by"`
++	Target       string             `json:"target"`
++	Routes       []string           `json:"routes"`
++	Transport    string             `json:"transport"`
++	LocalCSeq    uint32             `json:"local_cseq"`
++	LocalSet     bool               `json:"local_set"`
++	RemoteCSeq   uint32             `json:"remote_cseq"`
++	RemoteSet    bool               `json:"remote_set"`
++	LocalInvite  *InviteProcedure   `json:"local_invite,omitempty"`
++	RemoteInvite *InviteProcedure   `json:"remote_invite,omitempty"`
++	LocalBye     *Message           `json:"local_bye,omitempty"`
++	Retiring     bool               `json:"retiring"`
++	Offer        OfferState         `json:"offer"`
++	Timers       map[Timer]Deadline `json:"timers"`
++	Profile      TimerProfile       `json:"profile"`
++}
++type DialogInputKind string
++
++const (
++	DialogStart           DialogInputKind = "start"
++	DialogReceiveRequest  DialogInputKind = "receive_request"
++	DialogReceiveResponse DialogInputKind = "receive_response"
++	DialogSendResponse    DialogInputKind = "send_response"
++	DialogLocalRequest    DialogInputKind = "local_request"
++	DialogLocalACK        DialogInputKind = "local_ack"
++	DialogTimer           DialogInputKind = "timer"
++	DialogTerminate       DialogInputKind = "terminate"
++	DialogCancel          DialogInputKind = "cancel"
++)
++
++type DialogInput struct {
++	Kind       DialogInputKind
++	Now        int64
++	Message    Message
++	Method     sip.RequestMethod
++	Body       []byte
++	Branch     string
++	Timer      Timer
++	Generation uint64
++	Offer      bool
++	Answer     bool
++	Headers    []Header
++}
++
++// NewDialog constructs one directional branch. For UAS, submit the chosen
++// response through DialogSendResponse to arm TU timers and its response effect.
++// For UAC, DialogStart reports the pending ACK after a successful response.
++func NewDialog(role Role, origin, reply Message, profile TimerProfile) (Dialog, error) {
++	if role != UAC && role != UAS || !profile.valid() || !MatchResponse(origin, reply) {
++		return Dialog{}, errors.New("invalid dialog origin")
++	}
++	o, _ := request(origin)
++	r, _ := response(reply)
++	if !o.IsInvite() || r.StatusCode <= 100 || r.StatusCode >= 300 || tag(o.From().Params) == "" || tag(r.To().Params) == "" {
++		return Dialog{}, errors.New("tagged INVITE provisional/success required")
++	}
++	s := Dialog{Version: Version, Role: role, Phase: DialogEarly, CallID: o.CallID().Value(), Transport: origin.Transport, Profile: profile, Timers: make(map[Timer]Deadline), Offer: NoOffer}
++	p := &InviteProcedure{State: InvitePending, Sequence: o.CSeq().SeqNo, Initial: true, Request: origin.Clone()}
++	var routeHeaders []sip.Header
++	if role == UAC {
++		s.LocalTag, s.RemoteTag = tag(o.From().Params), tag(r.To().Params)
++		s.LocalURI, s.RemoteURI = o.From().Address.String(), r.To().Address.String()
++		s.LocalCSeq, s.LocalSet = o.CSeq().SeqNo, true
++		s.LocalInvite = p
++		if r.Contact() == nil {
++			return Dialog{}, errors.New("remote Contact required")
++		}
++		s.Target = r.Contact().Address.String()
++		routeHeaders = r.GetHeaders("Record-Route")
++		for i := len(routeHeaders) - 1; i >= 0; i-- {
++			s.Routes = append(s.Routes, routeHeaders[i].Value())
++		}
++		if o.Contact() != nil {
++			s.Contact = o.Contact().Address.String()
++		}
++		s.SentBy = o.Via().SentBy()
++		if r.IsSuccess() {
++			p.State = InviteAwaitingACK
++			p.Final = cloneMessage(&reply)
++			if !s.Retiring {
++				s.Phase = DialogAwaitingACK
++			}
++		}
++		if isSDP(o) && !isSDP(r) {
++			s.Offer = LocalOffer
++		}
++		if !isSDP(o) && isSDP(r) {
++			s.Offer = RemoteOfferInACK
++		}
++	} else {
++		s.LocalTag, s.RemoteTag = tag(r.To().Params), tag(o.From().Params)
++		s.LocalURI, s.RemoteURI = r.To().Address.String(), o.From().Address.String()
++		s.RemoteCSeq, s.RemoteSet = o.CSeq().SeqNo, true
++		s.RemoteInvite = p
++		if o.Contact() == nil {
++			return Dialog{}, errors.New("remote Contact required")
++		}
++		s.Target = o.Contact().Address.String()
++		routeHeaders = o.GetHeaders("Record-Route")
++		for _, h := range routeHeaders {
++			s.Routes = append(s.Routes, h.Value())
++		}
++		if r.Contact() != nil {
++			s.Contact = r.Contact().Address.String()
++			s.SentBy = r.Contact().Address.HostPort()
++		}
++		if isSDP(o) {
++			s.Offer = RemoteOffer
++		}
++	}
++	if err := s.Validate(); err != nil {
++		return Dialog{}, err
++	}
++	return s, nil
++}
++
++func isSDP(m sip.Message) bool {
++	headers := m.GetHeaders("Content-Type")
++	return len(m.Body()) > 0 && len(headers) == 1 && strings.EqualFold(strings.TrimSpace(strings.Split(headers[0].Value(), ";")[0]), "application/sdp")
++}
++func cloneProcedure(p *InviteProcedure) *InviteProcedure {
++	if p == nil {
++		return nil
++	}
++	v := *p
++	v.Request = p.Request.Clone()
++	v.Final = cloneMessage(p.Final)
++	v.ACK = cloneMessage(p.ACK)
++	return &v
++}
++func (s Dialog) Clone() Dialog {
++	s.Routes = append([]string(nil), s.Routes...)
++	s.LocalInvite = cloneProcedure(s.LocalInvite)
++	s.RemoteInvite = cloneProcedure(s.RemoteInvite)
++	s.LocalBye = cloneMessage(s.LocalBye)
++	m := make(map[Timer]Deadline, len(s.Timers))
++	for k, v := range s.Timers {
++		m[k] = v
++	}
++	s.Timers = m
++	return s
++}
++func MatchDialogRequest(s Dialog, m Message) bool {
++	r, e := request(m)
++	return e == nil && m.Transport == s.Transport && r.CallID().Value() == s.CallID && tag(r.To().Params) == s.LocalTag && tag(r.From().Params) == s.RemoteTag && s.LocalTag != "" && s.RemoteTag != ""
++}
++func MatchDialogResponse(s Dialog, m Message) bool {
++	r, e := response(m)
++	return e == nil && m.Transport == s.Transport && r.CallID().Value() == s.CallID && tag(r.From().Params) == s.LocalTag && tag(r.To().Params) == s.RemoteTag && s.LocalTag != "" && s.RemoteTag != ""
++}
++
++// BuildDialogRequest freezes role-correct loose/strict routes and supplied Via
++// branch without entropy or CSeq allocation. StepDialog owns sequence allocation.
++func BuildDialogRequest(s Dialog, method sip.RequestMethod, sequence uint32, body []byte, branch string) (Message, error) {
++	if !validToken(string(method)) || !validToken(s.LocalTag) || !validToken(s.RemoteTag) || sequence > math.MaxInt32 ||
++		(s.Transport != "udp" && s.Transport != "tcp" && s.Transport != "tls") || !validBranch(branch) ||
++		strings.ContainsAny(s.Contact+s.SentBy+s.Target+s.LocalURI+s.RemoteURI+s.CallID, "\r\n\x00") {
++		return Message{}, errors.New("invalid dialog build identity")
++	}
++	var target, local, remote sip.Uri
++	for _, v := range []struct {
++		text string
++		uri  *sip.Uri
++	}{{s.Target, &target}, {s.LocalURI, &local}, {s.RemoteURI, &remote}} {
++		if e := sip.ParseUri(v.text, v.uri); e != nil {
++			return Message{}, e
++		}
++	}
++	if target.IsEncrypted() && s.Transport != "tls" {
++		return Message{}, errors.New("SIPS requires TLS")
++	}
++	routes := append([]string(nil), s.Routes...)
++	destination := ""
++	if len(routes) > 0 {
++		var first sip.Uri
++		params := sip.NewParams()
++		if _, e := sip.ParseAddressValue(routes[0], &first, &params); e != nil {
++			return Message{}, e
++		}
++		destination = first.HostPort()
++		if !first.UriParams.Has("lr") {
++			routes = append(routes[1:], "<"+target.String()+">")
++			target = first
++		}
++	}
++	r := sip.NewRequest(method, target)
++	from, to := sip.NewParams(), sip.NewParams()
++	from.Add("tag", s.LocalTag)
++	to.Add("tag", s.RemoteTag)
++	r.AppendHeader(&sip.FromHeader{Address: local, Params: from})
++	r.AppendHeader(&sip.ToHeader{Address: remote, Params: to})
++	id := sip.CallIDHeader(s.CallID)
++	r.AppendHeader(&id)
++	r.AppendHeader(&sip.CSeqHeader{SeqNo: sequence, MethodName: method})
++	fwd := sip.MaxForwardsHeader(70)
++	r.AppendHeader(&fwd)
++	host, portText, e := net.SplitHostPort(s.SentBy)
++	if e != nil {
++		return Message{}, errors.New("local Via sent-by host:port required")
++	}
++	port, e := strconv.Atoi(portText)
++	if e != nil || port < 1 || port > 65535 {
++		return Message{}, errors.New("invalid Via port")
++	}
++	vp := sip.NewParams()
++	vp.Add("branch", branch)
++	vp.Add("rport", "")
++	r.PrependHeader(&sip.ViaHeader{ProtocolName: "SIP", ProtocolVersion: "2.0", Transport: strings.ToUpper(s.Transport), Host: host, Port: port, Params: vp})
++	for _, route := range routes {
++		if strings.ContainsAny(route, "\r\n") {
++			return Message{}, errors.New("invalid route")
++		}
++		r.AppendHeader(sip.NewHeader("Route", route))
++	}
++	if s.Contact != "" && method != sip.ACK {
++		var contact sip.Uri
++		if e := sip.ParseUri(s.Contact, &contact); e != nil {
++			return Message{}, e
++		}
++		r.AppendHeader(&sip.ContactHeader{Address: contact})
++	}
++	r.SetBody(bytes.Clone(body))
++	if len(body) > 0 {
++		r.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
++	}
++	return wire(r, s.Transport, "", destination), nil
++}
++
++type dialogTransition struct {
++	state   Dialog
++	effects []Effect
++	now     int64
++	err     error
++}
++
++func (d *dialogTransition) emit(k EffectKind, m *Message, replay bool) {
++	d.effects = append(d.effects, Effect{Kind: k, Message: cloneMessage(m), Replay: replay})
++}
++func (d *dialogTransition) schedule(k Timer, after, interval int64) {
++	v := d.state.Timers[k]
++	if v.Generation == math.MaxUint64 || after < 0 || d.now > math.MaxInt64-after {
++		d.err = errors.New("deadline exhausted")
++		return
++	}
++	v = Deadline{Generation: v.Generation + 1, At: d.now + after, Interval: interval, Active: true}
++	d.state.Timers[k] = v
++	d.effects = append(d.effects, Effect{Kind: Schedule, Timer: k, Deadline: v})
++}
++func (d *dialogTransition) stop(k Timer) {
++	v := d.state.Timers[k]
++	if v.Active {
++		v.Active = false
++		d.state.Timers[k] = v
++		d.effects = append(d.effects, Effect{Kind: CancelTimer, Timer: k, Deadline: v})
++	}
++}
++func (d *dialogTransition) end() {
++	d.state.Retiring = true
++	if d.state.Phase == DialogEnded {
++		return
++	}
++	d.state.Phase = DialogEnded
++	d.stop(Timer2xx)
++	d.stop(TimerACK)
++	d.emit(Ended, nil, false)
++}
++func pending(p *InviteProcedure) bool {
++	return p != nil && (p.State == InvitePending || p.State == InviteAwaitingACK)
++}
++
++func StepDialog(s Dialog, in DialogInput) (Dialog, []Effect, error) {
++	if s.Validate() != nil || in.Now < 0 {
++		return s, nil, errors.New("invalid dialog state/environment")
++	}
++	d := dialogTransition{state: s.Clone(), now: in.Now}
++	if d.state.Timers == nil {
++		d.state.Timers = make(map[Timer]Deadline)
++	}
++	if in.Kind == DialogTerminate {
++		d.end()
++		return d.state, d.effects, nil
++	}
++	if s.Phase == DialogEnded && in.Kind != DialogReceiveResponse && in.Kind != DialogLocalACK {
++		return s, nil, reject(481, "dialog ended")
++	}
++	switch in.Kind {
++	case DialogStart:
++		if s.LocalInvite != nil && s.LocalInvite.State == InviteAwaitingACK {
++			d.emit(NeedACK, s.LocalInvite.Final, false)
++		}
++	case DialogReceiveRequest:
++		if !MatchDialogRequest(s, in.Message) {
++			return s, nil, reject(481, "directional dialog identity mismatch")
++		}
++		r, _ := request(in.Message)
++		if r.IsAck() {
++			p := d.state.RemoteInvite
++			if p == nil || p.Sequence != r.CSeq().SeqNo || p.State != InviteAwaitingACK && p.State != InviteAcked {
++				return s, nil, reject(500, "ACK INVITE sequence mismatch")
++			}
++			if p.State == InviteAcked {
++				return d.state, nil, nil
++			}
++			if s.Offer == LocalOfferInACK && !isSDP(r) {
++				return s, nil, reject(488, "ACK answer required")
++			}
++			p.State = InviteAcked
++			p.ACK = cloneMessage(&in.Message)
++			d.state.Offer = NoOffer
++			if !d.state.Retiring {
++				d.state.Phase = DialogConfirmed
++			}
++			d.stop(Timer2xx)
++			d.stop(TimerACK)
++			d.emit(Acknowledged, &in.Message, false)
++			break
++		}
++		if r.IsCancel() {
++			return s, nil, reject(481, "CANCEL requires exact transaction association")
++		}
++		if (s.Retiring || s.Phase == DialogTerminating) && r.Method != sip.BYE {
++			return s, nil, reject(481, "dialog terminating")
++		}
++		if s.RemoteSet && r.CSeq().SeqNo <= s.RemoteCSeq {
++			return s, nil, reject(500, "remote CSeq must increase")
++		}
++		if r.IsInvite() && (pending(s.LocalInvite) || pending(s.RemoteInvite) || s.Offer != NoOffer) {
++			return s, nil, reject(491, "INVITE procedure pending")
++		}
++		d.state.RemoteCSeq, d.state.RemoteSet = r.CSeq().SeqNo, true
++		if r.IsInvite() {
++			d.state.RemoteInvite = &InviteProcedure{State: InvitePending, Sequence: r.CSeq().SeqNo, Request: in.Message.Clone()}
++			if in.Offer || isSDP(r) {
++				d.state.Offer = RemoteOffer
++			}
++		}
++		if r.Method == sip.BYE {
++			m, e := ResponseFor(in.Message, 200, "OK", nil, s.LocalTag)
++			if e != nil {
++				return s, nil, e
++			}
++			d.emit(Respond, &m, false)
++			d.end()
++		} else {
++			d.emit(PresentRequest, &in.Message, false)
++		}
++	case DialogLocalRequest:
++		if (s.Retiring || s.Phase == DialogTerminating) && (in.Method != sip.BYE || s.LocalBye != nil || s.LocalInvite != nil && s.LocalInvite.State != InviteAcked) {
++			return s, nil, reject(481, "dialog terminating")
++		}
++		if in.Method == sip.ACK || in.Method == sip.CANCEL {
++			return s, nil, errors.New("use ACK procedure or transaction CANCEL")
++		}
++		if in.Method == sip.INVITE && (pending(s.LocalInvite) || pending(s.RemoteInvite) || s.Offer != NoOffer) {
++			return s, nil, reject(491, "INVITE procedure pending")
++		}
++		if s.LocalCSeq >= math.MaxInt32 {
++			return s, nil, errors.New("CSeq exhausted")
++		}
++		seq := s.LocalCSeq + 1
++		m, e := BuildDialogRequestWithHeaders(s, in.Method, seq, in.Body, in.Branch, in.Headers)
++		if e != nil {
++			return s, nil, e
++		}
++		d.state.LocalCSeq, d.state.LocalSet = seq, true
++		if in.Method == sip.INVITE {
++			d.state.LocalInvite = &InviteProcedure{State: InvitePending, Sequence: seq, Request: m.Clone()}
++			if in.Offer || len(in.Body) > 0 {
++				d.state.Offer = LocalOffer
++			}
++		}
++		if in.Method == sip.BYE {
++			d.state.Retiring = true
++			d.state.Phase = DialogTerminating
++			d.state.LocalBye = cloneMessage(&m)
++		}
++		d.emit(StartTransaction, &m, false)
++	case DialogLocalACK:
++		p := d.state.LocalInvite
++		if p == nil || p.State != InviteAwaitingACK && p.State != InviteAcked {
++			return s, nil, errors.New("no successful INVITE ACK obligation")
++		}
++		if p.ACK != nil {
++			d.emit(Send, p.ACK, true)
++			break
++		}
++		if s.Offer == RemoteOfferInACK && len(in.Body) == 0 {
++			return s, nil, reject(488, "ACK answer required")
++		}
++		m, e := BuildDialogRequestWithHeaders(s, sip.ACK, p.Sequence, in.Body, in.Branch, in.Headers)
++		if e != nil {
++			return s, nil, e
++		}
++		p.ACK = &m
++		p.State = InviteAcked
++		d.state.Offer = NoOffer
++		if !d.state.Retiring {
++			d.state.Phase = DialogConfirmed
++		}
++		d.emit(Send, &m, false)
++		if p.CancelRequested && d.state.LocalBye == nil && d.state.Phase != DialogEnded {
++			d.state.Retiring = true
++			d.state.Phase = DialogTerminating
++			d.state.Retiring = true
++			d.emit(NeedBYE, p.Final, false)
++		}
++	case DialogCancel:
++		p := d.state.LocalInvite
++		if p == nil {
++			return s, nil, errors.New("no local INVITE to cancel")
++		}
++		p.CancelRequested = true
++		d.state.Retiring = true
++		d.state.Phase = DialogTerminating
++		if p.State == InviteAwaitingACK {
++			d.emit(NeedACK, p.Final, false)
++		} else if p.State == InviteAcked && s.LocalBye == nil {
++			d.state.Phase = DialogTerminating
++			d.state.Retiring = true
++			d.emit(NeedBYE, p.Final, false)
++		}
++	case DialogSendResponse:
++		d.reply(in.Message, in.Answer, in.Offer)
++	case DialogReceiveResponse:
++		d.receive(in.Message)
++	case DialogTimer:
++		v := s.Timers[in.Timer]
++		if !v.Active || v.Generation != in.Generation || in.Now < v.At {
++			return d.state, nil, nil
++		}
++		v.Active = false
++		d.state.Timers[in.Timer] = v
++		if in.Timer == TimerACK {
++			d.stop(Timer2xx)
++			d.state.Phase = DialogTerminating
++			d.state.Retiring = true
++			d.emit(NeedBYE, nil, false)
++		} else if in.Timer == Timer2xx && s.RemoteInvite != nil && s.RemoteInvite.State == InviteAwaitingACK {
++			if a := s.Timers[TimerACK]; a.Active && in.Now >= a.At {
++				d.stop(Timer2xx)
++				d.stop(TimerACK)
++				d.state.Phase = DialogTerminating
++				d.state.Retiring = true
++				d.emit(NeedBYE, nil, false)
++			} else {
++				d.emit(Respond, s.RemoteInvite.Final, true)
++				interval := min(min(v.Interval, math.MaxInt64/2)*2, s.Profile.T2)
++				d.schedule(Timer2xx, interval, interval)
++			}
++		}
++	default:
++		return s, nil, errors.New("unknown dialog input")
++	}
++	if d.err != nil {
++		return s, nil, d.err
++	}
++	return d.state, d.effects, nil
++}
++
++func (s Dialog) Validate() error {
++	if s.Version != Version || !s.Profile.valid() || s.Role != UAC && s.Role != UAS || !validToken(s.LocalTag) || !validToken(s.RemoteTag) || s.CallID == "" || s.LocalCSeq > math.MaxInt32 || s.RemoteCSeq > math.MaxInt32 || s.Transport != "udp" && s.Transport != "tcp" && s.Transport != "tls" {
++		return errors.New("invalid dialog state")
++	}
++	switch s.Phase {
++	case DialogEarly, DialogAwaitingACK, DialogConfirmed, DialogTerminating, DialogEnded:
++	default:
++		return errors.New("unknown dialog phase")
++	}
++	if (s.Phase == DialogTerminating || s.Phase == DialogEnded) != s.Retiring {
++		return errors.New("inconsistent retirement state")
++	}
++	if s.LocalBye != nil && !s.Retiring {
++		return errors.New("BYE without retirement")
++	}
++	switch s.Offer {
++	case NoOffer, LocalOffer, RemoteOffer, LocalOfferInACK, RemoteOfferInACK:
++	default:
++		return errors.New("unknown offer phase")
++	}
++	for _, p := range []*InviteProcedure{s.LocalInvite, s.RemoteInvite} {
++		if p == nil {
++			continue
++		}
++		switch p.State {
++		case InvitePending, InviteAwaitingACK, InviteAcked, InviteRejected:
++		default:
++			return errors.New("unknown INVITE procedure")
++		}
++		if p.Sequence > math.MaxInt32 {
++			return errors.New("invalid INVITE sequence")
++		}
++		r, e := request(p.Request)
++		if e != nil || !r.IsInvite() || r.CSeq().SeqNo != p.Sequence || r.CallID().Value() != s.CallID {
++			return errors.New("retained INVITE identity mismatch")
++		}
++	}
++	for k, v := range s.Timers {
++		if k != Timer2xx && k != TimerACK || v.At < 0 || v.Interval < 0 || v.Active && v.Generation == 0 {
++			return errors.New("invalid dialog timer")
++		}
++	}
++	return nil
++}
++
++func (d *dialogTransition) reply(m Message, answer, offer bool) {
++	s := &d.state
++	p := s.RemoteInvite
++	if p == nil || !MatchResponse(p.Request, m) {
++		d.err = reject(481, "response does not match remote INVITE")
++		return
++	}
++	r, _ := response(m)
++	if tag(r.To().Params) != s.LocalTag {
++		d.err = reject(481, "response local tag mismatch")
++		return
++	}
++	if p.State == InviteRejected || p.State == InviteAcked {
++		if p.Final == nil || !bytes.Equal(p.Final.Wire, m.Wire) {
++			d.err = errors.New("conflicting INVITE final")
++		}
++		return
++	}
++	if p.State == InviteAwaitingACK {
++		if r.IsSuccess() && p.Final != nil && bytes.Equal(p.Final.Wire, m.Wire) {
++			d.emit(Respond, p.Final, true)
++		} else {
++			d.err = errors.New("conflicting INVITE final")
++		}
++		return
++	}
++	if r.IsProvisional() {
++		if s.Offer == RemoteOffer && isSDP(r) {
++			s.Offer = NoOffer
++		}
++		d.emit(Respond, &m, false)
++		return
++	}
++	p.Final = cloneMessage(&m)
++	if r.IsSuccess() {
++		p.State = InviteAwaitingACK
++		if r.Contact() != nil {
++			s.Contact = r.Contact().Address.String()
++			if s.SentBy == "" {
++				s.SentBy = r.Contact().Address.HostPort()
++			}
++		}
++		if !s.Retiring {
++			s.Phase = DialogAwaitingACK
++		}
++		o, _ := request(p.Request)
++		if o.Contact() != nil {
++			s.Target = o.Contact().Address.String()
++		}
++		if s.Offer == RemoteOffer && !isSDP(r) {
++			d.err = reject(488, "INVITE answer required")
++			return
++		}
++		if !isSDP(o) && isSDP(r) {
++			s.Offer = LocalOfferInACK
++		} else {
++			s.Offer = NoOffer
++		}
++		d.schedule(Timer2xx, s.Profile.T1, s.Profile.T1)
++		d.schedule(TimerACK, 64*s.Profile.T1, 0)
++	} else {
++		p.State = InviteRejected
++		s.Offer = NoOffer
++		if p.Initial {
++			d.end()
++		}
++	}
++	d.emit(Respond, &m, false)
++}
++
++func (d *dialogTransition) receive(m Message) {
++	s := &d.state
++	if s.LocalBye != nil && MatchResponse(*s.LocalBye, m) && MatchDialogResponse(*s, m) {
++		r, _ := response(m)
++		d.emit(ReportResponse, &m, false)
++		if !r.IsProvisional() {
++			d.end()
++		}
++		return
++	}
++	p := s.LocalInvite
++	if p == nil || !MatchResponse(p.Request, m) || !MatchDialogResponse(*s, m) {
++		d.err = reject(481, "response does not match local INVITE branch")
++		return
++	}
++	r, _ := response(m)
++	if r.IsProvisional() {
++		if p.State == InvitePending && s.Offer == LocalOffer && isSDP(r) {
++			s.Offer = NoOffer
++		}
++		if p.State == InvitePending {
++			d.emit(ReportResponse, &m, false)
++		}
++		return
++	}
++	if p.State == InviteRejected {
++		if p.Final == nil || !bytes.Equal(p.Final.Wire, m.Wire) {
++			d.err = reject(481, "conflicting INVITE final")
++			return
++		}
++		d.emit(ReportResponse, p.Final, true)
++		return
++	}
++	if p.State == InviteAcked || p.State == InviteAwaitingACK {
++		if !r.IsSuccess() || p.Final == nil || !bytes.Equal(p.Final.Wire, m.Wire) {
++			d.err = reject(481, "conflicting INVITE final")
++			return
++		}
++		if p.ACK != nil {
++			d.emit(Send, p.ACK, true)
++		} else {
++			d.emit(NeedACK, &m, true)
++		}
++		return
++	}
++	p.Final = cloneMessage(&m)
++	if r.IsSuccess() {
++		if r.Contact() == nil {
++			d.err = errors.New("successful INVITE Contact required")
++			return
++		}
++		s.Target = r.Contact().Address.String()
++		if p.Initial {
++			s.Routes = nil
++			headers := r.GetHeaders("Record-Route")
++			for i := len(headers) - 1; i >= 0; i-- {
++				s.Routes = append(s.Routes, headers[i].Value())
++			}
++		}
++		p.State = InviteAwaitingACK
++		if !s.Retiring {
++			s.Phase = DialogAwaitingACK
++		}
++		o, _ := request(p.Request)
++		if s.Offer == LocalOffer && !isSDP(r) {
++			d.err = reject(488, "INVITE answer required")
++			return
++		}
++		if !isSDP(o) && isSDP(r) {
++			s.Offer = RemoteOfferInACK
++		} else {
++			s.Offer = NoOffer
++		}
++		d.emit(NeedACK, &m, false)
++	} else {
++		p.State = InviteRejected
++		s.Offer = NoOffer
++		if p.Initial {
++			d.end()
++		}
++	}
++	d.emit(ReportResponse, &m, false)
++}
+diff --git a/sip/portable/dialog_test.go b/sip/portable/dialog_test.go
+new file mode 100644
+index 0000000..9be2787
+--- /dev/null
++++ b/sip/portable/dialog_test.go
+@@ -0,0 +1,281 @@
++package portable
++
++import (
++	"bytes"
++	"encoding/json"
++	"testing"
++
++	"github.com/emiago/sipgo/sip"
++)
++
++func dialogStep(t *testing.T, s Dialog, in DialogInput) (Dialog, []Effect) {
++	t.Helper()
++	before, _ := json.Marshal(s)
++	next, e, err := StepDialog(hydrated(t, s), in)
++	if err != nil {
++		t.Fatal(err)
++	}
++	after, _ := json.Marshal(s)
++	if !bytes.Equal(before, after) {
++		t.Fatal("dialog input mutated")
++	}
++	return hydrated(t, next), e
++}
++func clientDialog(t *testing.T) Dialog {
++	t.Helper()
++	o := origin(t, sip.INVITE, "tls")
++	d, e := NewDialog(UAC, o, reply(t, o, 200, "remote-tag"), DefaultTimers())
++	if e != nil {
++		t.Fatal(e)
++	}
++	return d
++}
++func serverDialog(t *testing.T) Dialog {
++	t.Helper()
++	o := origin(t, sip.INVITE, "tls")
++	d, e := NewDialog(UAS, o, reply(t, o, 180, "remote-tag"), DefaultTimers())
++	if e != nil {
++		t.Fatal(e)
++	}
++	return d
++}
++func peerRequest(t *testing.T, d Dialog, method sip.RequestMethod, seq uint32, branch string) Message {
++	t.Helper()
++	reverse := Dialog{CallID: d.CallID, LocalTag: d.RemoteTag, RemoteTag: d.LocalTag, LocalURI: d.RemoteURI, RemoteURI: d.LocalURI, Target: d.Contact, Contact: d.Target, SentBy: "192.0.2.2:5061", Transport: d.Transport}
++	m, e := BuildDialogRequest(reverse, method, seq, nil, branch)
++	if e != nil {
++		t.Fatal(e)
++	}
++	return m
++}
++
++func TestPortableDialogIndependentSequencesAndACK(t *testing.T) {
++	d := clientDialog(t)
++	initial := d.LocalCSeq
++	d, e := dialogStep(t, d, DialogInput{Kind: DialogLocalACK, Now: 1, Branch: "z9hG4bK-ack"})
++	if d.LocalCSeq != initial || count(e, Send) != 1 || d.Phase != DialogConfirmed {
++		t.Fatal("ACK consumed local sequence")
++	}
++	info := peerRequest(t, d, sip.INFO, 2, "z9hG4bK-info")
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogReceiveRequest, Now: 2, Message: info})
++	if d.RemoteCSeq != 2 || d.LocalCSeq != 121787510 {
++		t.Fatal("remote small sequence rejected or local changed")
++	}
++	_, _, err := StepDialog(d, DialogInput{Kind: DialogReceiveRequest, Now: 3, Message: peerRequest(t, d, sip.INFO, 2, "z9hG4bK-new-branch")})
++	if err == nil {
++		t.Fatal("new equal-CSeq transaction admitted")
++	}
++	_, _, err = StepDialog(d, DialogInput{Kind: DialogReceiveRequest, Now: 3, Message: mutate(t, peerRequest(t, d, sip.INFO, 3, "z9hG4bK-wrong"), func(v sip.Message) { v.To().Params.Add("tag", "borrowed") })})
++	if err == nil {
++		t.Fatal("directional identity bypass")
++	}
++}
++
++func TestPortableServerACKAfterLaterRemoteRequest(t *testing.T) {
++	d := serverDialog(t)
++	o := d.RemoteInvite.Request
++	final := reply(t, o, 200, d.LocalTag)
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogSendResponse, Now: 1000, Message: final})
++	seq := d.RemoteInvite.Sequence
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogReceiveRequest, Now: 1100, Message: peerRequest(t, d, sip.INFO, seq+1, "z9hG4bK-info-after-final")})
++	ack := peerRequest(t, d, sip.ACK, seq, "z9hG4bK-dialog-ack")
++	d, e := dialogStep(t, d, DialogInput{Kind: DialogReceiveRequest, Now: 1200, Message: ack})
++	if d.Phase != DialogConfirmed || d.Timers[TimerACK].Active || count(e, Acknowledged) != 1 {
++		t.Fatal("valid ACK failed after greater INFO CSeq")
++	}
++	d, e = dialogStep(t, d, DialogInput{Kind: DialogReceiveRequest, Now: 1201, Message: ack})
++	if count(e, Acknowledged) != 0 || d.RemoteCSeq != seq+1 {
++		t.Fatal("duplicate ACK advanced state")
++	}
++}
++
++func TestPortableSuccessfulFinalHasFixedDeadlineAndCappedBackoff(t *testing.T) {
++	d := serverDialog(t)
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogSendResponse, Now: 1000, Message: reply(t, d.RemoteInvite.Request, 200, d.LocalTag)})
++	deadline := d.Timers[TimerACK].At
++	if deadline != 33000 {
++		t.Fatal("ACK deadline")
++	}
++	for _, at := range []int64{1500, 2500, 4500, 8500} {
++		var e []Effect
++		d, e = dialogStep(t, d, DialogInput{Kind: DialogTimer, Now: at, Timer: Timer2xx, Generation: d.Timers[Timer2xx].Generation})
++		if count(e, Respond) != 1 || d.Timers[TimerACK].At != deadline || d.Timers[Timer2xx].Interval > 4000 {
++			t.Fatal("TU retransmit changed overall lifetime")
++		}
++	}
++	d, e := dialogStep(t, d, DialogInput{Kind: DialogTimer, Now: 33000, Timer: TimerACK, Generation: d.Timers[TimerACK].Generation})
++	if !d.Retiring || count(e, NeedBYE) != 1 {
++		t.Fatal("timeout cleanup obligation")
++	}
++	d, e = dialogStep(t, d, DialogInput{Kind: DialogLocalRequest, Now: 33001, Method: sip.BYE, Branch: "z9hG4bK-timeout-bye"})
++	if d.LocalBye == nil || count(e, StartTransaction) != 1 {
++		t.Fatal("timeout BYE could not execute")
++	}
++}
++
++func TestPortableLocalByeCannotReopenOnLateInviteCompletion(t *testing.T) {
++	d := clientDialog(t)
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogLocalACK, Now: 1, Branch: "z9hG4bK-first-ack"})
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogLocalRequest, Now: 2, Method: sip.INVITE, Branch: "z9hG4bK-reinvite"})
++	pending := d.LocalInvite.Request
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogLocalRequest, Now: 3, Method: sip.BYE, Branch: "z9hG4bK-local-bye"})
++	bye := *d.LocalBye
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogReceiveResponse, Now: 4, Message: reply(t, pending, 200, d.RemoteTag)})
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogLocalACK, Now: 5, Branch: "z9hG4bK-late-ack"})
++	if !d.Retiring || d.Phase != DialogTerminating {
++		t.Fatal("late ACK reopened terminating dialog")
++	}
++	_, _, err := StepDialog(d, DialogInput{Kind: DialogLocalRequest, Now: 6, Method: sip.INFO, Branch: "z9hG4bK-after-bye"})
++	if err == nil {
++		t.Fatal("new request admitted during BYE")
++	}
++	_, _, err = StepDialog(d, DialogInput{Kind: DialogReceiveRequest, Now: 6, Message: peerRequest(t, d, sip.INVITE, 2, "z9hG4bK-peer-resume")})
++	if err == nil {
++		t.Fatal("peer re-INVITE admitted during BYE")
++	}
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogReceiveResponse, Now: 7, Message: reply(t, bye, 500, d.RemoteTag)})
++	if d.Phase != DialogEnded || !d.Retiring {
++		t.Fatal("failed BYE reopened dialog")
++	}
++}
++
++func TestPortableCancelledSuccessfulForkACKThenBye(t *testing.T) {
++	d := clientDialog(t)
++	d, e := dialogStep(t, d, DialogInput{Kind: DialogCancel, Now: 1})
++	if count(e, NeedACK) != 1 || !d.Retiring {
++		t.Fatal("cancelled success missing ACK")
++	}
++	d, e = dialogStep(t, d, DialogInput{Kind: DialogLocalACK, Now: 2, Branch: "z9hG4bK-cleanup-ack"})
++	if len(e) != 2 || e[0].Kind != Send || e[1].Kind != NeedBYE {
++		t.Fatal("cleanup ACK/BYE ordering")
++	}
++	d, e = dialogStep(t, d, DialogInput{Kind: DialogLocalRequest, Now: 3, Method: sip.BYE, Branch: "z9hG4bK-cleanup-bye"})
++	if count(e, StartTransaction) != 1 || d.LocalBye == nil {
++		t.Fatal("cleanup BYE not allocated")
++	}
++	_, _, err := StepDialog(d, DialogInput{Kind: DialogLocalRequest, Now: 4, Method: sip.BYE, Branch: "z9hG4bK-second-bye"})
++	if err == nil {
++		t.Fatal("second logical BYE allocated")
++	}
++}
++
++func TestPortableForksRetainIndependentTargetsAndACK(t *testing.T) {
++	o := origin(t, sip.INVITE, "tls")
++	one := reply(t, o, 200, "branch-one")
++	two := mutate(t, reply(t, o, 200, "branch-two"), func(v sip.Message) { v.(*sip.Response).Contact().Address.Host = "other.example.test" })
++	a, e := NewDialog(UAC, o, one, DefaultTimers())
++	if e != nil {
++		t.Fatal(e)
++	}
++	b, e := NewDialog(UAC, o, two, DefaultTimers())
++	if e != nil {
++		t.Fatal(e)
++	}
++	a, _ = dialogStep(t, a, DialogInput{Kind: DialogLocalACK, Now: 1, Branch: "z9hG4bK-one-ack"})
++	b, _ = dialogStep(t, b, DialogInput{Kind: DialogCancel, Now: 2})
++	if a.Target == b.Target || a.RemoteTag == b.RemoteTag || a.Phase != DialogConfirmed || !b.Retiring {
++		t.Fatal("fork state leaked across children")
++	}
++}
++
++func TestPortableLooseAndStrictRouting(t *testing.T) {
++	d := clientDialog(t)
++	d.Routes = []string{"<sip:proxy.example.test:5080;lr>", "<sip:last.example.test:5081;lr>"}
++	m, e := BuildDialogRequest(d, sip.BYE, d.LocalCSeq+1, nil, "z9hG4bK-loose")
++	if e != nil {
++		t.Fatal(e)
++	}
++	r, _ := request(m)
++	if r.Recipient.String() != d.Target || m.Destination != "proxy.example.test:5080" || len(r.GetHeaders("Route")) != 2 {
++		t.Fatal("loose routing")
++	}
++	d.Routes = []string{"<sip:strict.example.test:5080>", "<sip:next.example.test:5081;lr>"}
++	m, e = BuildDialogRequest(d, sip.BYE, d.LocalCSeq+1, nil, "z9hG4bK-strict")
++	if e != nil {
++		t.Fatal(e)
++	}
++	r, _ = request(m)
++	routes := r.GetHeaders("Route")
++	if r.Recipient.Host != "strict.example.test" || len(routes) != 2 || routes[1].Value() != "<"+d.Target+">" {
++		t.Fatal("strict routing lost original target")
++	}
++}
++
++func TestPortableEarlyRouteSetIsRecomputedOnlyForInitialSuccess(t *testing.T) {
++	o := origin(t, sip.INVITE, "tls")
++	early := mutate(t, reply(t, o, 180, "remote-tag"), func(v sip.Message) { v.AppendHeader(sip.NewHeader("Record-Route", "<sip:early.example.test:5061;lr>")) })
++	d, err := NewDialog(UAC, o, early, DefaultTimers())
++	if err != nil {
++		t.Fatal(err)
++	}
++	final := mutate(t, reply(t, o, 200, "remote-tag"), func(v sip.Message) { v.AppendHeader(sip.NewHeader("Record-Route", "<sip:final.example.test:5061;lr>")) })
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogReceiveResponse, Now: 1, Message: final})
++	if len(d.Routes) != 1 || d.Routes[0] != "<sip:final.example.test:5061;lr>" {
++		t.Fatal("early route set retained after initial 2xx")
++	}
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogLocalACK, Now: 2, Branch: "z9hG4bK-final-ack"})
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogLocalRequest, Now: 3, Method: sip.INVITE, Branch: "z9hG4bK-refresh"})
++	refresh := mutate(t, reply(t, d.LocalInvite.Request, 200, "remote-tag"), func(v sip.Message) {
++		v.AppendHeader(sip.NewHeader("Record-Route", "<sip:bad-refresh.example.test:5061;lr>"))
++	})
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogReceiveResponse, Now: 4, Message: refresh})
++	if d.Routes[0] != "<sip:final.example.test:5061;lr>" {
++		t.Fatal("target refresh changed fixed route set")
++	}
++}
++
++func TestPortableOfferRequiresActualACKAnswerAndEarlyAnswerDoesNotBecomeNewOffer(t *testing.T) {
++	o := origin(t, sip.INVITE, "tls")
++	offer, err := BuildResponseWithHeaders(o, 200, "OK", []byte("v=0\r\n"), "remote-tag", "sip:phone@192.0.2.2:5061", nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	d, err := NewDialog(UAC, o, offer, DefaultTimers())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if d.Offer != RemoteOfferInACK {
++		t.Fatal("remote offer not retained")
++	}
++	if _, _, err = StepDialog(d, DialogInput{Kind: DialogLocalACK, Now: 1, Branch: "z9hG4bK-empty", Answer: true}); err == nil {
++		t.Fatal("flag substituted for missing wire answer")
++	}
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogLocalACK, Now: 1, Branch: "z9hG4bK-answer", Body: []byte("v=0\r\n")})
++	if d.Offer != NoOffer {
++		t.Fatal("answer not consumed")
++	}
++	o = mutate(t, o, func(v sip.Message) {
++		v.SetBody([]byte("v=0\r\n"))
++		v.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
++	})
++	early, err := BuildResponseWithHeaders(o, 183, "Progress", []byte("v=0\r\n"), "remote-tag", "sip:phone@192.0.2.2:5061", nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	d, err = NewDialog(UAS, o, early, DefaultTimers())
++	if err != nil {
++		t.Fatal(err)
++	}
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogSendResponse, Now: 1, Message: early})
++	final, err := BuildResponseWithHeaders(o, 200, "OK", []byte("v=0\r\n"), "remote-tag", "sip:phone@192.0.2.2:5061", nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	d, _ = dialogStep(t, d, DialogInput{Kind: DialogSendResponse, Now: 2, Message: final})
++	if d.Offer != NoOffer {
++		t.Fatal("repeated early answer became a new offer")
++	}
++}
++
++func TestPortableRejectsCorruptRestoredDialog(t *testing.T) {
++	s := clientDialog(t)
++	for name, change := range map[string]func(*Dialog){"phase": func(v *Dialog) { v.Phase = "future" }, "offer": func(v *Dialog) { v.Offer = "future" }, "version": func(v *Dialog) { v.Version++ }, "ended-unfenced": func(v *Dialog) { v.Phase = DialogEnded; v.Retiring = false }} {
++		t.Run(name, func(t *testing.T) {
++			bad := s.Clone()
++			change(&bad)
++			if _, e, err := StepDialog(hydrated(t, bad), DialogInput{Kind: DialogLocalACK, Now: 1, Branch: "z9hG4bK-no-restore-side-effect"}); err == nil || len(e) != 0 {
++				t.Fatal("invalid restored dialog emitted effects")
++			}
++		})
++	}
++}
+diff --git a/sip/portable/message.go b/sip/portable/message.go
+new file mode 100644
+index 0000000..b2cb4eb
+--- /dev/null
++++ b/sip/portable/message.go
+@@ -0,0 +1,262 @@
++// Package portable implements side-effect-free, serializable native SIP state.
++package portable
++
++import (
++	"bytes"
++	"errors"
++	"fmt"
++	"io"
++	"math"
++	"strings"
++
++	"github.com/emiago/sipgo/sip"
++	"github.com/icholy/digest"
++)
++
++const Version = 1
++
++type Message struct {
++	Wire        []byte `json:"wire"`
++	Transport   string `json:"transport"`
++	Source      string `json:"source,omitempty"`
++	Destination string `json:"destination,omitempty"`
++}
++
++func (m Message) Clone() Message { m.Wire = bytes.Clone(m.Wire); return m }
++func (m Message) Parse() (sip.Message, error) {
++	v, err := sip.ParseMessage(m.Wire)
++	if err != nil {
++		return nil, err
++	}
++	if v.CallID() == nil || v.From() == nil || v.To() == nil || v.CSeq() == nil || v.Via() == nil {
++		return nil, errors.New("missing SIP identity")
++	}
++	if v.CSeq().SeqNo > math.MaxInt32 || v.CallID().Value() == "" {
++		return nil, errors.New("invalid CSeq or Call-ID")
++	}
++	if m.Transport != "udp" && m.Transport != "tcp" && m.Transport != "tls" {
++		return nil, errors.New("observed transport required")
++	}
++	v.SetTransport(strings.ToUpper(m.Transport))
++	v.SetSource(m.Source)
++	v.SetDestination(m.Destination)
++	if r, ok := v.(*sip.Request); ok && r.CSeq().MethodName != r.Method {
++		return nil, errors.New("CSeq method mismatch")
++	}
++	return v, nil
++}
++
++func wire(v sip.Message, transport, source, destination string) Message {
++	return Message{Wire: []byte(v.String()), Transport: transport, Source: source, Destination: destination}
++}
++func tag(v sip.HeaderParams) string { return v.GetOr("tag", "") }
++func request(m Message) (*sip.Request, error) {
++	v, e := m.Parse()
++	if e != nil {
++		return nil, e
++	}
++	r, ok := v.(*sip.Request)
++	if !ok {
++		return nil, errors.New("request required")
++	}
++	return r, nil
++}
++func response(m Message) (*sip.Response, error) {
++	v, e := m.Parse()
++	if e != nil {
++		return nil, e
++	}
++	r, ok := v.(*sip.Response)
++	if !ok {
++		return nil, errors.New("response required")
++	}
++	return r, nil
++}
++
++// MatchResponse includes the full native origin proof, beyond branch lookup.
++func MatchResponse(origin, incoming Message) bool {
++	o, e := request(origin)
++	if e != nil {
++		return false
++	}
++	r, e := response(incoming)
++	if e != nil {
++		return false
++	}
++	a, e := sip.ClientTxKeyMake(o)
++	if e != nil {
++		return false
++	}
++	b, e := sip.ClientTxKeyMake(r)
++	if e != nil || a != b {
++		return false
++	}
++	v, w := o.Via(), r.Via()
++	p, q := v.Port, w.Port
++	if p <= 0 {
++		p = int(sip.DefaultPort(v.Transport))
++	}
++	if q <= 0 {
++		q = int(sip.DefaultPort(w.Transport))
++	}
++	return origin.Transport == incoming.Transport && *o.CallID() == *r.CallID() && tag(o.From().Params) == tag(r.From().Params) && (tag(o.To().Params) == "" || tag(o.To().Params) == tag(r.To().Params)) && o.CSeq().SeqNo == r.CSeq().SeqNo && o.CSeq().MethodName == r.CSeq().MethodName && v.Host == w.Host && p == q && v.Transport == w.Transport && v.ProtocolName == w.ProtocolName && v.ProtocolVersion == w.ProtocolVersion
++}
++
++// MatchRequest preserves original identity for retransmissions, ACK and CANCEL.
++func MatchRequest(origin, incoming Message) bool {
++	o, e := request(origin)
++	if e != nil {
++		return false
++	}
++	r, e := request(incoming)
++	if e != nil {
++		return false
++	}
++	if origin.Transport != incoming.Transport || *o.CallID() != *r.CallID() || tag(o.From().Params) != tag(r.From().Params) || o.CSeq().SeqNo != r.CSeq().SeqNo || o.Recipient.String() != r.Recipient.String() {
++		return false
++	}
++	if (r.IsCancel() || r.IsAck()) && r.Method != o.Method {
++		if !o.IsInvite() {
++			return false
++		}
++	} else if o.Method != r.Method {
++		return false
++	}
++	if !r.IsAck() && tag(o.To().Params) != tag(r.To().Params) {
++		return false
++	}
++	copy := r.Clone()
++	if copy.IsCancel() && o.IsInvite() {
++		copy.CSeq().MethodName = sip.INVITE
++	}
++	a, e := sip.ServerTxKeyMake(o)
++	if e != nil {
++		return false
++	}
++	b, e := sip.ServerTxKeyMake(copy)
++	return e == nil && a == b
++}
++
++// ResponseFor requires committed entropy; native response construction cannot
++// generate a fresh tag here, including for automatic CANCEL/487 responses.
++func ResponseFor(origin Message, status int, reason string, body []byte, localTag string) (Message, error) {
++	if localTag != "" && !validToken(localTag) {
++		return Message{}, errors.New("invalid reserved response tag")
++	}
++	r, e := request(origin)
++	if e != nil {
++		return Message{}, e
++	}
++	if status < 100 || status > 699 {
++		return Message{}, errors.New("invalid status")
++	}
++	if status != 100 && tag(r.To().Params) == "" {
++		if localTag == "" {
++			return Message{}, errors.New("response tag required")
++		}
++		r.To().Params.Add("tag", localTag)
++	}
++	v := sip.NewResponseFromRequest(r, status, reason, bytes.Clone(body))
++	return wire(v, origin.Transport, "", origin.Source), nil
++}
++
++func BuildNon2xxACK(origin, final Message) (Message, error) {
++	if !MatchResponse(origin, final) {
++		return Message{}, errors.New("ACK response identity mismatch")
++	}
++	o, _ := request(origin)
++	r, _ := response(final)
++	if !o.IsInvite() || r.StatusCode < 300 {
++		return Message{}, errors.New("non-2xx INVITE final required")
++	}
++	a := sip.NewRequest(sip.ACK, o.Recipient)
++	for _, name := range []string{"Via", "From", "Call-ID", "Route", "Max-Forwards"} {
++		sip.CopyHeaders(name, o, a)
++	}
++	a.AppendHeader(sip.HeaderClone(r.To()))
++	c := *o.CSeq()
++	c.MethodName = sip.ACK
++	a.AppendHeader(&c)
++	a.SetBody(nil)
++	return wire(a, origin.Transport, origin.Source, origin.Destination), nil
++}
++
++func BuildCancel(origin Message) (Message, error) {
++	o, e := request(origin)
++	if e != nil {
++		return Message{}, e
++	}
++	if !o.IsInvite() {
++		return Message{}, errors.New("INVITE required")
++	}
++	r := sip.NewRequest(sip.CANCEL, o.Recipient)
++	for _, name := range []string{"Via", "From", "To", "Call-ID", "Route", "Max-Forwards"} {
++		sip.CopyHeaders(name, o, r)
++	}
++	c := *o.CSeq()
++	c.MethodName = sip.CANCEL
++	r.AppendHeader(&c)
++	r.SetBody(nil)
++	return wire(r, origin.Transport, origin.Source, origin.Destination), nil
++}
++
++type DigestCredentials struct {
++	Username string
++	Password string `json:"-"`
++	Cnonce   string
++	Count    int
++}
++
++// BuildDigestRetry is deterministic: the credential executor supplies cnonce.
++// Credentials are input only and never become part of portable protocol state.
++func BuildDigestRetry(origin, challenge Message, credentials DigestCredentials, branch string) (Message, error) {
++	if !MatchResponse(origin, challenge) {
++		return Message{}, errors.New("challenge identity mismatch")
++	}
++	o, _ := request(origin)
++	r, _ := response(challenge)
++	name, auth := "WWW-Authenticate", "Authorization"
++	if r.StatusCode == 407 {
++		name, auth = "Proxy-Authenticate", "Proxy-Authorization"
++	} else if r.StatusCode != 401 {
++		return Message{}, errors.New("401/407 required")
++	}
++	h := r.GetHeader(name)
++	if h == nil || credentials.Cnonce == "" || credentials.Count < 1 || !validBranch(branch) {
++		return Message{}, errors.New("challenge, cnonce, count and branch required")
++	}
++	if o.CSeq().SeqNo >= math.MaxInt32 {
++		return Message{}, errors.New("CSeq exhausted")
++	}
++	c, e := digest.ParseChallenge(h.Value())
++	if e != nil {
++		return Message{}, e
++	}
++	c.Algorithm = strings.ToUpper(c.Algorithm)
++	opts := digest.Options{Method: string(o.Method), URI: o.Recipient.String(), Username: credentials.Username, Password: credentials.Password, Cnonce: credentials.Cnonce, Count: credentials.Count}
++	if len(o.Body()) > 0 {
++		body := bytes.Clone(o.Body())
++		opts.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
++	}
++	d, e := digest.Digest(c, opts)
++	if e != nil {
++		return Message{}, e
++	}
++	o.RemoveHeader(auth)
++	o.AppendHeader(sip.NewHeader(auth, d.String()))
++	o.CSeq().SeqNo++
++	o.Via().Params.Add("branch", branch)
++	return wire(o, origin.Transport, origin.Source, origin.Destination), nil
++}
++
++func validBranch(branch string) bool {
++	return strings.HasPrefix(branch, sip.RFC3261BranchMagicCookie) && len(branch) > len(sip.RFC3261BranchMagicCookie) && validToken(branch)
++}
++
++type ProtocolError struct {
++	Status int
++	Reason string
++}
++
++func (e *ProtocolError) Error() string       { return fmt.Sprintf("SIP %d: %s", e.Status, e.Reason) }
++func reject(status int, reason string) error { return &ProtocolError{Status: status, Reason: reason} }
+diff --git a/sip/portable/overdue_timer_test.go b/sip/portable/overdue_timer_test.go
+new file mode 100644
+index 0000000..731ff30
+--- /dev/null
++++ b/sip/portable/overdue_timer_test.go
+@@ -0,0 +1,40 @@
++package portable
++
++import (
++	"testing"
++
++	"github.com/emiago/sipgo/sip"
++)
++
++func TestPortableOverdueTerminalDeadlinePrecedesRetransmission(t *testing.T) {
++	for _, family := range []Family{InviteClient, NonInviteClient, InviteServer} {
++		t.Run(string(family), func(t *testing.T) {
++			method := sip.INVITE
++			if family == NonInviteClient {
++				method = sip.OPTIONS
++			}
++			request := origin(t, method, "udp")
++			s, _ := step(t, tx(t, family, request), Input{Kind: Start, Now: 1000})
++			retransmit, terminal := TimerA, TimerB
++			if family == NonInviteClient {
++				retransmit, terminal = TimerE, TimerF
++			}
++			if family == InviteServer {
++				s, _ = step(t, s, Input{Kind: SendResponse, Now: 1100, Message: reply(t, request, 486, "remote-tag")})
++				retransmit, terminal = TimerG, TimerH
++			}
++			deadline := s.Timers[terminal]
++			if !deadline.Active || !s.Timers[retransmit].Active {
++				t.Fatal("fixture timers missing")
++			}
++			next, effects := step(t, s, Input{Kind: TimerFired, Timer: retransmit, Generation: s.Timers[retransmit].Generation, Now: deadline.At + 1000})
++			if next.Phase != Terminated || count(effects, Send) != 0 || count(effects, Ended) != 1 || next.Timers[terminal].At != deadline.At {
++				t.Fatalf("overdue retransmission escaped terminal deadline: phase=%s effects=%+v", next.Phase, effects)
++			}
++			_, effects = step(t, next, Input{Kind: TimerFired, Timer: terminal, Generation: deadline.Generation, Now: deadline.At + 1001})
++			if count(effects, Ended) != 0 {
++				t.Fatal("later terminal notification repeated termination")
++			}
++		})
++	}
++}
+diff --git a/sip/portable/transaction.go b/sip/portable/transaction.go
+new file mode 100644
+index 0000000..c711e1c
+--- /dev/null
++++ b/sip/portable/transaction.go
+@@ -0,0 +1,685 @@
++package portable
++
++import (
++	"bytes"
++	"errors"
++	"math"
++
++	"github.com/emiago/sipgo/sip"
++)
++
++type Family string
++
++const (
++	InviteClient    Family = "invite_client"
++	NonInviteClient Family = "noninvite_client"
++	InviteServer    Family = "invite_server"
++	NonInviteServer Family = "noninvite_server"
++)
++
++type Phase string
++
++const (
++	Idle       Phase = "idle"
++	Calling    Phase = "calling"
++	Trying     Phase = "trying"
++	Proceeding Phase = "proceeding"
++	Completed  Phase = "completed"
++	Accepted   Phase = "accepted"
++	Confirmed  Phase = "confirmed"
++	Terminated Phase = "terminated"
++)
++
++type Timer string
++
++const (
++	TimerA      Timer = "A"
++	TimerB      Timer = "B"
++	TimerD      Timer = "D"
++	TimerE      Timer = "E"
++	TimerF      Timer = "F"
++	TimerG      Timer = "G"
++	TimerH      Timer = "H"
++	TimerI      Timer = "I"
++	TimerJ      Timer = "J"
++	TimerK      Timer = "K"
++	TimerL      Timer = "L"
++	TimerM      Timer = "M"
++	TimerTrying Timer = "trying"
++	Timer2xx    Timer = "2xx"
++	TimerACK    Timer = "ACK"
++	TimerCancel Timer = "cancel"
++)
++
++type TimerProfile struct {
++	T1              int64 `json:"t1"`
++	T2              int64 `json:"t2"`
++	T4              int64 `json:"t4"`
++	Trying          int64 `json:"trying"`
++	InviteCompleted int64 `json:"invite_completed"`
++}
++
++func DefaultTimers() TimerProfile {
++	return TimerProfile{T1: 500, T2: 4000, T4: 5000, Trying: 200, InviteCompleted: 32000}
++}
++func (p TimerProfile) valid() bool {
++	return p.T1 > 0 && p.T1 <= math.MaxInt64/64 && p.T2 >= p.T1 && p.T4 > 0 && p.Trying >= 0 && p.InviteCompleted >= 0
++}
++
++type Deadline struct {
++	Generation uint64 `json:"generation"`
++	At         int64  `json:"at"`
++	Interval   int64  `json:"interval"`
++	Active     bool   `json:"active"`
++}
++type InputKind string
++
++const (
++	Start            InputKind = "start"
++	ReceiveRequest   InputKind = "receive_request"
++	ReceiveResponse  InputKind = "receive_response"
++	SendResponse     InputKind = "send_response"
++	TimerFired       InputKind = "timer"
++	TransportFailure InputKind = "transport_failure"
++	Terminate        InputKind = "terminate"
++	RequestCancel    InputKind = "request_cancel"
++)
++
++type Input struct {
++	Kind       InputKind
++	Now        int64
++	Message    Message
++	Timer      Timer
++	Generation uint64
++	Error      string
++}
++type EffectKind string
++
++const (
++	Send             EffectKind = "send"
++	PresentRequest   EffectKind = "present_request"
++	ReportResponse   EffectKind = "report_response"
++	Acknowledged     EffectKind = "acknowledged"
++	Cancelled        EffectKind = "cancelled"
++	Ended            EffectKind = "ended"
++	Schedule         EffectKind = "schedule"
++	CancelTimer      EffectKind = "cancel_timer"
++	Diagnostic       EffectKind = "diagnostic"
++	StartTransaction EffectKind = "start_transaction"
++	Respond          EffectKind = "respond"
++	NeedACK          EffectKind = "need_ack"
++	NeedBYE          EffectKind = "need_bye"
++	NeedCANCEL       EffectKind = "need_cancel"
++)
++
++type Effect struct {
++	Kind     EffectKind `json:"kind"`
++	Message  *Message   `json:"message,omitempty"`
++	Timer    Timer      `json:"timer,omitempty"`
++	Deadline Deadline   `json:"deadline,omitempty"`
++	Replay   bool       `json:"replay,omitempty"`
++	Error    string     `json:"error,omitempty"`
++}
++type Transaction struct {
++	Version      int                `json:"version"`
++	Family       Family             `json:"family"`
++	Phase        Phase              `json:"phase"`
++	Key          string             `json:"key"`
++	Origin       Message            `json:"origin"`
++	LastResponse *Message           `json:"last_response,omitempty"`
++	ACK          *Message           `json:"ack,omitempty"`
++	ResponseTag  string             `json:"response_tag,omitempty"`
++	Reliable     bool               `json:"reliable"`
++	Timers       map[Timer]Deadline `json:"timers"`
++	Profile      TimerProfile       `json:"profile"`
++	Cancelled    bool               `json:"cancelled"`
++	CancelSent   bool               `json:"cancel_sent"`
++	Error        string             `json:"error,omitempty"`
++}
++
++func NewTransaction(f Family, origin Message, profile TimerProfile, localTag string) (Transaction, error) {
++	o, e := request(origin)
++	if e != nil {
++		return Transaction{}, e
++	}
++	if !profile.valid() {
++		return Transaction{}, errors.New("invalid timer profile")
++	}
++	invite := f == InviteClient || f == InviteServer
++	if f != InviteClient && f != InviteServer && f != NonInviteClient && f != NonInviteServer {
++		return Transaction{}, errors.New("unknown transaction family")
++	}
++	if o.IsAck() || o.IsInvite() != invite {
++		return Transaction{}, errors.New("transaction method/family mismatch")
++	}
++	var key string
++	if f == InviteClient || f == NonInviteClient {
++		key, e = sip.ClientTxKeyMake(o)
++	} else {
++		key, e = sip.ServerTxKeyMake(o)
++	}
++	if e != nil {
++		return Transaction{}, e
++	}
++	if tag(o.To().Params) != "" {
++		localTag = tag(o.To().Params)
++	}
++	if (f == InviteServer || f == NonInviteServer) && localTag == "" {
++		return Transaction{}, errors.New("reserved response tag required")
++	}
++	s := Transaction{Version: Version, Family: f, Phase: Idle, Key: key, Origin: origin.Clone(), ResponseTag: localTag, Reliable: origin.Transport != "udp", Timers: make(map[Timer]Deadline), Profile: profile}
++	if err := s.Validate(); err != nil {
++		return Transaction{}, err
++	}
++	return s, nil
++}
++func cloneMessage(m *Message) *Message {
++	if m == nil {
++		return nil
++	}
++	v := m.Clone()
++	return &v
++}
++func (s Transaction) Clone() Transaction {
++	s.Origin = s.Origin.Clone()
++	s.LastResponse = cloneMessage(s.LastResponse)
++	s.ACK = cloneMessage(s.ACK)
++	timers := make(map[Timer]Deadline, len(s.Timers))
++	for k, v := range s.Timers {
++		timers[k] = v
++	}
++	s.Timers = timers
++	return s
++}
++
++type transition struct {
++	state   Transaction
++	effects []Effect
++	err     error
++	now     int64
++}
++
++func (t *transition) emit(k EffectKind, m *Message, replay bool) {
++	t.effects = append(t.effects, Effect{Kind: k, Message: cloneMessage(m), Replay: replay})
++}
++func (t *transition) schedule(k Timer, after, interval int64) {
++	d := t.state.Timers[k]
++	if after < 0 || t.now > math.MaxInt64-after || d.Generation == math.MaxUint64 {
++		t.err = errors.New("deadline exhausted")
++		return
++	}
++	d = Deadline{Generation: d.Generation + 1, At: t.now + after, Interval: interval, Active: true}
++	t.state.Timers[k] = d
++	t.effects = append(t.effects, Effect{Kind: Schedule, Timer: k, Deadline: d})
++}
++func (t *transition) stop(k Timer) {
++	d := t.state.Timers[k]
++	if d.Active {
++		d.Active = false
++		t.state.Timers[k] = d
++		t.effects = append(t.effects, Effect{Kind: CancelTimer, Timer: k, Deadline: d})
++	}
++}
++func (t *transition) finish(cause string) {
++	if t.state.Phase == Terminated {
++		return
++	}
++	t.state.Phase = Terminated
++	t.state.Error = cause
++	for _, k := range []Timer{TimerA, TimerB, TimerD, TimerE, TimerF, TimerG, TimerH, TimerI, TimerJ, TimerK, TimerL, TimerM, TimerTrying, TimerCancel} {
++		t.stop(k)
++	}
++	t.effects = append(t.effects, Effect{Kind: Ended, Error: cause})
++}
++
++// StepTransaction never mutates s or in. Driver commits state/effects before I/O.
++func StepTransaction(s Transaction, in Input) (Transaction, []Effect, error) {
++	if s.Validate() != nil || in.Now < 0 {
++		return s, nil, errors.New("invalid transaction state/environment")
++	}
++	t := transition{state: s.Clone(), now: in.Now}
++	if t.state.Timers == nil {
++		t.state.Timers = make(map[Timer]Deadline)
++	}
++	client := s.Family == InviteClient || s.Family == NonInviteClient
++	if s.Phase == Terminated {
++		return t.state, nil, nil
++	}
++	if in.Kind == TimerFired {
++		d := s.Timers[in.Timer]
++		if !d.Active || d.Generation != in.Generation || in.Now < d.At {
++			return t.state, nil, nil
++		}
++		d.Active = false
++		t.state.Timers[in.Timer] = d
++	}
++	switch in.Kind {
++	case Start:
++		if s.Phase != Idle {
++			return t.state, nil, nil
++		}
++		if client {
++			if s.Family == InviteClient {
++				t.state.Phase = Calling
++				if !s.Reliable {
++					t.schedule(TimerA, s.Profile.T1, s.Profile.T1)
++				}
++				t.schedule(TimerB, 64*s.Profile.T1, 0)
++			} else {
++				t.state.Phase = Trying
++				if !s.Reliable {
++					t.schedule(TimerE, s.Profile.T1, s.Profile.T1)
++				}
++				t.schedule(TimerF, 64*s.Profile.T1, 0)
++			}
++			t.emit(Send, &s.Origin, false)
++		} else {
++			if s.Family == InviteServer {
++				t.state.Phase = Proceeding
++				t.schedule(TimerTrying, s.Profile.Trying, 0)
++			} else {
++				t.state.Phase = Trying
++			}
++			t.emit(PresentRequest, &s.Origin, false)
++		}
++	case ReceiveResponse:
++		if !client || s.Phase == Idle || !MatchResponse(s.Origin, in.Message) {
++			return s, nil, reject(481, "response origin mismatch")
++		}
++		t.clientResponse(in.Message)
++	case ReceiveRequest:
++		if client || s.Phase == Idle || !MatchRequest(s.Origin, in.Message) {
++			return s, nil, reject(481, "request origin mismatch")
++		}
++		t.serverRequest(in.Message)
++	case SendResponse:
++		if client || s.Phase == Idle || !MatchResponse(s.Origin, in.Message) {
++			return s, nil, reject(481, "response origin mismatch")
++		}
++		t.serverResponse(in.Message)
++	case TimerFired:
++		t.timer(in.Timer)
++	case TransportFailure:
++		if s.Phase == Accepted {
++			t.effects = append(t.effects, Effect{Kind: Diagnostic, Error: in.Error})
++		} else {
++			t.finish("transport: " + in.Error)
++		}
++	case RequestCancel:
++		if s.Family != InviteClient {
++			return s, nil, errors.New("INVITE client cancellation required")
++		}
++		t.state.Cancelled = true
++		t.cancelIfReady()
++	case Terminate:
++		t.finish(in.Error)
++	default:
++		return s, nil, errors.New("unknown transaction input")
++	}
++	if t.err != nil {
++		return s, nil, t.err
++	}
++	return t.state, t.effects, nil
++}
++
++// Validate rejects incompatible or inconsistent restored values before a driver
++// can interpret any effect. It never repairs corrupt state by restarting it.
++func (s Transaction) Validate() error {
++	if s.Version != Version || !s.Profile.valid() {
++		return errors.New("unsupported transaction state")
++	}
++	o, err := request(s.Origin)
++	if err != nil {
++		return err
++	}
++	client := s.Family == InviteClient || s.Family == NonInviteClient
++	invite := s.Family == InviteClient || s.Family == InviteServer
++	if s.Family != InviteClient && s.Family != NonInviteClient && s.Family != InviteServer && s.Family != NonInviteServer || o.IsInvite() != invite || o.IsAck() || s.Reliable != (s.Origin.Transport != "udp") {
++		return errors.New("transaction family/transport mismatch")
++	}
++	var key string
++	if client {
++		key, err = sip.ClientTxKeyMake(o)
++	} else {
++		key, err = sip.ServerTxKeyMake(o)
++	}
++	if err != nil || key != s.Key || !client && !validToken(s.ResponseTag) {
++		return errors.New("transaction identity mismatch")
++	}
++	validPhase := s.Phase == Idle || s.Phase == Proceeding || s.Phase == Completed || s.Phase == Terminated
++	if s.Family == InviteClient {
++		validPhase = validPhase || s.Phase == Calling || s.Phase == Accepted
++	}
++	if s.Family == NonInviteClient || s.Family == NonInviteServer {
++		validPhase = validPhase || s.Phase == Trying
++	}
++	if s.Family == InviteServer {
++		validPhase = validPhase || s.Phase == Accepted || s.Phase == Confirmed
++	}
++	if !validPhase {
++		return errors.New("unknown transaction phase")
++	}
++	if s.LastResponse != nil && !MatchResponse(s.Origin, *s.LastResponse) {
++		return errors.New("retained response origin mismatch")
++	}
++	if s.ACK != nil {
++		a, e := request(*s.ACK)
++		if e != nil || !a.IsAck() || !MatchRequest(s.Origin, *s.ACK) {
++			return errors.New("retained ACK origin mismatch")
++		}
++	}
++	for k, v := range s.Timers {
++		allowed := false
++		switch s.Family {
++		case InviteClient:
++			allowed = k == TimerA || k == TimerB || k == TimerD || k == TimerM || k == TimerCancel
++		case NonInviteClient:
++			allowed = k == TimerE || k == TimerF || k == TimerK
++		case InviteServer:
++			allowed = k == TimerTrying || k == TimerG || k == TimerH || k == TimerI || k == TimerL
++		case NonInviteServer:
++			allowed = k == TimerJ
++		}
++		if !allowed || v.At < 0 || v.Interval < 0 || v.Active && v.Generation == 0 {
++			return errors.New("invalid transaction timer")
++		}
++	}
++	return nil
++}
++
++func (t *transition) clientResponse(m Message) {
++	r, _ := response(m)
++	s := &t.state
++	if s.Family == InviteClient && s.Phase == Accepted {
++		if r.IsSuccess() {
++			t.emit(ReportResponse, &m, true)
++		}
++		return
++	}
++	if s.Phase == Completed {
++		if s.Family == InviteClient && r.StatusCode >= 300 {
++			t.emit(Send, s.ACK, true)
++		}
++		return
++	}
++	if r.IsProvisional() {
++		s.LastResponse = cloneMessage(&m)
++		s.Phase = Proceeding
++		t.emit(ReportResponse, &m, false)
++		if s.Family == InviteClient {
++			t.stop(TimerA)
++			t.stop(TimerB)
++			t.cancelIfReady()
++		} else {
++			d := s.Timers[TimerE]
++			d.Interval = s.Profile.T2
++			s.Timers[TimerE] = d
++		}
++		return
++	}
++	s.LastResponse = cloneMessage(&m)
++	t.stop(TimerA)
++	t.stop(TimerB)
++	t.stop(TimerE)
++	t.stop(TimerF)
++	t.stop(TimerCancel)
++	if s.Family == InviteClient && r.IsSuccess() {
++		s.Phase = Accepted
++		t.schedule(TimerM, 64*s.Profile.T1, 0)
++		t.emit(ReportResponse, &m, false)
++		return
++	}
++	s.Phase = Completed
++	if s.Family == InviteClient {
++		a, e := BuildNon2xxACK(s.Origin, m)
++		if e != nil {
++			t.err = e
++			return
++		}
++		s.ACK = &a
++		t.emit(Send, &a, false)
++	}
++	t.emit(ReportResponse, &m, false)
++	if s.Reliable {
++		t.finish("")
++	} else if s.Family == InviteClient {
++		t.schedule(TimerD, s.Profile.InviteCompleted, 0)
++	} else {
++		t.schedule(TimerK, s.Profile.T4, 0)
++	}
++}
++
++func (t *transition) cancelIfReady() {
++	s := &t.state
++	if !s.Cancelled || s.CancelSent || s.Phase != Proceeding {
++		return
++	}
++	m, err := BuildCancel(s.Origin)
++	if err != nil {
++		t.err = err
++		return
++	}
++	s.CancelSent = true
++	t.schedule(TimerCancel, 64*s.Profile.T1, 0)
++	t.emit(StartTransaction, &m, false)
++}
++
++// StepServerCancel serializes CANCEL's own non-INVITE server transaction with
++// the INVITE final-selection race. Persist BOTH returned values in one group
++// commit. cancel may be nil for a first request; retain its value through J even
++// if the related INVITE has retired. PresentRequest is never emitted for CANCEL.
++func StepServerCancel(invite Transaction, cancel *Transaction, in Input) (Transaction, Transaction, []Effect, error) {
++	if invite.Validate() != nil || invite.Family != InviteServer || in.Kind != ReceiveRequest {
++		return invite, Transaction{}, nil, errors.New("INVITE server CANCEL input required")
++	}
++	r, err := request(in.Message)
++	if err != nil || !r.IsCancel() || !MatchRequest(invite.Origin, in.Message) {
++		return invite, Transaction{}, nil, reject(481, "CANCEL original identity mismatch")
++	}
++	if cancel != nil {
++		if cancel.Family != NonInviteServer || !MatchRequest(cancel.Origin, in.Message) {
++			return invite, *cancel, nil, reject(481, "CANCEL transaction mismatch")
++		}
++		next, effects, err := StepTransaction(*cancel, in)
++		return invite.Clone(), next, effects, err
++	}
++	c, err := NewTransaction(NonInviteServer, in.Message, invite.Profile, invite.ResponseTag)
++	if err != nil {
++		return invite, Transaction{}, nil, err
++	}
++	c, _, err = StepTransaction(c, Input{Kind: Start, Now: in.Now})
++	if err != nil {
++		return invite, c, nil, err
++	}
++	status, reason := 200, "OK"
++	if invite.Phase == Idle || invite.Phase == Terminated {
++		status, reason = 481, "Call/Transaction Does Not Exist"
++	}
++	response, err := ResponseFor(in.Message, status, reason, nil, invite.ResponseTag)
++	if err != nil {
++		return invite, c, nil, err
++	}
++	c, effects, err := StepTransaction(c, Input{Kind: SendResponse, Now: in.Now, Message: response})
++	if err != nil {
++		return invite, c, nil, err
++	}
++	t := transition{state: invite.Clone(), now: in.Now}
++	if invite.Phase == Proceeding {
++		final, err := ResponseFor(invite.Origin, 487, "Request Terminated", nil, invite.ResponseTag)
++		if err != nil {
++			return invite, c, nil, err
++		}
++		t.state.Cancelled = true
++		t.emit(Cancelled, &in.Message, false)
++		t.serverResponse(final)
++	}
++	if t.err != nil {
++		return invite, c, nil, t.err
++	}
++	return t.state, c, append(effects, t.effects...), nil
++}
++
++func (t *transition) serverRequest(m Message) {
++	r, _ := request(m)
++	s := &t.state
++	if r.IsCancel() && s.Family == InviteServer {
++		c, e := ResponseFor(m, 200, "OK", nil, s.ResponseTag)
++		if e != nil {
++			t.err = e
++			return
++		}
++		t.emit(Send, &c, false)
++		if s.Family == InviteServer && s.Phase == Proceeding {
++			f, e := ResponseFor(s.Origin, 487, "Request Terminated", nil, s.ResponseTag)
++			if e != nil {
++				t.err = e
++				return
++			}
++			s.Cancelled = true
++			t.emit(Cancelled, &m, false)
++			t.serverResponse(f)
++		}
++		return
++	}
++	if r.IsAck() {
++		if s.LastResponse == nil {
++			return
++		}
++		res, _ := response(*s.LastResponse)
++		if tag(r.To().Params) != tag(res.To().Params) {
++			t.err = reject(481, "ACK response tag mismatch")
++			return
++		}
++		if s.Phase == Completed {
++			s.Phase = Confirmed
++			t.stop(TimerG)
++			t.stop(TimerH)
++			t.emit(Acknowledged, &m, false)
++			if s.Reliable {
++				t.finish("")
++			} else {
++				t.schedule(TimerI, s.Profile.T4, 0)
++			}
++		} else if s.Phase == Accepted {
++			t.emit(Acknowledged, &m, true)
++		}
++		return
++	}
++	if !bytes.Equal(m.Wire, s.Origin.Wire) {
++		t.err = reject(481, "transaction replay payload mismatch")
++		return
++	}
++	if s.Phase == Trying || s.Phase == Proceeding || s.Phase == Completed {
++		if s.LastResponse != nil {
++			t.emit(Send, s.LastResponse, true)
++		}
++	}
++}
++
++func (t *transition) serverResponse(m Message) {
++	s := &t.state
++	r, _ := response(m)
++	if r.StatusCode != 100 && tag(r.To().Params) != s.ResponseTag {
++		t.err = reject(481, "reserved response tag mismatch")
++		return
++	}
++	if s.Phase == Confirmed || s.Phase == Completed {
++		if s.LastResponse != nil && !bytes.Equal(s.LastResponse.Wire, m.Wire) {
++			t.err = errors.New("conflicting transaction final")
++		}
++		return
++	}
++	if s.Phase == Accepted {
++		if r.IsSuccess() && s.LastResponse != nil && bytes.Equal(s.LastResponse.Wire, m.Wire) {
++			t.emit(Send, s.LastResponse, true)
++		} else {
++			t.err = errors.New("conflicting transaction final")
++		}
++		return
++	}
++	t.stop(TimerTrying)
++	s.LastResponse = cloneMessage(&m)
++	t.emit(Send, &m, false)
++	if r.IsProvisional() {
++		s.Phase = Proceeding
++		return
++	}
++	if s.Family == InviteServer {
++		if r.IsSuccess() {
++			s.Phase = Accepted
++			t.schedule(TimerL, 64*s.Profile.T1, 0)
++		} else {
++			s.Phase = Completed
++			if !s.Reliable {
++				t.schedule(TimerG, s.Profile.T1, s.Profile.T1)
++			}
++			t.schedule(TimerH, 64*s.Profile.T1, 0)
++		}
++	} else {
++		s.Phase = Completed
++		if s.Reliable {
++			t.finish("")
++		} else {
++			t.schedule(TimerJ, 64*s.Profile.T1, 0)
++		}
++	}
++}
++
++func (t *transition) timer(k Timer) {
++	s := &t.state
++	d := s.Timers[k]
++	var terminal Timer
++	switch k {
++	case TimerA:
++		terminal = TimerB
++	case TimerE:
++		terminal = TimerF
++	case TimerG:
++		terminal = TimerH
++	}
++	if deadline := s.Timers[terminal]; terminal != "" && deadline.Active && deadline.At <= t.now {
++		t.timer(terminal)
++		return
++	}
++	switch k {
++	case TimerA:
++		if s.Phase == Calling {
++			t.emit(Send, &s.Origin, true)
++			t.schedule(k, min(d.Interval, math.MaxInt64/2)*2, min(d.Interval, math.MaxInt64/2)*2)
++		}
++	case TimerE:
++		if s.Phase == Trying || s.Phase == Proceeding {
++			t.emit(Send, &s.Origin, true)
++			interval := s.Profile.T2
++			if s.Phase == Trying {
++				interval = min(min(d.Interval, math.MaxInt64/2)*2, s.Profile.T2)
++			}
++			t.schedule(k, interval, interval)
++		}
++	case TimerG:
++		if s.Phase == Completed {
++			t.emit(Send, s.LastResponse, true)
++			interval := min(min(d.Interval, math.MaxInt64/2)*2, s.Profile.T2)
++			t.schedule(k, interval, interval)
++		}
++	case TimerB, TimerF:
++		t.finish("timeout")
++	case TimerCancel:
++		if s.Family == InviteClient && s.Cancelled && s.CancelSent && s.Phase == Proceeding {
++			t.finish("cancellation timeout")
++		}
++	case TimerD, TimerI, TimerJ, TimerK, TimerL, TimerM:
++		t.finish("")
++	case TimerH:
++		t.finish("ACK timeout")
++	case TimerTrying:
++		if s.Family == InviteServer && s.Phase == Proceeding && s.LastResponse == nil {
++			m, e := ResponseFor(s.Origin, 100, "Trying", nil, s.ResponseTag)
++			if e != nil {
++				t.err = e
++				return
++			}
++			t.serverResponse(m)
++		}
++	}
++}
+diff --git a/sip/portable/transaction_test.go b/sip/portable/transaction_test.go
+new file mode 100644
+index 0000000..018ef2a
+--- /dev/null
++++ b/sip/portable/transaction_test.go
+@@ -0,0 +1,313 @@
++package portable
++
++import (
++	"bytes"
++	"encoding/json"
++	"testing"
++
++	"github.com/emiago/sipgo/sip"
++)
++
++func origin(t *testing.T, method sip.RequestMethod, transport string) Message {
++	t.Helper()
++	m, err := BuildInitialRequest(InitialRequest{Method: method, URI: "sip:phone@example.test;user=phone?Subject=test", From: "<sip:controller@example.test>", CallID: "portable-call", LocalTag: "local-tag", Branch: "z9hG4bK-original", CSeq: 121787510, Advertise: "192.0.2.1:5061", Contact: "<sip:controller@192.0.2.1:5061;transport=" + transport + ">", Transport: transport})
++	if err != nil {
++		t.Fatal(err)
++	}
++	m.Source = "192.0.2.1:5061"
++	m.Destination = "192.0.2.2:5061"
++	return m
++}
++func reply(t *testing.T, m Message, status int, remoteTag string) Message {
++	t.Helper()
++	v, err := BuildResponseWithHeaders(m, status, "test", nil, remoteTag, "<sip:phone@192.0.2.2:5061>", nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return v
++}
++func hydrated[T any](t *testing.T, s T) T {
++	t.Helper()
++	b, e := json.Marshal(s)
++	if e != nil {
++		t.Fatal(e)
++	}
++	var v T
++	if e = json.Unmarshal(b, &v); e != nil {
++		t.Fatal(e)
++	}
++	return v
++}
++func step(t *testing.T, s Transaction, in Input) (Transaction, []Effect) {
++	t.Helper()
++	before, _ := json.Marshal(s)
++	next, effects, err := StepTransaction(hydrated(t, s), in)
++	if err != nil {
++		t.Fatal(err)
++	}
++	after, _ := json.Marshal(s)
++	if !bytes.Equal(before, after) {
++		t.Fatal("input state mutated")
++	}
++	return hydrated(t, next), effects
++}
++func count(e []Effect, k EffectKind) int {
++	n := 0
++	for _, v := range e {
++		if v.Kind == k {
++			n++
++		}
++	}
++	return n
++}
++func sent(e []Effect) []Message {
++	var a []Message
++	for _, v := range e {
++		if v.Kind == Send && v.Message != nil {
++			a = append(a, *v.Message)
++		}
++	}
++	return a
++}
++func tx(t *testing.T, f Family, m Message) Transaction {
++	t.Helper()
++	s, e := NewTransaction(f, m, DefaultTimers(), "remote-tag")
++	if e != nil {
++		t.Fatal(e)
++	}
++	return s
++}
++
++func TestPortableInviteClientHydratesEveryTransition(t *testing.T) {
++	m := origin(t, sip.INVITE, "udp")
++	s := tx(t, InviteClient, m)
++	s, e := step(t, s, Input{Kind: Start, Now: 1000})
++	if s.Phase != Calling || s.Timers[TimerA].At != 1500 || s.Timers[TimerB].At != 33000 || count(e, Send) != 1 {
++		t.Fatalf("start: %+v", s)
++	}
++	s, e = step(t, s, Input{Kind: TimerFired, Timer: TimerA, Generation: s.Timers[TimerA].Generation, Now: 1500})
++	if count(e, Send) != 1 || s.Timers[TimerA].At != 2500 {
++		t.Fatal("A retransmission lost")
++	}
++	s, _ = step(t, s, Input{Kind: ReceiveResponse, Message: reply(t, m, 180, "remote-tag"), Now: 1700})
++	if s.Phase != Proceeding || s.Timers[TimerA].Active || s.Timers[TimerB].Active {
++		t.Fatal("provisional did not end calling timers")
++	}
++	final := reply(t, m, 200, "remote-tag")
++	s, _ = step(t, s, Input{Kind: ReceiveResponse, Message: final, Now: 1800})
++	if s.Phase != Accepted || s.Timers[TimerM].At != 33800 {
++		t.Fatal("accepted retention missing")
++	}
++	s, e = step(t, s, Input{Kind: ReceiveResponse, Message: final, Now: 1900})
++	if count(e, ReportResponse) != 1 || !e[0].Replay {
++		t.Fatal("successful retransmission not reported")
++	}
++	s, _ = step(t, s, Input{Kind: TransportFailure, Error: "socket", Now: 2000})
++	if s.Phase != Accepted {
++		t.Fatal("accepted state lost after delivery error")
++	}
++	s, _ = step(t, s, Input{Kind: TimerFired, Timer: TimerM, Generation: s.Timers[TimerM].Generation, Now: 33800})
++	if s.Phase != Terminated {
++		t.Fatal("M did not retire")
++	}
++}
++
++func TestPortableInviteRejectedACKIsStable(t *testing.T) {
++	m := origin(t, sip.INVITE, "udp")
++	s, _ := step(t, tx(t, InviteClient, m), Input{Kind: Start, Now: 1000})
++	final := reply(t, m, 486, "remote-tag")
++	s, e := step(t, s, Input{Kind: ReceiveResponse, Message: final, Now: 1100})
++	if s.Phase != Completed || s.ACK == nil || count(e, Send) != 1 {
++		t.Fatal("non-2xx ACK missing")
++	}
++	first := bytes.Clone(s.ACK.Wire)
++	s, e = step(t, s, Input{Kind: ReceiveResponse, Message: final, Now: 1101})
++	if len(sent(e)) != 1 || !bytes.Equal(sent(e)[0].Wire, first) {
++		t.Fatal("ACK replay allocated new identity")
++	}
++	_, effects, err := StepTransaction(s, Input{Kind: ReceiveResponse, Message: mutate(t, final, func(v sip.Message) { v.CSeq().SeqNo++ }), Now: 1200})
++	if err == nil || len(effects) != 0 {
++		t.Fatal("wrong CSeq matched")
++	}
++	if s.Timers[TimerD].At != 33100 {
++		t.Fatal("D deadline reset")
++	}
++}
++
++func TestPortableNonInviteFamiliesAndTransportProfiles(t *testing.T) {
++	for _, network := range []string{"udp", "tcp", "tls"} {
++		t.Run(network, func(t *testing.T) {
++			m := origin(t, sip.OPTIONS, network)
++			s, e := step(t, tx(t, NonInviteClient, m), Input{Kind: Start, Now: 1000})
++			if count(e, Send) != 1 || !s.Timers[TimerF].Active {
++				t.Fatal("non-INVITE start")
++			}
++			if s.Timers[TimerE].Active != (network == "udp") {
++				t.Fatal("transport class lost")
++			}
++			if network == "udp" {
++				s, _ = step(t, s, Input{Kind: ReceiveResponse, Message: reply(t, m, 100, ""), Now: 1100})
++				s, e = step(t, s, Input{Kind: TimerFired, Timer: TimerE, Generation: s.Timers[TimerE].Generation, Now: 1500})
++				if count(e, Send) != 1 || s.Timers[TimerE].At != 5500 || s.Timers[TimerF].At != 33000 {
++					t.Fatal("E/F reset incorrectly")
++				}
++			}
++			s, _ = step(t, s, Input{Kind: ReceiveResponse, Message: reply(t, m, 200, "remote-tag"), Now: 2000})
++			if network == "udp" {
++				if s.Phase != Completed || s.Timers[TimerK].At != 7000 {
++					t.Fatal("K missing")
++				}
++			} else if s.Phase != Terminated {
++				t.Fatal("reliable NICT retention")
++			}
++			server, e := step(t, tx(t, NonInviteServer, m), Input{Kind: Start, Now: 1000})
++			if count(e, PresentRequest) != 1 {
++				t.Fatal("server presentation")
++			}
++			server, e = step(t, server, Input{Kind: SendResponse, Message: reply(t, m, 200, "remote-tag"), Now: 1200})
++			if count(e, Send) != 1 {
++				t.Fatal("server final")
++			}
++			if network == "udp" {
++				if server.Phase != Completed || server.Timers[TimerJ].At != 33200 {
++					t.Fatal("J missing")
++				}
++				server, e = step(t, server, Input{Kind: ReceiveRequest, Message: m, Now: 1300})
++				if count(e, Send) != 1 || count(e, PresentRequest) != 0 {
++					t.Fatal("server replay reran policy")
++				}
++			} else if server.Phase != Terminated {
++				t.Fatal("reliable NIST retention")
++			}
++		})
++	}
++}
++
++func TestPortableServerTryingFinalAndACK(t *testing.T) {
++	m := origin(t, sip.INVITE, "udp")
++	s, e := step(t, tx(t, InviteServer, m), Input{Kind: Start, Now: 1000})
++	if count(e, PresentRequest) != 1 {
++		t.Fatal("presentation missing")
++	}
++	s, e = step(t, s, Input{Kind: TimerFired, Timer: TimerTrying, Generation: s.Timers[TimerTrying].Generation, Now: 1200})
++	if len(sent(e)) != 1 {
++		t.Fatal("Trying missing")
++	}
++	parsed, _ := response(sent(e)[0])
++	if parsed.StatusCode != 100 || tag(parsed.To().Params) != "" {
++		t.Fatal("100 identity")
++	}
++	final := reply(t, m, 486, "remote-tag")
++	s, _ = step(t, s, Input{Kind: SendResponse, Message: final, Now: 1300})
++	if s.Timers[TimerH].At != 33300 {
++		t.Fatal("H missing")
++	}
++	ack, err := BuildNon2xxACK(m, final)
++	if err != nil {
++		t.Fatal(err)
++	}
++	s, e = step(t, s, Input{Kind: ReceiveRequest, Message: ack, Now: 1400})
++	if s.Phase != Confirmed || s.Timers[TimerG].Active || count(e, Acknowledged) != 1 {
++		t.Fatal("ACK not confirmed")
++	}
++	s, _ = step(t, s, Input{Kind: TimerFired, Timer: TimerI, Generation: s.Timers[TimerI].Generation, Now: 6400})
++	if s.Phase != Terminated {
++		t.Fatal("I not retired")
++	}
++}
++
++func TestPortableCancelIsItsOwnRetainedTransaction(t *testing.T) {
++	m := origin(t, sip.INVITE, "udp")
++	invite, _ := step(t, tx(t, InviteServer, m), Input{Kind: Start, Now: 1000})
++	cancel, err := BuildCancel(m)
++	if err != nil {
++		t.Fatal(err)
++	}
++	i, c, e, err := StepServerCancel(invite, nil, Input{Kind: ReceiveRequest, Message: cancel, Now: 1100})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if i.Phase != Completed || c.Phase != Completed || !i.Cancelled || c.Key == i.Key {
++		t.Fatal("cancel state not independent")
++	}
++	writes := sent(e)
++	if len(writes) != 2 {
++		t.Fatalf("want CANCEL200 then INVITE487, %+v", e)
++	}
++	first, _ := response(writes[0])
++	second, _ := response(writes[1])
++	if first.CSeq().MethodName != sip.CANCEL || first.StatusCode != 200 || second.StatusCode != 487 || tag(first.To().Params) != "remote-tag" || tag(second.To().Params) != "remote-tag" {
++		t.Fatal("cancel response identity/order")
++	}
++	_, replay := step(t, c, Input{Kind: ReceiveRequest, Message: cancel, Now: 7000})
++	if len(sent(replay)) != 1 {
++		t.Fatal("CANCEL replay lost independently of INVITE")
++	}
++	_, _, _, err = StepServerCancel(invite, nil, Input{Kind: ReceiveRequest, Message: mutate(t, cancel, func(v sip.Message) { *v.CallID() = "other" }), Now: 1100})
++	if err == nil {
++		t.Fatal("borrowed CANCEL branch accepted")
++	}
++	accepted, _ := step(t, invite, Input{Kind: SendResponse, Message: reply(t, m, 200, "remote-tag"), Now: 1100})
++	accepted, _, e, err = StepServerCancel(accepted, nil, Input{Kind: ReceiveRequest, Message: cancel, Now: 1101})
++	if err != nil || accepted.Phase != Accepted || len(sent(e)) != 1 {
++		t.Fatal("CANCEL replaced already-selected success")
++	}
++}
++
++func TestPortableClientCancellationWaitsForProvisional(t *testing.T) {
++	m := origin(t, sip.INVITE, "tls")
++	s, _ := step(t, tx(t, InviteClient, m), Input{Kind: Start, Now: 1})
++	s, e := step(t, s, Input{Kind: RequestCancel, Now: 2})
++	if !s.Cancelled || count(e, StartTransaction) != 0 {
++		t.Fatal("premature CANCEL")
++	}
++	s, e = step(t, s, Input{Kind: ReceiveResponse, Message: reply(t, m, 100, ""), Now: 3})
++	if !s.CancelSent || count(e, StartTransaction) != 1 {
++		t.Fatal("CANCEL not created")
++	}
++	s, e = step(t, s, Input{Kind: RequestCancel, Now: 4})
++	if count(e, StartTransaction) != 0 {
++		t.Fatal("duplicate CANCEL")
++	}
++}
++
++func TestPortableTimerGenerationAndInputImmutability(t *testing.T) {
++	m := origin(t, sip.OPTIONS, "udp")
++	s, _ := step(t, tx(t, NonInviteClient, m), Input{Kind: Start, Now: 1000})
++	s, e := step(t, s, Input{Kind: TimerFired, Timer: TimerE, Generation: 99, Now: 1500})
++	if len(e) != 0 || s.Timers[TimerE].At != 1500 {
++		t.Fatal("stale timer fired")
++	}
++	s, e = step(t, s, Input{Kind: TimerFired, Timer: TimerE, Generation: s.Timers[TimerE].Generation, Now: 1499})
++	if len(e) != 0 {
++		t.Fatal("early timer fired")
++	}
++	_, effects, err := StepTransaction(s, Input{Kind: ReceiveResponse, Message: mutate(t, reply(t, m, 200, "remote-tag"), func(v sip.Message) { v.From().Params.Add("tag", "attacker") }), Now: 1500})
++	if err == nil || len(effects) != 0 {
++		t.Fatal("mismatched identity produced effects")
++	}
++}
++
++func mutate(t *testing.T, m Message, fn func(sip.Message)) Message {
++	t.Helper()
++	v, e := m.Parse()
++	if e != nil {
++		t.Fatal(e)
++	}
++	fn(v)
++	m.Wire = []byte(v.String())
++	return m
++}
++
++func TestPortableRejectsCorruptRestoredTransaction(t *testing.T) {
++	s, _ := step(t, tx(t, InviteClient, origin(t, sip.INVITE, "tls")), Input{Kind: Start, Now: 1})
++	for name, change := range map[string]func(*Transaction){"family": func(v *Transaction) { v.Family = "future" }, "phase": func(v *Transaction) { v.Phase = "future" }, "key": func(v *Transaction) { v.Key = "borrowed" }, "transport": func(v *Transaction) { v.Reliable = false }, "version": func(v *Transaction) { v.Version++ }} {
++		t.Run(name, func(t *testing.T) {
++			bad := s.Clone()
++			change(&bad)
++			if _, e, err := StepTransaction(hydrated(t, bad), Input{Kind: TransportFailure, Now: 2}); err == nil || len(e) != 0 {
++				t.Fatal("invalid state emitted effects")
++			}
++		})
++	}
++}
+diff --git a/sip/sip.go b/sip/sip.go
+index 22dc839..4cf72a1 100644
+--- a/sip/sip.go
++++ b/sip/sip.go
+@@ -1,6 +1,7 @@
+ package sip
+ 
+ import (
++	"crypto/rand"
+ 	"fmt"
+ 	"os"
+ 	"strings"
+@@ -61,9 +62,24 @@ func generateBranchStringWrite(sb *strings.Builder, n int) {
+ 	RandStringBytesMask(sb, n)
+ }
+ 
++// GenerateTagN returns a cryptographically random SIP token with n characters.
++// Like crypto/rand.Read, entropy failure must not fall back to predictable tags.
+ func GenerateTagN(n int) string {
+ 	sb := &strings.Builder{}
+-	RandStringBytesMask(sb, n)
++	sb.Grow(n)
++	var buf [32]byte
++	for sb.Len() < n {
++		remaining := min(n-sb.Len(), len(buf))
++		if _, err := rand.Read(buf[:remaining]); err != nil {
++			panic(fmt.Errorf("generate SIP tag: %w", err))
++		}
++		for _, b := range buf[:remaining] {
++			// Rejection sampling avoids bias across the 62 token characters.
++			if idx := int(b & letterIdxMask); idx < len(letterBytes) {
++				sb.WriteByte(letterBytes[idx])
++			}
++		}
++	}
+ 	return sb.String()
+ }
+ 
+diff --git a/sip/tag_random_test.go b/sip/tag_random_test.go
+new file mode 100644
+index 0000000..5b3f8dd
+--- /dev/null
++++ b/sip/tag_random_test.go
+@@ -0,0 +1,32 @@
++package sip
++
++import (
++	"bytes"
++	"crypto/rand"
++	"testing"
++)
++
++func TestGenerateTagNUsesCryptoRandomness(t *testing.T) {
++	// These six-bit values exercise rejection of the two values outside the
++	// SIP token alphabet. The result must depend on crypto/rand, not math/rand.
++	old := rand.Reader
++	rand.Reader = bytes.NewReader([]byte{62, 63, 0, 61, 1, 60})
++	t.Cleanup(func() { rand.Reader = old })
++	if got := GenerateTagN(4); got != "0Z1Y" {
++		t.Fatalf("tag = %q, want crypto-random token 0Z1Y", got)
++	}
++}
++
++func TestGenerateTagNLengthAndAlphabet(t *testing.T) {
++	for _, n := range []int{0, 1, 16, 100} {
++		tag := GenerateTagN(n)
++		if len(tag) != n {
++			t.Fatalf("len(tag) = %d, want %d", len(tag), n)
++		}
++		for _, ch := range tag {
++			if !bytes.ContainsRune([]byte(letterBytes), ch) {
++				t.Fatalf("tag contains non-token character %q", ch)
++			}
++		}
++	}
++}
+diff --git a/sip/transaction_cancel_context_test.go b/sip/transaction_cancel_context_test.go
+new file mode 100644
+index 0000000..45dfb8e
+--- /dev/null
++++ b/sip/transaction_cancel_context_test.go
+@@ -0,0 +1,102 @@
++package sip
++
++import (
++	"io"
++	"log/slog"
++	"net"
++	"sync"
++	"testing"
++
++	"github.com/stretchr/testify/require"
++)
++
++type cancelContextConnection struct {
++	mu        sync.Mutex
++	responses []*Response
++}
++
++func (c *cancelContextConnection) LocalAddr() net.Addr    { return &net.TCPAddr{} }
++func (c *cancelContextConnection) Ref(int) int            { return 1 }
++func (c *cancelContextConnection) TryClose() (int, error) { return 1, nil }
++func (c *cancelContextConnection) Close() error           { return nil }
++func (c *cancelContextConnection) WriteMsg(message Message) error {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++	c.responses = append(c.responses, message.(*Response).Clone())
++	return nil
++}
++func (c *cancelContextConnection) snapshot() []*Response {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++	return append([]*Response(nil), c.responses...)
++}
++
++func TestServerTxCancelContextIdentity(t *testing.T) {
++	request, _, _ := testCreateInvite(t, "sip:bob@example.test", "TLS", "127.0.0.1:5061")
++	tx := NewServerTx("key", request, nil, slog.Default())
++	valid := request.Clone()
++	valid.Method = CANCEL
++	valid.CSeq().MethodName = CANCEL
++	valid.SetSource("192.0.2.2:5077")
++	valid.Via().Params.Add("received", "192.0.2.2")
++	valid.Via().Params.Add("rport", "5077")
++	require.True(t, tx.matchesCancelIdentity(valid), "reconnect may change source/rport")
++	for _, mutate := range []func(*Request){
++		func(r *Request) { id := CallIDHeader("different-call"); r.ReplaceHeader(&id) },
++		func(r *Request) { r.CSeq().SeqNo++ },
++		func(r *Request) { r.From().Params.Add("tag", "different-from") },
++		func(r *Request) { r.To().Params.Add("tag", "unexpected-to") },
++	} {
++		other := valid.Clone()
++		mutate(other)
++		require.False(t, tx.matchesCancelIdentity(other))
++	}
++}
++
++func TestTransactionLayerCancelBorrowedBranch(t *testing.T) {
++	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
++	transport := NewTransportLayer(net.DefaultResolver, NewParser(), nil)
++	layer := NewTransactionLayer(transport, WithTransactionLayerLogger(logger))
++	t.Cleanup(layer.Close)
++	alice, _, _ := testCreateInvite(t, "sip:callee@example.test", "TLS", "127.0.0.1:5061")
++	alice.SetSource("127.0.0.1:5061")
++	aliceConnection := &cancelContextConnection{}
++	key, err := ServerTxKeyMake(alice)
++	require.NoError(t, err)
++	original := NewServerTx(key, alice, aliceConnection, logger)
++	require.NoError(t, original.Init())
++	layer.serverTransactions.put(key, original)
++	original.OnTerminate(func(key string, err error) { layer.serverTransactions.drop(key) })
++
++	bobConnection := &cancelContextConnection{}
++	transport.Pool("tls").Add("127.0.0.1:5077", bobConnection)
++	callbackCalled := false
++	layer.OnRequest(func(request *Request, tx *ServerTx) {
++		defer tx.Terminate()
++		callbackCalled = true
++		require.Equal(t, CANCEL, request.Method)
++		require.NoError(t, tx.Respond(NewResponseFromRequest(request, 481, "No matching request", nil)))
++	})
++	borrowed := alice.Clone()
++	borrowed.Method = CANCEL
++	borrowed.CSeq().MethodName = CANCEL
++	id := CallIDHeader("bobs-own-call")
++	borrowed.ReplaceHeader(&id)
++	borrowed.From().Params.Add("tag", "bobs-own-tag")
++	borrowed.SetSource("127.0.0.1:5077")
++	require.NoError(t, layer.handleRequest(borrowed))
++	require.True(t, callbackCalled, "identity mismatch follows unmatched CANCEL path")
++	require.Empty(t, aliceConnection.snapshot(), "borrowed branch cannot cancel Alice's INVITE")
++	rejected := bobConnection.snapshot()
++	require.Len(t, rejected, 1)
++	require.Equal(t, 481, rejected[0].StatusCode)
++	require.NoError(t, original.Err())
++
++	// The real identity still matches even over the replacement source flow.
++	legitimate := alice.Clone()
++	legitimate.Method = CANCEL
++	legitimate.CSeq().MethodName = CANCEL
++	legitimate.SetSource("127.0.0.1:5077")
++	require.NoError(t, layer.handleRequest(legitimate))
++	require.Len(t, aliceConnection.snapshot(), 2, "valid cancellation still generates 200 and 487")
++}
+diff --git a/sip/transaction_cancel_identity_test.go b/sip/transaction_cancel_identity_test.go
+new file mode 100644
+index 0000000..ede4668
+--- /dev/null
++++ b/sip/transaction_cancel_identity_test.go
+@@ -0,0 +1,170 @@
++package sip
++
++import (
++	"errors"
++	"io"
++	"log/slog"
++	"net"
++	"strconv"
++	"sync"
++	"testing"
++
++	"github.com/stretchr/testify/require"
++)
++
++type cancelIdentityConnection struct {
++	mu        sync.Mutex
++	responses []*Response
++}
++
++func (c *cancelIdentityConnection) LocalAddr() net.Addr    { return &net.TCPAddr{} }
++func (c *cancelIdentityConnection) Ref(n int) int          { return 1 }
++func (c *cancelIdentityConnection) TryClose() (int, error) { return 1, nil }
++func (c *cancelIdentityConnection) Close() error           { return nil }
++func (c *cancelIdentityConnection) WriteMsg(message Message) error {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++	c.responses = append(c.responses, message.(*Response).Clone())
++	return nil
++}
++func (c *cancelIdentityConnection) snapshot() []*Response {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++	return append([]*Response(nil), c.responses...)
++}
++
++func cancelIdentityFixture(t *testing.T) (*TransactionLayer, *ServerTx, *Request, *cancelIdentityConnection) {
++	t.Helper()
++	request, _, _ := testCreateInvite(t, "sip:bob@example.test", "TLS", "127.0.0.1:5061")
++	connection := &cancelIdentityConnection{}
++	key, err := ServerTxKeyMake(request)
++	require.NoError(t, err)
++	tx := NewServerTx(key, request, connection, slog.New(slog.NewTextHandler(io.Discard, nil)))
++	require.NoError(t, tx.Init())
++	t.Cleanup(tx.Terminate)
++	layer := &TransactionLayer{serverTransactions: newTransactionStore[*ServerTx]()}
++	layer.serverTransactions.put(key, tx)
++	return layer, tx, request, connection
++}
++
++func matchingCancel(request *Request) *Request {
++	cancel := request.Clone()
++	cancel.Method = CANCEL
++	cancel.CSeq().MethodName = CANCEL
++	// The CANCEL retains its own received/source metadata after reconnect.
++	cancel.Via().Params.Add("received", "192.0.2.2")
++	cancel.Via().Params.Add("rport", "5077")
++	return cancel
++}
++
++func responseTag(response *Response) string {
++	tag, _ := response.To().Params.Get("tag")
++	return tag
++}
++
++func taggedResponse(request *Request, status int, tag string) *Response {
++	response := NewResponseFromRequest(request, status, "Test", nil)
++	response.To().Params.Add("tag", tag)
++	return response
++}
++
++func TestServerTxCancelResponseIdentity(t *testing.T) {
++	layer, tx, request, connection := cancelIdentityFixture(t)
++	provisional := taggedResponse(request, 183, "established-local-tag")
++	require.NoError(t, tx.Respond(provisional))
++	cancel := matchingCancel(request)
++	require.NoError(t, layer.handleRequest(cancel))
++	require.NoError(t, layer.handleRequest(cancel))
++	responses := connection.snapshot()
++	require.Len(t, responses, 4)
++	for _, response := range responses {
++		require.Equal(t, "established-local-tag", responseTag(response))
++	}
++	require.Equal(t, CANCEL, responses[1].CSeq().MethodName)
++	require.Equal(t, INVITE, responses[2].CSeq().MethodName)
++	require.Equal(t, 487, responses[2].StatusCode)
++	received, _ := responses[1].Via().Params.Get("received")
++	require.Equal(t, "192.0.2.2", received)
++	require.False(t, request.To().Params.Has("tag"), "original request is immutable")
++	require.Equal(t, "established-local-tag", responseTag(provisional))
++	require.ErrorIs(t, tx.Respond(taggedResponse(request, 200, "late-answer-tag")), ErrTransactionCanceled)
++	require.NoError(t, tx.Receive(request))
++	responses = connection.snapshot()
++	require.Equal(t, 487, responses[len(responses)-1].StatusCode, "late answer cannot replace cached 487")
++	require.Equal(t, "established-local-tag", responseTag(responses[len(responses)-1]))
++}
++
++func TestServerTxCancelBeforeTaggedResponse(t *testing.T) {
++	layer, tx, request, connection := cancelIdentityFixture(t)
++	require.NoError(t, tx.Respond(NewResponseFromRequest(request, 100, "Trying", nil)))
++	require.NoError(t, layer.handleRequest(matchingCancel(request)))
++	require.NoError(t, layer.handleRequest(matchingCancel(request)))
++	responses := connection.snapshot()
++	require.Empty(t, responseTag(responses[0]))
++	tag := responseTag(responses[1])
++	require.NotEmpty(t, tag)
++	for _, response := range responses[1:] {
++		require.Equal(t, tag, responseTag(response))
++	}
++}
++
++func TestServerTxCancelAfterFinal(t *testing.T) {
++	for _, status := range []int{200, 486} {
++		t.Run(strconv.Itoa(status), func(t *testing.T) {
++			layer, tx, request, connection := cancelIdentityFixture(t)
++			require.NoError(t, tx.Respond(taggedResponse(request, 183, "dialog-tag")))
++			require.NoError(t, tx.Respond(taggedResponse(request, status, "dialog-tag")))
++			require.NoError(t, layer.handleRequest(matchingCancel(request)))
++			require.NoError(t, layer.handleRequest(matchingCancel(request)))
++			responses := connection.snapshot()
++			require.Len(t, responses, 4)
++			for _, response := range responses {
++				require.Equal(t, "dialog-tag", responseTag(response))
++				require.NotEqual(t, 487, response.StatusCode)
++			}
++			require.Equal(t, status, tx.fsmResp.StatusCode)
++			require.Equal(t, CANCEL, responses[2].CSeq().MethodName)
++		})
++	}
++}
++
++func TestServerTxCancelConcurrentFinal(t *testing.T) {
++	for range 100 {
++		layer, tx, request, connection := cancelIdentityFixture(t)
++		require.NoError(t, tx.Respond(taggedResponse(request, 183, "dialog-tag")))
++		begin := make(chan struct{})
++		results := make(chan error, 2)
++		go func() { <-begin; results <- layer.handleRequest(matchingCancel(request)) }()
++		go func() { <-begin; results <- tx.Respond(taggedResponse(request, 200, "dialog-tag")) }()
++		close(begin)
++		for range 2 {
++			err := <-results
++			require.True(t, err == nil || errors.Is(err, ErrTransactionCanceled), "%v", err)
++		}
++		responses := connection.snapshot()
++		finals := 0
++		for _, response := range responses {
++			require.Equal(t, "dialog-tag", responseTag(response))
++			if response.CSeq().MethodName == INVITE && response.StatusCode >= 200 {
++				finals++
++			}
++		}
++		require.Equal(t, 1, finals, "only cancellation or application final can win")
++		tx.Terminate()
++	}
++}
++
++func TestServerTxCancelDoesNotRewriteForwardedTags(t *testing.T) {
++	layer, tx, request, connection := cancelIdentityFixture(t)
++	first := taggedResponse(request, 200, "fork-a")
++	second := taggedResponse(request, 200, "fork-b")
++	require.NoError(t, tx.Respond(first))
++	require.NoError(t, tx.Respond(second))
++	require.NoError(t, layer.handleRequest(matchingCancel(request)))
++	responses := connection.snapshot()
++	require.Equal(t, "fork-a", responseTag(responses[0]))
++	require.Equal(t, "fork-b", responseTag(responses[1]))
++	require.Equal(t, "fork-b", responseTag(responses[2]))
++	require.Equal(t, "fork-a", responseTag(first))
++	require.Equal(t, "fork-b", responseTag(second))
++}
+diff --git a/sip/transaction_ingress_test.go b/sip/transaction_ingress_test.go
+new file mode 100644
+index 0000000..d01d7e0
+--- /dev/null
++++ b/sip/transaction_ingress_test.go
+@@ -0,0 +1,89 @@
++package sip
++
++import (
++	"context"
++	"net"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/require"
++)
++
++func TestTransactionIngressUsesBoundConnectionAndTransportTimers(t *testing.T) {
++	for _, network := range []string{"UDP", "TCP", "TLS"} {
++		t.Run(network, func(t *testing.T) {
++			transport := NewTransportLayer(net.DefaultResolver, NewParser(), nil, WithTransportLayerConnectionCreation(false))
++			layer := NewTransactionLayer(transport)
++			t.Cleanup(func() { layer.Close(); transport.Close() })
++			connection := &ingressConnection{}
++			source := "127.254.0.1:15060"
++			transport.Pool(strings.ToLower(network)).Add(source, connection)
++			wire := "OPTIONS sip:service@example.test SIP/2.0\r\nVia: SIP/2.0/" + network + " peer.invalid:5060;branch=z9hG4bK-ingress\r\nFrom: <sip:a@example.test>;tag=remote\r\nTo: <sip:service@example.test>\r\nCall-ID: ingress-test\r\nCSeq: 1 OPTIONS\r\nContent-Length: 0\r\n\r\n"
++			message, err := ParseMessage([]byte(wire))
++			require.NoError(t, err)
++			message.SetSource(source)
++			message.SetTransport(network)
++			handled := make(chan *ServerTx, 1)
++			layer.OnRequest(func(request *Request, tx *ServerTx) {
++				if err := tx.Respond(NewResponseFromRequest(request, 200, "OK", nil)); err != nil {
++					t.Error(err)
++				}
++				handled <- tx
++			})
++			layer.HandleMessage(message)
++			select {
++			case tx := <-handled:
++				require.Equal(t, network != "UDP", tx.reliable)
++				require.Same(t, connection, tx.conn)
++				responses := connection.snapshot()
++				require.Len(t, responses, 1)
++				require.Equal(t, 200, responses[0].StatusCode)
++				require.Equal(t, network, responses[0].Transport())
++			case <-time.After(time.Second):
++				t.Fatal("native transaction did not receive injected ingress")
++			}
++		})
++	}
++}
++
++// Independent of other patch tests so this API proposal can be cherry-picked.
++type ingressConnection struct {
++	mu        sync.Mutex
++	responses []*Response
++}
++
++func (*ingressConnection) LocalAddr() net.Addr    { return &net.UDPAddr{} }
++func (*ingressConnection) Ref(int) int            { return 1 }
++func (*ingressConnection) TryClose() (int, error) { return 1, nil }
++func (*ingressConnection) Close() error           { return nil }
++func (c *ingressConnection) WriteMsg(message Message) error {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++	c.responses = append(c.responses, message.(*Response).Clone())
++	return nil
++}
++func (c *ingressConnection) snapshot() []*Response {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++	return append([]*Response(nil), c.responses...)
++}
++
++func TestTransactionIngressRefusesUnboundConnection(t *testing.T) {
++	for _, network := range []string{"UDP", "TCP", "TLS"} {
++		t.Run(network, func(t *testing.T) {
++			transport := NewTransportLayer(net.DefaultResolver, NewParser(), nil, WithTransportLayerConnectionCreation(false))
++			defer transport.Close()
++			request := NewRequest(OPTIONS, Uri{Scheme: "sip", Host: "127.0.0.1", Port: 9})
++			request.AppendHeader(&ViaHeader{ProtocolName: "SIP", ProtocolVersion: "2.0", Transport: network, Host: "127.0.0.1", Port: 9, Params: NewParams()})
++			request.SetTransport(network)
++			request.SetDestination("127.0.0.1:9")
++			request.SetSource("127.0.0.1:9")
++			_, err := transport.ClientRequestConnection(context.Background(), request)
++			require.ErrorIs(t, err, ErrConnectionCreationDisabled)
++			_, err = transport.serverRequestConnection(context.Background(), request)
++			require.ErrorIs(t, err, ErrConnectionCreationDisabled)
++		})
++	}
++}
+diff --git a/sip/transaction_layer.go b/sip/transaction_layer.go
+index 5cdbdd6..4e49e32 100644
+--- a/sip/transaction_layer.go
++++ b/sip/transaction_layer.go
+@@ -129,6 +129,14 @@ func (txl *TransactionLayer) terminateServerTransactions(conn Connection) {
+ 	txl.serverTransactions.mu.RUnlock()
+ }
+ 
++// HandleMessage admits an already parsed message from an application-owned
++// transport. The caller must set the observed transport and source and install
++// its Connection in the corresponding transport pool before calling this method.
++// Requests and responses retain the normal native transaction matching and timers.
++func (txl *TransactionLayer) HandleMessage(msg Message) {
++	txl.handleMessage(msg)
++}
++
+ // handleMessage is entry for handling requests and responses from transport
+ func (txl *TransactionLayer) handleMessage(msg Message) {
+ 	// Having concurency here we increased throghput but also solving deadlock
+@@ -167,17 +175,13 @@ func (txl *TransactionLayer) handleRequest(req *Request) error {
+ 		}
+ 
+ 		tx, exists := txl.getServerTx(key)
++		if exists && !tx.matchesCancelIdentity(req) {
++			exists = false
++		}
+ 		if exists {
+-			// Send 200 OK for CANCEL first, then terminate the INVITE.
+-			// The CANCEL client transaction retransmits until it receives
+-			// a response; sending 200 OK before the 487 ensures the UAC
+-			// stops retransmitting immediately.
+-			if err := tx.conn.WriteMsg(NewResponseFromRequest(req, StatusOK, "OK", nil)); err != nil {
+-				return fmt.Errorf("Failed to respond 200 for CANCEL: %w", err)
+-			}
+-
+-			// Now let the FSM terminate the INVITE transaction (sends 487)
+-			if err := tx.Receive(req); err != nil {
++			// The matched transaction serializes CANCEL 200 and any generated
++			// INVITE 487 with its response identity and application finals.
++			if err := tx.receiveCancel(req); err != nil {
+ 				return fmt.Errorf("failed to receive req: %w", err)
+ 			}
+ 			return nil
+@@ -327,6 +331,49 @@ func (txl *TransactionLayer) handleResponse(res *Response) error {
+ 	return nil
+ }
+ 
++// MatchClientResponse reports whether a response matches a live native client
++// transaction and its complete request identity. It does not deliver the response
++// or authorize any transport. Source/rport/received may differ after reconnect.
++// Callers retaining a dialog must additionally validate its established tags.
++func (txl *TransactionLayer) MatchClientResponse(res *Response) bool {
++	if res == nil || res.CallID() == nil || res.From() == nil || res.To() == nil || res.CSeq() == nil || res.Via() == nil {
++		return false
++	}
++	key, err := ClientTxKeyMake(res)
++	if err != nil {
++		return false
++	}
++	tx, exists := txl.getClientTx(key)
++	if !exists {
++		return false
++	}
++	select {
++	case <-tx.Done():
++		return false
++	default:
++	}
++	origin := tx.Origin()
++	if origin.CallID() == nil || origin.From() == nil || origin.To() == nil || origin.CSeq() == nil || origin.Via() == nil {
++		return false
++	}
++	from, _ := origin.From().Params.Get("tag")
++	responseFrom, _ := res.From().Params.Get("tag")
++	to, _ := origin.To().Params.Get("tag")
++	responseTo, _ := res.To().Params.Get("tag")
++	via, responseVia := origin.Via(), res.Via()
++	port, responsePort := via.Port, responseVia.Port
++	if port <= 0 {
++		port = int(DefaultPort(via.Transport))
++	}
++	if responsePort <= 0 {
++		responsePort = int(DefaultPort(responseVia.Transport))
++	}
++	return *origin.CallID() == *res.CallID() && from == responseFrom &&
++		(to == "" || to == responseTo) && origin.CSeq().SeqNo == res.CSeq().SeqNo && origin.CSeq().MethodName == res.CSeq().MethodName &&
++		via.Host == responseVia.Host && port == responsePort && via.Transport == responseVia.Transport &&
++		via.ProtocolName == responseVia.ProtocolName && via.ProtocolVersion == responseVia.ProtocolVersion
++}
++
+ func (txl *TransactionLayer) Request(ctx context.Context, req *Request) (*ClientTx, error) {
+ 	tx, err := txl.NewClientTransaction(ctx, req)
+ 	if err != nil {
+diff --git a/sip/transaction_response_match_test.go b/sip/transaction_response_match_test.go
+new file mode 100644
+index 0000000..8d3728f
+--- /dev/null
++++ b/sip/transaction_response_match_test.go
+@@ -0,0 +1,62 @@
++package sip
++
++import (
++	"log/slog"
++	"net"
++	"testing"
++
++	"github.com/stretchr/testify/require"
++)
++
++type responseMatchConnection struct{}
++
++func (*responseMatchConnection) LocalAddr() net.Addr    { return &net.TCPAddr{} }
++func (*responseMatchConnection) Ref(int) int            { return 1 }
++func (*responseMatchConnection) TryClose() (int, error) { return 1, nil }
++func (*responseMatchConnection) Close() error           { return nil }
++func (*responseMatchConnection) WriteMsg(Message) error { return nil }
++
++func TestTransactionLayerMatchClientResponse(t *testing.T) {
++	transport := NewTransportLayer(net.DefaultResolver, NewParser(), nil)
++	layer := NewTransactionLayer(transport)
++	t.Cleanup(func() { layer.Close(); transport.Close() })
++	request, _, _ := testCreateInvite(t, "sip:bob@example.test", "TLS", "127.0.0.1:5061")
++	key, err := ClientTxKeyMake(request)
++	require.NoError(t, err)
++	tx := NewClientTx(key, request, &responseMatchConnection{}, slog.Default())
++	layer.clientTransactions.items[key] = tx
++	tx.OnTerminate(layer.clientTxTerminate)
++	response := NewResponseFromRequest(request, 200, "OK", nil)
++	response.SetSource("192.0.2.2:51999")
++	response.Via().Params.Add("received", "192.0.2.2")
++	response.Via().Params.Add("rport", "51999")
++	require.True(t, layer.MatchClientResponse(response), "physical response source may change")
++	for name, mutate := range map[string]func(*Response){
++		"call-id":         func(r *Response) { id := CallIDHeader("borrowed-call"); r.ReplaceHeader(&id) },
++		"from-tag":        func(r *Response) { r.From().Params.Add("tag", "borrowed-from") },
++		"sequence":        func(r *Response) { r.CSeq().SeqNo++ },
++		"method":          func(r *Response) { r.CSeq().MethodName = ACK },
++		"branch":          func(r *Response) { r.Via().Params.Add("branch", GenerateBranch()) },
++		"sent-by-host":    func(r *Response) { r.Via().Host = "borrowed.example.test" },
++		"sent-by-port":    func(r *Response) { r.Via().Port++ },
++		"via-transport":   func(r *Response) { r.Via().Transport = "UDP" },
++		"missing-from":    func(r *Response) { r.RemoveHeader("From") },
++		"missing-call-id": func(r *Response) { r.RemoveHeader("Call-ID") },
++		"missing-cseq":    func(r *Response) { r.RemoveHeader("CSeq") },
++		"missing-via":     func(r *Response) { r.RemoveHeader("Via") },
++	} {
++		t.Run(name, func(t *testing.T) {
++			invalid := response.Clone()
++			mutate(invalid)
++			require.False(t, layer.MatchClientResponse(invalid))
++		})
++	}
++	request.To().Params.Add("tag", "established-remote")
++	response.To().Params.Add("tag", "different-remote")
++	require.False(t, layer.MatchClientResponse(response), "in-dialog response must retain remote tag")
++	response.To().Params.Add("tag", "established-remote")
++	require.True(t, layer.MatchClientResponse(response))
++	tx.Terminate()
++	require.False(t, layer.MatchClientResponse(response), "retired transactions grant no new ingress")
++	require.False(t, layer.MatchClientResponse(nil))
++}
+diff --git a/sip/transaction_server_tx.go b/sip/transaction_server_tx.go
+index 77a9665..855bec2 100644
+--- a/sip/transaction_server_tx.go
++++ b/sip/transaction_server_tx.go
+@@ -21,6 +21,8 @@ type ServerTx struct {
+ 	timer_1xx    *time.Timer
+ 	timer_l      *time.Timer
+ 	reliable     bool
++	// responseToTag is protected by fsmMu and belongs to generated responses.
++	responseToTag string
+ }
+ 
+ func NewServerTx(key string, origin *Request, conn Connection, logger *slog.Logger) *ServerTx {
+@@ -74,6 +76,21 @@ func (tx *ServerTx) Connection() Connection {
+ 	return tx.conn
+ }
+ 
++// A transaction branch identifies a transaction, not an authorization context.
++// CANCEL must retain the original request identity even if its source changes.
++func (tx *ServerTx) matchesCancelIdentity(req *Request) bool {
++	original := tx.origin
++	if req.CallID() == nil || req.CSeq() == nil || req.From() == nil || req.To() == nil {
++		return false
++	}
++	if original.CallID() == nil || original.CSeq() == nil || original.From() == nil || original.To() == nil {
++		return false
++	}
++	return req.CallID().Value() == original.CallID().Value() && req.CSeq().SeqNo == original.CSeq().SeqNo &&
++		req.From().Params.GetOr("tag", "") == original.From().Params.GetOr("tag", "") &&
++		req.To().Params.GetOr("tag", "") == original.To().Params.GetOr("tag", "")
++}
++
+ // Receive is endpoint for handling received server requests.
+ // NOTE: it could block while passing request to client,
+ // therefore running in seperate goroutine is needed
+@@ -101,6 +118,26 @@ func (tx *ServerTx) Receive(req *Request) error {
+ 	return nil
+ }
+ 
++// receiveCancel serializes the matching CANCEL's 200 and any generated INVITE
++// 487 with application finals, without changing the public Receive contract.
++func (tx *ServerTx) receiveCancel(req *Request) error {
++	tx.mu.Lock()
++	if tx.timer_1xx != nil {
++		tx.timer_1xx.Stop()
++		tx.timer_1xx = nil
++	}
++	tx.mu.Unlock()
++	tx.fsmMu.Lock()
++	defer tx.fsmMu.Unlock()
++	response := tx.makeGeneratedResponse(req, StatusOK, "OK")
++	if err := tx.conn.WriteMsg(response); err != nil {
++		return fmt.Errorf("responding to CANCEL: %w", err)
++	}
++	tx.fsmCancel = req
++	tx.spinFsmUnsafe(server_input_cancel)
++	return nil
++}
++
+ func (tx *ServerTx) Respond(res *Response) error {
+ 	if res.IsCancel() {
+ 		return tx.conn.WriteMsg(res)
+@@ -124,7 +161,28 @@ func (tx *ServerTx) Respond(res *Response) error {
+ 	}
+ 	// Return the transition's result; Timer J may terminate the transaction
+ 	// as soon as the FSM lock is released.
+-	return tx.spinFsmWithResponse(input, res)
++	tx.fsmMu.Lock()
++	defer tx.fsmMu.Unlock()
++	if tx.fsmErr == ErrTransactionCanceled {
++		return tx.fsmErr
++	}
++	tx.fsmResp = res
++	tx.spinFsmUnsafe(input)
++	return tx.fsmErr
++}
++
++// makeGeneratedResponse is called with fsmMu held. Application/forwarded
++// response objects remain unchanged; generated responses adopt their identity.
++func (tx *ServerTx) makeGeneratedResponse(req *Request, status int, reason string) *Response {
++	response := NewResponseFromRequest(req, status, reason, nil)
++	if to := response.To(); to != nil {
++		if tx.responseToTag != "" {
++			to.Params.Add("tag", tx.responseToTag)
++		} else if tag, ok := to.Params.Get("tag"); ok {
++			tx.responseToTag = tag
++		}
++	}
++	return response
+ }
+ 
+ // Acks makes channel for sending acks. Channel is created on demand
+diff --git a/sip/transaction_server_tx_fsm.go b/sip/transaction_server_tx_fsm.go
+index 5cf48eb..627abff 100644
+--- a/sip/transaction_server_tx_fsm.go
++++ b/sip/transaction_server_tx_fsm.go
+@@ -301,7 +301,7 @@ func (tx *ServerTx) actCancel() fsmInput {
+ 	}
+ 
+ 	tx.log.Debug("Passing 487 on CANCEL", "tx", tx.Key())
+-	tx.fsmResp = NewResponseFromRequest(tx.origin, StatusRequestTerminated, "Request Terminated", nil)
++	tx.fsmResp = tx.makeGeneratedResponse(tx.origin, StatusRequestTerminated, "Request Terminated")
+ 	tx.fsmErr = ErrTransactionCanceled // For now only informative
+ 
+ 	// Check is there some listener on cancel
+@@ -339,5 +339,12 @@ func (tx *ServerTx) passResp() error {
+ 		tx.fsmErr = wrapTransportError(err)
+ 		return err
+ 	}
++	if tx.origin.IsInvite() && lastResp.StatusCode != StatusTrying {
++		if to := lastResp.To(); to != nil {
++			if tag, ok := to.Params.Get("tag"); ok {
++				tx.responseToTag = tag
++			}
++		}
++	}
+ 	return nil
+ }
+diff --git a/sip/transport_layer.go b/sip/transport_layer.go
+index 8cc8a72..c905a15 100644
+--- a/sip/transport_layer.go
++++ b/sip/transport_layer.go
+@@ -16,7 +16,8 @@ var (
+ 	tlsEmptyConf tls.Config
+ 
+ 	// Errors
+-	ErrTransportNotSuported = errors.New("protocol not supported")
++	ErrConnectionCreationDisabled = errors.New("transport connection creation disabled")
++	ErrTransportNotSuported       = errors.New("protocol not supported")
+ 
+ 	// No need yet to expose
+ 	errTransportConnectionDoesNotExists = errors.New("connection does not exists")
+@@ -39,8 +40,9 @@ type TransportLayer struct {
+ 	log *slog.Logger
+ 
+ 	// connectionReuse will force connection reuse when passing request
+-	connectionReuse bool
+-	readFilter      TransportReadFilter
++	connectionReuse    bool
++	connectionCreation bool
++	readFilter         TransportReadFilter
+ 
+ 	// dnsPreferSRV does always SRV lookup first
+ 	dnsPreferSRV bool
+@@ -57,6 +59,13 @@ func WithTransportLayerLogger(logger *slog.Logger) TransportLayerOption {
+ 	}
+ }
+ 
++// WithTransportLayerConnectionCreation controls automatic dialing on a pool miss.
++// Disable it when an application-owned transport supplies every connection.
++// Existing connections and all native transaction behavior are preserved.
++func WithTransportLayerConnectionCreation(enabled bool) TransportLayerOption {
++	return func(l *TransportLayer) { l.connectionCreation = enabled }
++}
++
+ func WithTransportLayerConnectionReuse(f bool) TransportLayerOption {
+ 	return func(l *TransportLayer) {
+ 		l.connectionReuse = f
+@@ -116,11 +125,12 @@ func NewTransportLayer(
+ 	option ...TransportLayerOption,
+ ) *TransportLayer {
+ 	l := &TransportLayer{
+-		listenPorts:     make(map[string][]int),
+-		dnsResolver:     dnsResolver,
+-		connectionReuse: true,
+-		log:             DefaultLogger().With("caller", "TransportLayer"),
+-		dnsPreferIP:     1, // IPV4
++		listenPorts:        make(map[string][]int),
++		dnsResolver:        dnsResolver,
++		connectionReuse:    true,
++		connectionCreation: true,
++		log:                DefaultLogger().With("caller", "TransportLayer"),
++		dnsPreferIP:        1, // IPV4
+ 	}
+ 
+ 	for _, o := range option {
+@@ -439,6 +449,9 @@ func (l *TransportLayer) ClientRequestConnection(ctx context.Context, req *Reque
+ 	}
+ 
+ 	if c == nil {
++		if !l.connectionCreation {
++			return nil, ErrConnectionCreationDisabled
++		}
+ 		if l.log.Enabled(ctx, slog.LevelDebug) {
+ 			// printing laddr adds some execution
+ 			l.log.Debug("Creating connection", "laddr", laddr.String(), "raddr", raddr.String(), "network", network)
+@@ -560,6 +573,10 @@ func (l *TransportLayer) serverRequestConnection(ctx context.Context, req *Reque
+ 		return c, nil
+ 	}
+ 
++	if !l.connectionCreation {
++		return nil, ErrConnectionCreationDisabled
++	}
++
+ 	// Fail with new connection :(
+ 	// What about local Addr? It has usage for client
+ 	laddr := Addr{}

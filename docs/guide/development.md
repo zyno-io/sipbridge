@@ -1,46 +1,52 @@
 # Development
 
-Before a non-trivial change, read the normative
-[Architecture](../spec/architecture.md) and the supplement that owns the
-behavior: [Runtime](../runtime.md) for state, execution and bounds,
-[Protocol](../spec/protocol.md) for wire and business admission, and
-[Fixtures](../fixtures.md) for test programs. Update the owning document first
-when behavior changes. Contributor rules are in
-[AGENTS.md](../../AGENTS.md).
+This page is for people changing sipbridge itself. The source is in the
+[GitLab repository](https://git.s24.dev/signal24/oss/sipbridge); the GitHub
+repository holds only the documentation site.
+
+The specification documents are the design record, and each one covers a
+particular area: [Architecture](../spec/architecture.md) for components and
+their boundaries, [Runtime](../runtime.md) for state, execution and limits,
+[Protocol](../spec/protocol.md) for the control protocol and admission rules,
+and [Fixtures](../fixtures.md) for the test programs. Before a non-trivial
+change, read Architecture and the document covering the area you are touching,
+and when you change behavior, update that document first. Contributor rules are
+in [AGENTS.md](../../AGENTS.md).
 
 ## Repository layout
 
 | Path | Contents |
 | --- | --- |
 | `cmd/sipbridge` | The service executable. |
-| `cmd/sipbridge-control` | Session-only control fixture: mTLS WebSocket sessions, no SIP. |
-| `cmd/sipbridge-fixture` | Independent stdio native-wire fixture, driven only by `test/run.py`. |
-| `internal/engine` | Ingress, native state engine, physical writer. |
-| `internal/execution` | Bounded read, pure reduction and compare-and-swap driver. |
-| `internal/state` | Memory and Redis state adapters. |
-| `internal/control` | Control server, JSON codec validation, TLS reload. |
+| `cmd/sipbridge-control` | Test program that runs control sessions only (mutual TLS WebSocket, no SIP). |
+| `cmd/sipbridge-fixture` | Test program for SIP-over-TLS wire tests, driven only by `test/run.py`. |
+| `internal/engine` | Public listeners, the SIP state engine and the socket writer. |
+| `internal/execution` | The read, compute, compare-and-swap loop that every operation goes through. |
+| `internal/state` | Memory and Redis state stores. |
+| `internal/control` | Control server, JSON validation, TLS reload. |
 | `internal/controlpb` | Go types generated from the control schema. |
 | `internal/capture` | Optional SIP capture exporter. |
-| `third_party/sipgo` | Immutable pinned SIP library snapshot. |
-| `dependencies` | Pin manifests, checksums and the read-only control schema snapshot. |
-| `docs` | Normative supplements and this documentation site. |
+| `third_party/sipgo` | The pinned copy of the SIP library. Never edited in place. |
+| `dependencies` | Version pins, checksums and the read-only copy of the control schema. |
+| `docs` | Specification documents and this documentation site. |
 
 ## Rules that protect correctness
 
-- SIP transaction, dialog and timer semantics stay in the pinned sipgo reducers.
+- SIP transaction, dialog and timer logic stays in the pinned sipgo library. Do
+  not reimplement it in sipbridge.
 - Never edit `third_party/sipgo`. It is verified against
-  `dependencies/sipgo.json` and its checksum manifest. Generate native test
-  fixtures only in the disposable copy made by `scripts/test-native.sh`.
-- Do not edit generated control code or the schema snapshot by hand. The
-  canonical schema lives in the original platform repository; regenerate there.
-- Redis-enabled execution must not keep a second resident authoritative state
-  machine.
+  `dependencies/sipgo.json` and its checksum manifest. Generate test fixtures
+  for the library only in the disposable copy made by `scripts/test-native.sh`.
+- Do not edit generated control code or the schema copy by hand. The schema's
+  home is the Talk platform repository; regenerate there.
+- The state store is the only place protocol state lives. Do not add a second
+  in-process copy that the service treats as the truth, with either backend.
 - Never add real credentials to tests or artifacts.
 
 ## Checks
 
-Use Go 1.24.2 and run the narrowest checks that cover the change. The full
-matrix and its evidence limits are in [Verification](../verification.md).
+Use Go 1.24.2 and run the narrowest checks that cover the change. The full list
+of checks, and what each one covers, is in [Verification](../verification.md).
 
 ```sh
 python3 scripts/verify_dependency.py            # pinned SIP library
@@ -57,15 +63,16 @@ go test -race ./internal/state -run 'TestMemory|TestBackend'
 go test -race ./...
 ```
 
-Without `SIPBRIDGE_STATE_TEST_REDIS`, Redis-dependent state, engine and startup
-tests skip, so an unconfigured run is not the qualification gate. Point it at a
-disposable Redis only; tests use separate namespaces and some inject failures:
+Without `SIPBRIDGE_STATE_TEST_REDIS`, the tests that need Redis are skipped, so
+a run without it has not exercised the Redis store. Point the variable at a
+throwaway Redis only; the tests use their own namespaces, but some deliberately
+inject failures:
 
 ```sh
 SIPBRIDGE_STATE_TEST_REDIS=127.0.0.1:6379 go test -race ./...
 ```
 
-Other gates:
+CI also runs these:
 
 ```sh
 sh scripts/test-native.sh                       # pinned native reducers, in a disposable copy
@@ -75,23 +82,24 @@ go test -race -tags=redis_restart ./internal/state \
   -count=1 -timeout=180s                        # needs a local redis-server
 ```
 
-A dependency change to `third_party/sipgo` requires native branch tests and the
-wire qualification again.
+If you update `third_party/sipgo`, rerun the library tests
+(`scripts/test-native.sh`) and the wire tests (`test/run.py`).
 
 ## Evidence boundaries
 
-Keep these categories distinct when describing results:
+When you describe a test result in a document or merge request, say what kind
+of test produced it. The repository has several kinds, and they show different
+things:
 
-| Category | Examples | What it can show |
+| Kind | Examples | What it shows |
 | --- | --- | --- |
-| Implemented service behavior | `cmd/sipbridge` with memory or Redis | What the service does |
-| Local service checks | Go race tests, Redis process tests, startup tests | That behavior holds under local synthetic peers |
-| Fixture-only utilities | `cmd/sipbridge-control`, `cmd/sipbridge-fixture`, historical 1/7 reducer fixtures | Isolated contracts. Not service mode, not production evidence |
-| Historical evidence | Dated entries in [Verification](../verification.md) | What a past build did. Not current readiness |
-| Proposed work | Drain protocol, context inventory, output queues in PROTOCOL.md | Requirements, not implementation |
+| Service tests | Go race tests, Redis process tests and startup tests against `cmd/sipbridge` | The service behaves as specified when talking to simulated controllers and SIP peers on one machine. |
+| Test programs | `cmd/sipbridge-control`, `cmd/sipbridge-fixture`, the older "1/7" reducer fixtures | One isolated piece works. These programs are not the service. |
+| Dated notes | Entries in [Verification](../verification.md) | What an earlier build did on that date. |
+| Proposals | Drain protocol, context inventory and output queues in PROTOCOL.md | A design that has not been implemented. |
 
-Fixture success, a negotiated capability or a passing local suite does not prove
-full platform conformance or production readiness.
+The automated tests use simulated peers rather than real phones, carriers or
+heavy load, so describe a result in terms of what was actually run.
 
 ## Documentation site
 
@@ -106,12 +114,15 @@ npm run docs:build
 npm run docs:preview
 ```
 
-The root `ARCHITECTURE.md` and `PROTOCOL.md` are rendered in place through
-wrapper pages in `docs/spec/`; edit the root files, not the wrappers. Relative
-links in all Markdown sources are written for repository browsing. At build
-time, links to site pages become site links and links to other repository files
-become source links. `SIPBRIDGE_DOCS_REPOSITORY_URL` and
-`SIPBRIDGE_DOCS_SOURCE_URL` override the source link targets.
+The guide, protocol and reference pages are written for readers learning
+sipbridge; keep them in plain language and put exhaustive rules in the
+specification documents. The root `ARCHITECTURE.md` and `PROTOCOL.md` appear on
+the site through wrapper pages in `docs/spec/`; edit the root files, not the
+wrappers. Write relative links as they should work when browsing the
+repository. At build time, links to site pages become site links and links to
+other repository files become links to the source.
+`SIPBRIDGE_DOCS_REPOSITORY_URL` and `SIPBRIDGE_DOCS_SOURCE_URL` override where
+source links point.
 
 `docs/upstream/` holds proposals for the upstream SIP library and is not
 published on the site. The build fails on dead internal links.

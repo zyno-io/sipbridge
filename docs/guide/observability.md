@@ -1,9 +1,13 @@
 # Observability
 
-sipbridge writes structured JSON lines to stdout, short operational messages to
-stderr, Prometheus-format counters on the admin listener, and optionally a
-plaintext SIP capture to an edge-local collector. Routine output never includes
-SIP payloads, credentials or per-message success records.
+sipbridge gives you four views of what it is doing: JSON event lines on stdout,
+short operational messages on stderr, Prometheus counters on the admin
+listener, and an optional capture of the SIP messages themselves.
+
+It is quiet by design. It logs problems and slow operations, not a line for
+every message handled, and its routine output never contains SIP message
+content or credentials. When you need to see the SIP traffic itself, turn on
+[SIP capture](#sip-capture).
 
 ## Metrics
 
@@ -18,8 +22,10 @@ SIP payloads, credentials or per-message success records.
 | `zt_sipbridge_capture_dropped_total` | Capture records dropped because the queue was full. Present only with capture enabled. |
 | `zt_sipbridge_capture_export_failures_total` | Capture batches the collector did not accept. Present only with capture enabled. |
 
-The `zt_` prefix is historical. The counters are cumulative for the process
-lifetime and reset on restart. They carry no labels.
+The `zt_` prefix is historical. The counters start at zero when the process
+starts and have no labels. A rising `ingress_rejected` count means the
+instance is at its connection limit; a rising `capture_dropped` count means the
+collector is not keeping up.
 
 ## Structured stdout events
 
@@ -79,10 +85,10 @@ Startup errors are also written to stderr; see [Troubleshooting](./troubleshooti
 
 ## SIP capture
 
-`--sip-capture-url=http://<collector>/loki/api/v1/push` enables capture to a
-Loki-compatible push endpoint. The collector should be local to the node or
-pod; sipbridge sends no credentials, and the collector and deployment establish
-provenance.
+`--sip-capture-url=http://<collector>/loki/api/v1/push` sends a copy of every
+SIP message to a Loki-compatible push endpoint, which is the practical way to
+debug a call. sipbridge sends the capture over plain HTTP without credentials,
+so run the collector on the same node or in the same pod.
 
 - Records cover complete inbound frames and actual outbound write attempts, as
   plaintext at the process boundary with real socket endpoints. Distinct
@@ -92,9 +98,9 @@ provenance.
   `wireBytes`. A non-UTF-8 body is replaced in `wire` with `[NNN bytes]`; the
   headers and `wireBytes` still describe the original message.
 - A partial or failed write record does not prove delivery.
-- Export is asynchronous through a bounded queue of 256 records sent in batches
-  of up to 32. Drops, collector failures and shutdown loss never block or alter
-  signaling.
+- Capture never slows down or changes signaling. Records wait in a queue of 256
+  and are sent in batches of up to 32; if the collector falls behind or is
+  down, records are dropped and counted rather than delaying SIP.
 
 Capture contains full SIP messages, including `Authorization` headers and SDP.
 Protect the collector and its storage accordingly. The exact capture format is

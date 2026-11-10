@@ -1,9 +1,10 @@
 # sipbridge architecture
 
-Status: experimental UDP/TCP/TLS service with a Nexus adapter. Local native,
-process/socket and backend E2E checks have different scopes; production selection,
-full platform conformance, load qualification and safe SIP-core replacement remain
-gated. The supported production Drachtio deployment is unchanged.
+Status: experimental UDP/TCP/TLS service with a Nexus adapter. This document
+describes its components, state and routing ownership and operating invariants.
+Local native, process/socket and backend E2E checks have different scopes, listed
+in [Verification](docs/verification.md); they do not cover full platform
+conformance, load qualification or safe SIP-core replacement.
 
 ## Reading map and contract ownership
 
@@ -227,8 +228,11 @@ unprovided.
 
 ## Qualification and release boundary
 
-GitLab `signal24/oss/sipbridge` is the canonical source and image publisher;
-GitHub mirroring is deferred. The consolidated `third_party/sipgo` snapshot is
+GitLab `signal24/oss/sipbridge` is the canonical runtime source and image
+publisher. The public GitHub `zyno-io/sipbridge` repository receives only the
+documentation export from `scripts/publish-docs.sh`, without runtime source or
+private runtime Git history, and builds the GitHub Pages site from it. The
+consolidated `third_party/sipgo` snapshot is
 immutable and verified against `dependencies/sipgo.json` and its checksum manifest.
 Native fixture generation runs in a disposable copy. A dependency change requires
 native branch tests and wire qualification.
@@ -242,4 +246,4 @@ and [Verification](docs/verification.md) for evidence limits.
 Local synthetic control/Redis/socket tests do not prove real account policy,
 media/CDR, carrier/handset interoperability, load, version-skew acceptance or safe
 production drain. The isolated staging experiment and Talk backend qualification
-own that evidence. No document grants deployment authorization.
+own that evidence.

@@ -1,10 +1,16 @@
 # Configuration
 
-`cmd/sipbridge` takes command-line flags for listeners, identities and SIP
-policy, and environment variables for state. There is no configuration file, and
-flags have no environment-variable equivalents. All settings are fixed for the
-life of the process. Only certificate and key files are reloaded while running
-(see [Identities and TLS](./security.md#credential-reload)).
+sipbridge is configured in two places. Command-line flags set the listeners,
+TLS identities and SIP policy. Environment variables choose where state is kept.
+There is no configuration file, and a flag cannot be set through the
+environment.
+
+Settings are read once at startup, so changing one means restarting the
+process. The exception is certificate and key files, which are re-read while
+running (see [Identities and TLS](./security.md#credential-reload)).
+
+A minimal invocation needs an instance name, an advertised address and the TLS
+files; [Getting Started](./getting-started.md#run) shows one.
 
 ## Command-line flags
 
@@ -26,7 +32,7 @@ sipbridge [flags]
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--instance` | none, **required** | Stable inventory ID of this process, for example a StatefulSet ordinal name. Must match `[A-Za-z0-9_.:@+-]{1,96}`. A random epoch is generated on every start. |
+| `--instance` | none, **required** | Stable name for this process, for example a StatefulSet pod name such as `sipbridge-0`. Must match `[A-Za-z0-9_.:@+-]{1,96}`. sipbridge adds a random per-start ID (the "epoch") so a restarted process is never mistaken for its predecessor. |
 | `--control-cert`, `--control-key` | none, **required** | PEM certificate and key for the control listener. |
 | `--client-ca` | none, **required** | PEM bundle trusted to issue controller client certificates. |
 | `--allowed-client-uri` | none, **required** | Comma-separated list of exact controller certificate URI SANs. No wildcards, empty entries or spaces. |
@@ -40,24 +46,26 @@ sipbridge [flags]
 | `--advertise-plain` | TLS advertised host plus the plain listener port | Public `host:port` for UDP/TCP advertisement, for example a NAT or VIP address. |
 | `--contact` | `sip:sipbridge@<advertise>;transport=tls` | Public Contact URI template. |
 
-Every worker that might take over another worker's contexts must use the same
-public advertisement. Advertisement never changes an existing context's transport
-or flow.
+These addresses are what sipbridge writes into the Via and Contact headers it
+generates, so they must be reachable by your SIP clients. Instances that share
+Redis state must all advertise the same addresses, because one of them may
+continue a dialog that another started. Changing the advertisement never moves
+an existing dialog to a different transport or connection.
 
 ### Routing and SIP policy
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--initial-nexus` | empty | Instance ID of a preferred first-hop controller for new requests. It is used only while that controller is ready; controller redirects still apply. Without it, new requests rotate across ready controllers. Existing contexts prefer their original controller. |
-| `--allow-register` | `true` | `false` rejects every inbound REGISTER locally with `405`, before state or controller access. |
-| `--allow-subscribe` | `true` | `false` rejects every inbound SUBSCRIBE locally with `405`, before state or controller access. |
+| `--initial-nexus` | empty | Instance ID of the controller that should be asked first about new requests. It is used only while that controller is ready, and the controller can still redirect. Without it, new requests rotate across ready controllers. Requests for an existing call prefer the controller that owns it. |
+| `--allow-register` | `true` | `false` rejects every inbound REGISTER with `405` without consulting the state store or a controller. Useful on an instance that only faces carriers. |
+| `--allow-subscribe` | `true` | `false` rejects every inbound SUBSCRIBE with `405` in the same way. |
 | `--require-auth-methods` | empty | Comma-separated subset of `REGISTER`, `INVITE`, `SUBSCRIBE` (uppercase) that receive a local initial digest challenge when they carry no parseable credentials. Requires controller support; see [Local challenges](./application.md#local-initial-digest-challenges). |
 | `--sip-capture-url` | empty | Optional edge-local SIP capture collector. See [Observability](./observability.md#sip-capture). |
 | `--version` | | Print `sipbridge <version>` and exit. |
 
-Method policy is fixed for the process lifetime. A required-auth method that is
-also disabled, an unknown method or a duplicate fails startup. The `405`
-response's `Allow` header lists the methods this process still accepts.
+Startup fails if `--require-auth-methods` names a method you also disabled, an
+unknown method or the same method twice. The `405` response's `Allow` header
+lists the methods this process still accepts.
 
 ### Validation rules
 
@@ -74,19 +82,20 @@ response's `Allow` header lists the methods this process still accepts.
 
 ## Environment variables
 
-Environment variables select and configure the SIP state store. Details and
-trade-offs are on [State Backends](./state-backends.md).
+Environment variables choose and configure the state store. With none of them
+set, sipbridge keeps state in memory, which is all a single instance needs.
+[State Backends](./state-backends.md) explains the trade-offs.
 
 ### Common
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `SIPBRIDGE_STATE_BACKEND` | `memory` | `memory` or `redis`. Any other value fails startup. |
-| `SIPBRIDGE_STATE_IDENTITY_KEY` | random per process (memory only) | Standard base64 of 32 to 256 bytes. Required for Redis and shared by every worker in a namespace. |
-| `SIPBRIDGE_STATE_NAMESPACE` | `sipbridge` | State namespace and authority service name. Pattern `[A-Za-z0-9_.:@+-]{1,96}`. |
-| `SIPBRIDGE_STATE_GENERATION` | `default` | Compatibility identity of the configuration. Not a recovery step. Same pattern as the namespace. |
+| `SIPBRIDGE_STATE_IDENTITY_KEY` | random per process (memory only) | Standard base64 of 32 to 256 bytes. Required for Redis, where every instance sharing a namespace must use the same key. |
+| `SIPBRIDGE_STATE_NAMESPACE` | `sipbridge` | Name of the state namespace; Redis-backed instances with matching settings and the same namespace share state. It is also reported to controllers as `stateAuthority.service`. Pattern `[A-Za-z0-9_.:@+-]{1,96}`. |
+| `SIPBRIDGE_STATE_GENERATION` | `default` | A label reported to controllers as `stateAuthority.generation`. Changing it does not reset or recover state. Same pattern as the namespace. |
 | `SIPBRIDGE_STATE_PREFIX` | `sipstate:v2` | Redis key prefix. Pattern `[A-Za-z0-9_.:-]{1,96}`. |
-| `SIPBRIDGE_STATE_PARTITIONS` | `64` | Call-ID partition count, 1 to 4096. Must match across workers in a namespace. |
+| `SIPBRIDGE_STATE_PARTITIONS` | `64` | Number of partitions Call-IDs are spread over, 1 to 4096. Must be the same on every instance in a namespace. |
 
 ### Memory only
 
@@ -94,13 +103,14 @@ Setting either variable with `SIPBRIDGE_STATE_BACKEND=redis` fails startup.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SIPBRIDGE_MEMORY_MAX_GROUPS` | `128` | Maximum retained Call-ID groups, 1 to 1,048,576. |
-| `SIPBRIDGE_MEMORY_MAX_BYTES` | `1073741824` (1 GiB) | Total reserved group capacity in bytes. Each group reserves 64 MiB, so values below `67108864` fail startup. |
+| `SIPBRIDGE_MEMORY_MAX_GROUPS` | `128` | Maximum number of Call-IDs with state held at once, 1 to 1,048,576. |
+| `SIPBRIDGE_MEMORY_MAX_BYTES` | `1073741824` (1 GiB) | Total state capacity in bytes. Each Call-ID reserves 64 MiB, so the default allows 16 at once and values below `67108864` fail startup. See [Capacity](./state-backends.md#capacity). |
 
 ### Redis only
 
-Any of these set without `SIPBRIDGE_STATE_BACKEND=redis` fails startup, which
-catches a deployment that forgot to select Redis.
+Setting any of these without `SIPBRIDGE_STATE_BACKEND=redis` fails startup.
+That is deliberate: a deployment that supplies Redis settings but forgets to
+select Redis stops immediately instead of quietly running on memory.
 
 | Variable | Description |
 | --- | --- |
@@ -115,7 +125,8 @@ catches a deployment that forgot to select Redis.
 
 ## Fixed values
 
-The following are not configurable in the service binary: control session and
-claim limits, heartbeat timing, control write and hello timeouts, the 4,096
-public stream and flow limit, the 128-slot UDP routing queue, native state
-bounds and certificate reload intervals. See [Limits and Timers](../reference/limits.md).
+Some limits are compiled in and cannot be changed: the number of control
+sessions, heartbeat timing, control timeouts, the 4,096 limit on public TCP/TLS
+connections, the 128-slot UDP routing queue, per-call state limits and the
+certificate reload interval. [Limits and Timers](../reference/limits.md) lists
+them all.

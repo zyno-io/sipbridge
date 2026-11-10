@@ -1,7 +1,9 @@
 # Admin Endpoints
 
-The admin listener (`--admin-listen`, default `127.0.0.1:8800`) serves plain HTTP
-with no authentication. Any method is accepted. Unknown paths return `404`.
+The admin listener is where probes and Prometheus reach sipbridge. It serves
+plain HTTP with no authentication on `--admin-listen` (default
+`127.0.0.1:8800`), so keep it on loopback or a restricted network. Any HTTP
+method is accepted, and unknown paths return `404`.
 
 | Path | Success | Failure | Notes |
 | --- | --- | --- | --- |
@@ -19,6 +21,7 @@ zt_sipbridge_invalid_messages_total 0
 zt_sipbridge_method_rejected_total 0
 ```
 
-The private control listener is a different server. Apart from
-`GET /v1/control`, it answers only `/sip-readyz` (always `503`) to authenticated
-controllers and returns `404` otherwise.
+Do not confuse this with the control listener, which is a separate server for
+controllers. Apart from `GET /v1/control`, the control listener answers only
+`/sip-readyz`, always with `503` and only to authenticated controllers, and
+returns `404` for everything else.

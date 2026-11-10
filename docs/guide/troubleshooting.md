@@ -1,7 +1,8 @@
 # Troubleshooting
 
-Messages below are quoted from the current source. Startup errors are printed to
-stderr and the process exits with status 1.
+Find the message or symptom you are seeing in the tables below. The messages
+are quoted exactly as sipbridge prints them, so you can search this page for the
+text. Startup errors go to stderr and the process exits with status 1.
 
 ## Startup failures
 
@@ -55,7 +56,8 @@ stderr and the process exits with status 1.
 
 ## Controller cannot connect
 
-HTTP responses before the WebSocket upgrade:
+A controller connection can fail at two stages. Before the WebSocket is
+established, sipbridge answers with an HTTP error:
 
 | Response | Cause |
 | --- | --- |
@@ -66,8 +68,8 @@ HTTP responses before the WebSocket upgrade:
 | `400 unsupported control upgrade` | An `Origin` header was sent, or the `sipbridge.control.json.v1` subprotocol was not offered. |
 | `503 control session capacity` | 64 sessions are already active. |
 
-After the upgrade, a failed handshake closes the WebSocket with status `1008`
-(policy violation) and a reason:
+Once the WebSocket is open, a problem with `hello` or a later message closes it
+with status `1008` (policy violation) and one of these reasons:
 
 | Close reason | Cause |
 | --- | --- |
@@ -75,12 +77,12 @@ After the upgrade, a failed handshake closes the WebSocket with status `1008`
 | `unsupported hello` | `sessionId` or `remainingBudgetMs` set; missing or invalid `nexus`; `connectionAttempt` is `0`; `major` is not `1`; `minMinor` is not `0` or exceeds `maxMinor`; `maxEnvelopeBytes` outside 512 to 1,048,576; more than 32 capabilities. |
 | `invalid capabilities` | A duplicate or malformed capability string. |
 | `state runtime requires sip.v1 and a compatible state capability` | `sip.v1` or `sip.state.v1` not offered. |
-| `state runtime requires sip.directory-reconcile.v1` / `...sip.completion-relay.v1` / `...sip.native-completion.v1` | A required compatibility capability is missing. |
+| `state runtime requires sip.directory-reconcile.v1` / `...sip.completion-relay.v1` / `...sip.native-completion.v1` | A required capability is missing from `hello`. See [Capabilities](../protocol/capabilities.md). |
 | `configured initial authentication requires sip.local-challenge.v1` | `--require-auth-methods` is set and the controller did not offer the capability. |
 | `stale connection attempt` | Same instance and epoch reconnected with a `connectionAttempt` that is not higher than the last accepted one. |
 | `active epoch collision` | Another epoch of the same instance ID still has an active session. |
 | `claim capacity` | Too many distinct controller instance claims (256). |
-| `native application lease acquisition failed` | The state store could not issue an owner lease, for example Redis is unavailable. |
+| `native application lease acquisition failed` | The state store could not issue the controller's [lease](./lifecycle.md#owner-lease), for example because Redis is unavailable. |
 | `invalid control message` | A later message was malformed, used the wrong `sessionId`, wrong direction or an unnegotiated family. |
 
 ### Session closes every few seconds
@@ -112,5 +114,6 @@ or the public certificate is outside its validity period.
 | TLS connections refused | Stream capacity (4,096) reached, or public certificate problem. Check `zt_sipbridge_ingress_rejected_total` and `zt_sipbridge_tls_handshake_failures_total`. |
 | Wrong address in Via/Contact | Check `--advertise`, `--advertise-plain` and `--contact`. |
 
-Do not restart sipbridge to fix controller or datastore outages. The process
-recovers when they return, and a restart closes every client connection.
+If the cause is a controller or Redis outage, fix that and leave sipbridge
+running. It recovers by itself when they return, whereas a restart would
+disconnect every client.

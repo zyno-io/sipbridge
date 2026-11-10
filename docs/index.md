@@ -2,8 +2,8 @@
 layout: home
 hero:
   name: sipbridge
-  text: SIP data plane with external application control
-  tagline: Experimental Go service that terminates SIP over UDP, TCP and TLS, executes native SIP transactions and dialogs, and leaves policy and call decisions to an application controller connected over mutual TLS.
+  text: SIP signaling that your application controls
+  tagline: sipbridge holds the SIP connections to phones and trunks and runs the protocol machinery. Your application connects over a WebSocket and decides how each request is answered.
   actions:
     - theme: brand
       text: Overview
@@ -14,18 +14,21 @@ hero:
     - theme: alt
       text: Control Protocol
       link: /protocol/overview
+    - theme: alt
+      text: Project Status
+      link: /reference/status
 
 features:
-  - title: Native SIP execution
-    details: Transactions, dialogs and timers run in a pinned sipgo snapshot as pure reducers. Every output, including retransmissions, ACK, CANCEL and cached finals, is a committed effect.
-  - title: External application control
-    details: A controller connects to a private JSON WebSocket with mutual TLS and an exact URI SAN allowlist. It routes, authorizes and answers; sipbridge holds no business database or account credentials.
-  - title: Memory or Redis state
-    details: Process-local memory state is the default for one standalone instance. Redis is an explicit choice for workers that share retained state. There is no automatic fallback or migration.
-  - title: Explicit delivery outcomes
-    details: Socket writes are recorded as WRITTEN, NOT_WRITTEN or UNKNOWN. Uncertain writes are never retried automatically or sent over an older flow.
-  - title: Separate health signals
-    details: Liveness, listener serving and signaling readiness are distinct endpoints. Losing Redis or the controller fences new work without forcing a SIP-process restart.
-  - title: Stated evidence boundaries
-    details: The service is experimental. Fixture and local test results are kept separate from production qualification, which remains gated.
+  - title: SIP handled for you
+    details: sipbridge listens on UDP, TCP and TLS and takes care of transactions, dialogs, retransmissions and timers, using a pinned build of the sipgo library. Your code never implements a SIP state machine.
+  - title: Your application decides
+    details: A controller you write connects over a mutually authenticated WebSocket and exchanges JSON messages. It authenticates accounts, routes requests and chooses responses. sipbridge stores no accounts or passwords.
+  - title: Connections outlive your deploys
+    details: Phones and trunks connect to sipbridge, not to your application. Restarting or redeploying the controller leaves those connections open, although a call in progress ends if the controller process that owns it goes away.
+  - title: Start in memory, share with Redis
+    details: A single instance keeps its state in memory and needs no external datastore; that state is lost when it restarts. Select Redis when several instances need to share state.
+  - title: Clear delivery results
+    details: Every send is reported as WRITTEN, NOT_WRITTEN or UNKNOWN. An uncertain send is never retried behind your back, so your application knows what it can assume.
+  - title: Made to be operated
+    details: Separate liveness, serving and readiness endpoints, certificate reload without a restart, Prometheus counters and optional SIP capture.
 ---

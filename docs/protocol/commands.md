@@ -1,12 +1,19 @@
 # Commands and Outcomes
 
-A `command` asks the native owner of one context to perform one action. Each
-command is sequenced, bounded by a deadline, and answered by a `result` whose
-certainty must be honored exactly. The normative rules are in
+A `command` is how the controller makes sipbridge do something: answer a
+request, place a call, send a request inside a dialog, or cancel. Every command
+gets a `result`, and the most important part of a result is how *certain*
+sipbridge is about what happened. This page explains how to send commands and,
+above all, how to react to each kind of result.
+
+The complete rules are in
 [PROTOCOL.md sections 8–9](../spec/protocol.md#_9-commands-replay-and-failure)
 and [Runtime: business selection](../runtime.md#business-selection-and-subscriptions).
 
 ## Shape
+
+A command names the context it applies to, a sequence number, and one action.
+This one answers a presented INVITE with `180 Ringing`:
 
 ```json
 {
@@ -38,88 +45,139 @@ and [Runtime: business selection](../runtime.md#business-selection-and-subscript
 }
 ```
 
+In this example, the `context` block is the `ContextRef` sipbridge gave you
+in the `request`, copied back unchanged.
+
 Exactly one action is present:
 
 | Action | Fields | Use |
 | --- | --- | --- |
-| `respond` | `requestId`, `status`, `headers`, `body`, `principalId`, `bindingId`, `authority` | Answer a presented request. `authority` carries the directory epoch, and for an initial INVITE 2xx, the original admitted scope. |
-| `openUac` | `uri`, `method`, `body`, `headers`, `bindingId`, `principalId`, `network`, `transport` | Originate. Empty `method` or `INVITE` creates a call; `OPTIONS`, `MESSAGE` and `NOTIFY` run a standalone transaction and retire. `network` names an explicit target with optional `proxy`, `transport` and an opaque `credential` reference. |
-| `dialogRequest` | `method`, `body`, `headers` | Send an in-dialog request, such as BYE, re-INVITE, INFO, REFER or NOTIFY. |
-| `cancel` | none | Cancel pending setup. Allowed for the exact owner with a live term, without refreshing earlier setup admission. |
+| `respond` | `requestId`, `status`, `headers`, `body`, `principalId`, `bindingId`, `authority` | Answer a request sipbridge presented. `authority` carries the directory epoch and, for a 2xx to an initial INVITE, the scope under which the call was originally admitted. |
+| `openUac` | `uri`, `method`, `body`, `headers`, `bindingId`, `principalId`, `network`, `transport` | Send a new request. An empty `method` or `INVITE` starts a call. `OPTIONS`, `MESSAGE` and `NOTIFY` send a single standalone request, after which the context is finished. `network` names an explicit target, with an optional `proxy`, `transport` and `credential` reference. |
+| `dialogRequest` | `method`, `body`, `headers` | Send a request inside an existing dialog, such as BYE, re-INVITE, INFO, REFER or NOTIFY. |
+| `cancel` | none | Cancel a call that is still being set up. |
 
-The controller supplies SDP bodies and permitted application headers.
-sipbridge builds protocol identity: Via, Contact, Route, CSeq, tags and branch.
-Headers may not override those fields, internal credentials or source evidence.
-`network.username` and `network.password` are decodable compatibility fields;
-the service refuses them. Supply a `credential` reference and answer
-`credentialLookup` instead.
+You supply the content: the SDP body and any application headers. sipbridge
+supplies the SIP plumbing: Via, Contact, Route, CSeq, tags and branch. Headers
+you pass cannot override those.
+
+To authenticate an outgoing request, put a `credential` reference in `network`
+and answer the `credentialLookup` that follows. The schema still has
+`network.username` and `network.password` fields for older software, but
+sipbridge refuses commands that use them.
 
 ## Admission
 
-With `sip.command-admission.v1`, `respond`, `openUac` and `dialogRequest` carry
-`admission`: the directory epoch, an absolute semantic expiry, and optionally the
-selected exact flow and expected delivery receipt. Admission is bound to the
-session, owner term, context, sequence and action. A stale epoch, delivery or
-expiry is refused before a new sequence is consumed; an exact replay keeps its
-original result. The encoded admission is limited to 4 KiB. Later commands cannot
-refresh earlier setup.
+With `sip.command-admission.v1`, the `respond`, `openUac` and `dialogRequest`
+commands carry an `admission` block. It is the controller's statement that, as
+of now, this action is still allowed under its current data:
+
+- `directoryEpoch` is the version of the controller's routing and registration
+  data the decision was based on.
+- `expiresAtMs` is an absolute time after which the command must not run.
+- Optionally, the exact connection to deliver on and the delivery receipt the
+  controller expects.
+
+sipbridge checks the block at the moment it runs the command. If the epoch is
+out of date, the connection has changed or the time has passed, the command is
+refused and its sequence number is not used up, so you can decide again with
+fresh data. The block applies to this one command only; it cannot extend or
+renew permission given to an earlier one. Its encoded size is limited to 4 KiB.
+
+`cancel` needs no admission block. The controller that owns a call can cancel
+it while its lease is live.
 
 ## Sequencing and replay
 
-- Each context retains the highest accepted command sequence, its operation and
-  latest outcome.
-- Repeating the latest sequence returns its known or in-progress outcome. An
-  older sequence is stale.
-- A new command rejected during native execution consumes its sequence.
-  Admission refusals (stale epoch, delivery or expiry) do not.
-- Terminal cleanup and SIP cancellation have reserved capacity, so they are not
-  blocked behind other work.
+Each context has its own command sequence, and `sequence` must increase with
+each new command. sipbridge remembers the highest sequence it accepted for a
+context, what the command was, and its latest outcome. This is what stops a
+duplicate from doing damage:
+
+- **Repeating the latest sequence does not run the command twice.** If the
+  identical command arrives again with the same sequence, sipbridge answers
+  with what it knows about the original (finished, in progress or unknown).
+  When you are missing a result, `inspect` is still the way to find out what
+  happened.
+- **An older sequence is rejected as stale.**
+- **A command that sipbridge's SIP layer rejects uses up its sequence.** Send
+  the corrected command with the next number. A refusal at the admission check
+  (stale epoch, connection or expiry) does not use up the sequence.
+
+Cleanup and cancellation have capacity set aside for them, so a busy context
+cannot block you from ending a call.
 
 ## Budgets
 
+`remainingBudgetMs` tells sipbridge how long you are prepared to wait:
+
 | Message | Maximum `remainingBudgetMs` |
 | --- | --- |
-| Any RPC envelope | 2,000 |
+| Any request envelope | 2,000 |
 | `command` with `sip.command-budget.v1` | 40,000 |
 
-The initiator owns the end-to-end deadline. Relays deduct elapsed time and never
-reset it on redirect or reconnect. Native SIP timers are independent of these
-budgets.
+The budget is a deadline for the whole operation, set by whoever started it.
+Time already spent is deducted as the operation is passed along, and a redirect
+or reconnect does not reset it. SIP's own timers run separately and are not
+affected by budgets.
 
 ## Result certainty
 
-`result.certainty`:
+Every `result` has a `certainty`. Base your control flow on it:
 
 | Value | Meaning | What the controller should do |
 | --- | --- | --- |
-| `NOT_ACCEPTED` | Refused before execution. `error` explains. | Fix the cause; a new command needs a new sequence. |
-| `ACCEPTED` | Execution started; the SIP outcome arrives later through events or snapshots. Used for initial INVITE setup, and for a BYE once its exact first write is proven `WRITTEN`. | Wait for `dialogEvent` or later results. A terminal result may replace the acceptance. |
-| `COMPLETED` | Final result known. `sipStatus`, `request`, `response` and `snapshot` may be present. | Proceed. |
-| `UNKNOWN` | Evidence was lost after possible acceptance. Dependent work on the context is fenced. | Do not resend. Use `inspect` on the same context to reconcile. |
+| `NOT_ACCEPTED` | Refused before anything was done. `error` says why. | Fix the cause, then follow the sequence rules above for the kind of refusal. |
+| `ACCEPTED` | Under way, with the SIP outcome still to come. You get this for an initial INVITE, and for a BYE once its first send is known to be `WRITTEN`. | Wait for a `dialogEvent` or a later result. A final result may follow. |
+| `COMPLETED` | Finished. `sipStatus`, `request`, `response` and `snapshot` may be included. | Carry on. |
+| `UNKNOWN` | sipbridge cannot tell whether the command took effect. | Do not send it again as a new command. Use `inspect` on the context to find out where things stand. |
 
-Other in-dialog and standalone commands wait for their final result within the
-budget. A timeout after admission stays `UNKNOWN`; a late result cannot clear the
-fence or trigger a replay.
+Commands other than an initial INVITE and BYE wait for their final result
+within the budget.
 
-PROTOCOL.md defines the error categories (`invalid`, `unauthorized`,
-`unsupported`, `staleGeneration`, `staleRevision`, `notFound`,
-`ownerUnavailable`, `overloaded`, `deadlineExceeded`, `outcomeUnknown`), each
-with execution certainty. Treat the `error` string as diagnostic and rely on
-`certainty` for control flow. A transport error is never turned into a
-fabricated SIP final response.
+### Handling UNKNOWN
+
+`UNKNOWN` is the case that needs care. It arises when something failed after
+the point where the command might already have taken effect: the budget ran
+out while a send was in progress, a connection broke mid-write, or the record
+of the outcome was lost. The SIP message may be on its way to the peer or may
+never have left.
+
+The safe reaction is always the same. Do not issue a new command that repeats
+the action, because if the first one did go out, the peer sees it twice.
+Instead `inspect` the context, see what state it is actually in, and decide
+from there. Until then, sipbridge blocks further work on that context that
+depends on the uncertain command. A result that turns up late does not lift
+that block or cause a replay.
+
+A dropped session is the same situation in disguise: any command without a
+result is unknown from your side, even if sipbridge completed it. After
+reconnecting, inspect before you act.
+
+### Errors
+
+A result that reports a problem carries an `error` in one of these categories:
+`invalid`, `unauthorized`, `unsupported`, `staleGeneration`, `staleRevision`,
+`notFound`, `ownerUnavailable`, `overloaded`, `deadlineExceeded`,
+`outcomeUnknown`. Use the error text for logs and diagnosis, and `certainty`
+for decisions. sipbridge never makes up a SIP response to stand in for a
+transport error; if a send failed, you are told it failed.
 
 ## Delivery outcomes
 
-Every SIP message sent, whether a command result, a cached response, CANCEL
-200, INVITE 487, ACK, retransmission or timer output, passes through the same
-physical boundary:
+Underneath command results, every individual SIP message sipbridge sends has a
+delivery outcome. This covers messages you asked for and those sipbridge sends
+by itself, such as retransmissions, ACKs, the `200` to a CANCEL and the `487`
+that follows it:
 
 | Outcome | Meaning |
 | --- | --- |
-| `WRITTEN` | The socket write call accepted the complete message. Not proof of receipt. |
-| `NOT_WRITTEN` | Proven that no write started: stale flow, no capacity or expired budget. |
-| `UNKNOWN` | A write began and failed or was partial, or evidence was lost. Delivery may have happened. |
+| `WRITTEN` | The operating system accepted the complete message. This is not proof the peer received it. |
+| `NOT_WRITTEN` | Nothing was sent, with certainty: the connection was gone, there was no capacity or the budget had expired. |
+| `UNKNOWN` | A send started and then failed or was cut short, or the record of it was lost. The peer may have received it. |
 
-There is no transparent retry, no fallback to an older flow and no exactly-once
-claim. A TCP/TLS write that fails mid-message closes that exact stream before
-another message can start on it.
+sipbridge does not paper over these. It does not retry an uncertain send, it
+does not switch to an older connection when the current one fails, and it does
+not claim exactly-once delivery. If a TCP or TLS write fails partway through a
+message, that connection is closed so that the next message cannot be corrupted
+by the fragment.

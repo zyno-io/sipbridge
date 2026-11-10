@@ -1,10 +1,14 @@
 # Limits and Timers
 
-Implemented bounds of the current service. Values are compiled in unless a
-configuration variable is named. Authoritative tables are in
+Every queue, table and timer in sipbridge has a fixed upper bound, so that
+overload leads to refused work instead of unbounded memory growth. This page
+collects those numbers for capacity planning and for controller authors who
+need the timeouts. The values are compiled in unless a configuration variable
+is named. They are maximums; nothing is allocated up front.
+
+The tables these are drawn from are in
 [PROTOCOL.md section 10](../spec/protocol.md#_10-bounds-scheduling-and-deadlines)
 and [Runtime: service bounds](../runtime.md#service-bounds-and-encoding).
-Ceilings are limits, not eager allocations.
 
 ## Control
 
@@ -39,6 +43,10 @@ Ceilings are limits, not eager allocations.
 
 ## Native state
 
+These limits apply to the SIP state sipbridge keeps. A *group* is all the state
+for one Call-ID; a *context* is one call leg, subscription or standalone
+transaction within it.
+
 | Resource | Bound |
 | --- | --- |
 | Encoded Call-ID group | 64 MiB |
@@ -58,13 +66,16 @@ Ceilings are limits, not eager allocations.
 
 ## Leases and recovery
 
+These timers govern how sipbridge detects a lost controller; see
+[Owner lease](../guide/lifecycle.md#owner-lease).
+
 | Timer | Value |
 | --- | --- |
-| SIP-owner term | 30 seconds |
-| Term renewal | At most every 2 seconds per session |
-| Recovery window after first observed expiry | 5 seconds |
-| Typical owner-loss detection | About 40 seconds after last renewal |
-| Protocol cleanup after owner-loss fence | 64 seconds |
+| Controller lease lifetime | 30 seconds |
+| Lease renewal | At most every 2 seconds per session |
+| Grace period after a lease is first seen expired | 5 seconds |
+| Typical time to detect a lost controller | About 40 seconds after last renewal |
+| SIP cleanup after a controller is declared lost | 64 seconds |
 | Existing-context registration transport lease | 4 hours |
 | External receipt reconciliation | 120 seconds |
 | Idle term TTL after last reference | 120 seconds |
@@ -81,7 +92,7 @@ Ceilings are limits, not eager allocations.
 
 ## Proposed, not implemented
 
-PROTOCOL.md also names inventory pages (128), output queues (256 messages and
-8 MiB with 16 slots / 1 MiB reserved) and additional operation markers
-(4,096 for five minutes). These are proposed requirements, not implemented
-queues or negotiated limits.
+PROTOCOL.md also gives numbers for features that are designed but not built:
+inventory pages (128), output queues (256 messages and 8 MiB, with 16 slots and
+1 MiB reserved) and additional operation markers (4,096 for five minutes). They
+do not apply to the current service.

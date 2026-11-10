@@ -1,10 +1,17 @@
 # Protocol Overview
 
-A controller drives sipbridge through JSON messages on a mutually authenticated
-WebSocket. This section explains the wire format and message flow. Normative
-field behavior is in [PROTOCOL.md](../spec/protocol.md); field names and types
-come from the [control schema](../../dependencies/sipbridge-control.proto)
-(protobuf package `zyno.sipbridge.v1`).
+The control protocol is how your controller and sipbridge talk. The controller
+opens a WebSocket to sipbridge, and from then on the two exchange JSON
+messages: sipbridge reports SIP requests and events, and the controller sends
+back routing decisions and commands.
+
+This section explains the protocol for someone writing a controller. It starts
+here with the connection, the message format and a typical exchange; the
+following pages cover the session handshake, capabilities, each message type
+and command outcomes. The complete rules for every field are in
+[PROTOCOL.md](../spec/protocol.md), and the field names and types come from the
+[control schema](../../dependencies/sipbridge-control.proto) (protobuf package
+`zyno.sipbridge.v1`).
 
 ## Connection
 
@@ -12,38 +19,43 @@ come from the [control schema](../../dependencies/sipbridge-control.proto)
 | --- | --- |
 | URL | `wss://<sipbridge control endpoint>/v1/control` |
 | Subprotocol | `sipbridge.control.json.v1` |
-| Authentication | Mutual TLS; client leaf URI SAN must be on the allowlist |
+| Authentication | Mutual TLS; the client certificate's URI SAN must be on sipbridge's allowlist |
 | `Origin` header | Must be absent |
 | Compression | Disabled |
-| Frames | Text only; binary frames close the session |
-| Initiator | Always the controller |
+| Frames | Text only; a binary frame closes the session |
+| Who connects | Always the controller |
 
-See [Identities and TLS](../guide/security.md#control-connection) for the
-acceptance checks.
+[Identities and TLS](../guide/security.md#control-connection) explains the
+certificate checks, and [Getting Started](../guide/getting-started.md) has a
+small Go program that connects.
 
 ## Envelope
 
-Every WebSocket message is one JSON `Envelope`:
+Every WebSocket message is one JSON object, called an envelope. It has a few
+common fields and exactly one payload field, whose name says what kind of
+message it is:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `correlationId` | string | Request ID, echoed by the reply. Pattern `[A-Za-z0-9_.:@+-]{1,96}`. Opaque; unique within the issuing process epoch; not authority. |
-| `sessionId` | string | Issued in `helloAck`. Absent on `hello`; required and exact on every later message in both directions. |
-| `remainingBudgetMs` | uint32 | Remaining deadline budget for RPC-style messages. Must be absent (`0`) on `hello`, `status`, `ping` and `pong`. At most 2,000, or 40,000 for `command` with `sip.command-budget.v1`. |
+| `correlationId` | string | An ID chosen by the sender of a request and repeated in the reply, so the two can be matched. Pattern `[A-Za-z0-9_.:@+-]{1,96}`. Make it unique within one run of your process. It is only a label and grants nothing. |
+| `sessionId` | string | Issued by sipbridge in `helloAck`. Leave it out of `hello`; include it, exactly, in every later message. |
+| `remainingBudgetMs` | uint32 | How many milliseconds the sender is still willing to wait for this operation. Leave it out of `hello`, `status`, `ping` and `pong`. At most 2,000, or 40,000 for a `command` when `sip.command-budget.v1` was negotiated. |
 | one payload field | object | Exactly one of `hello`, `helloAck`, `status`, `ping`, `pong`, `ingress`, `routeResult`, `ingest`, `request`, `command`, `result`, … |
 
 ```json
 {"correlationId":"op-17","sessionId":"6f0d6a4e-1c1b-4f4e-9b52-3f8f2f6c2a10","remainingBudgetMs":1800,"inspect":{"context":{"id":"ctx-1"}}}
 ```
 
-That example shows envelope shape only; real `inspect` requests carry the full
-`ContextRef` received earlier.
+This example shows the shape of an envelope. A real `inspect` carries the whole
+`ContextRef` you received earlier, not just an ID.
 
 ## JSON encoding
 
-The encoding is a strict profile of the protobuf
-[ProtoJSON mapping](https://protobuf.dev/programming-guides/json/). It is not
-binary protobuf and not a separate JSON contract.
+The JSON follows protobuf's standard
+[ProtoJSON mapping](https://protobuf.dev/programming-guides/json/), applied
+strictly. If you generate code from the schema with a protobuf JSON codec you
+get most of this for free; if you write JSON by hand, these are the forms to
+use:
 
 | Schema type | JSON form | Example |
 | --- | --- | --- |
@@ -55,27 +67,32 @@ binary protobuf and not a separate JSON contract.
 | enum | Symbolic name | `"ACCEPTED"` |
 | oneof | The selected variant as a named field; exactly one present | `"cancel":{}` |
 
-Receivers reject: invalid UTF-8; duplicate object keys, including escaped
-equivalents; nesting deeper than 32 containers; `null` or wrong-typed known
-fields; multiple or missing oneof variants; unknown enum names; trailing content.
-Unknown optional fields are ignored for additive compatibility, but an unknown
-payload cannot stand in for a recognized one. Fields at their default value may
-be omitted, and sipbridge omits them in output. Whitespace in sipbridge output is
-not significant.
+sipbridge is deliberately strict about what it accepts, and a malformed message
+closes the session. It rejects invalid UTF-8, duplicate object keys, nesting
+deeper than 32 levels, `null` or a value of the wrong type in a known field,
+more or fewer than one payload, unknown enum names, and anything after the
+closing brace. Unknown *fields* are ignored, so that fields can be added later
+without breaking older software. A field holding its default value (`0`, `""`,
+`false`) may be left out, and sipbridge leaves such fields out of what it sends.
 
-Keep `uint64` values lossless. In JavaScript, use `BigInt` or a generated
-codec, never `Number`.
+Take care with `uint64` in JavaScript. These values are sent as strings because
+a JavaScript `Number` cannot hold them exactly; parse them with `BigInt` or a
+generated codec.
 
 The repository's [shared JSON cases](../../internal/control/testdata/json-cases.json)
-list accepted and rejected examples used by the Go and TypeScript codecs.
+list accepted and rejected examples. They are handy as test input for your own
+codec.
 
 ## Size limits
 
-The complete UTF-8 message, including base64 and JSON overhead, must fit the
-negotiated envelope bound, which is at most 1 MiB and at least 512 bytes. SIP
-messages inside envelopes are limited to 64 KiB.
+A whole message, as UTF-8 text, must fit the envelope limit agreed in the
+handshake: at most 1 MiB and at least 512 bytes. A SIP message carried inside
+an envelope can be up to 64 KiB.
 
 ## Message flow
+
+A session begins with a handshake and then carries SIP work. This is an
+incoming request being routed, accepted and answered:
 
 ```text
 Controller                                   sipbridge
@@ -86,7 +103,7 @@ Controller                                   sipbridge
     | <--> ping / pong (both directions) <-----> |
     |                                            |  SIP request arrives
     | <--- ingress ----------------------------- |
-    | ---- ingest -----------------------------> |  controller admits it natively
+    | ---- ingest -----------------------------> |  controller admits the request
     | <--- result ------------------------------ |
     | ---- routeResult (ACCEPTED) -------------> |
     | <--- request ----------------------------- |  presented to the owning controller
@@ -95,14 +112,23 @@ Controller                                   sipbridge
     | <--- dialogEvent ------------------------- |
 ```
 
-The flow is illustrative. An accepted `routeResult` follows the native ingest
-commit, and presentation, results and events are asynchronous. A session
-multiplexes independent operations. WebSocket ordering within one session is not
-a global order across sessions, contexts or controllers.
+In words: sipbridge asks what to do with a new request (`ingress`). The
+controller admits it into sipbridge's SIP state (`ingest`) and confirms the
+routing decision (`routeResult`). sipbridge then hands the request to the
+controller that owns it (`request`), the controller answers (`command` with
+`respond`), and sipbridge reports how the dialog progresses (`dialogEvent`).
+
+Two things to keep in mind when you implement this. Many operations are in
+flight on one session at once, so match replies to requests by `correlationId`
+instead of by order of arrival. And if you hold several sessions, the order of
+messages on one session tells you nothing about the order on another.
 
 ## Pages in this section
 
-- [Session](./session.md): `hello`, `helloAck`, `status`, heartbeats and supersession.
-- [Capabilities](./capabilities.md): what each capability means and which are required.
-- [Message Families](./messages.md): every payload, its direction and whether it is current, historical or proposed.
-- [Commands and Outcomes](./commands.md): sequencing, certainty and delivery results.
+- [Session](./session.md): the handshake, readiness, heartbeats and reconnecting.
+- [Capabilities](./capabilities.md): the feature names exchanged in the
+  handshake and which ones are required.
+- [Message Families](./messages.md): every message type, who sends it and what
+  it is for.
+- [Commands and Outcomes](./commands.md): how to tell sipbridge to do something
+  and how to read the result.

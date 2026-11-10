@@ -1,62 +1,102 @@
-# Implementation Status
+# Project Status
 
-sipbridge is experimental. This page separates what the service does today from
-test-only utilities, dated historical observations and proposed work. The
-authoritative statements are in [Architecture](../spec/architecture.md#qualification-and-release-boundary),
-[Fixtures](../fixtures.md) and [Verification](../verification.md).
+sipbridge is early-stage software under active development. The core service
+works and is described throughout these guides; some features are designed but
+not built; and its automated tests run against simulated peers. This page sets
+out each of those so you can judge how it fits what you need.
 
-## Implemented service behavior
+## What works today
 
-The `cmd/sipbridge` executable, with memory (default) or explicit Redis state:
+The `sipbridge` service, with in-memory state (the default) or Redis:
 
-- Public SIP over UDP, TCP and TLS with real transport class preserved per context.
-- Native transactions, dialogs and timers through the pinned sipgo reducers,
-  using one schema 2 / reducer 9 / timers 1 compare-and-swap path.
-- JSON control over mutual TLS WebSocket with exact URI SAN authorization,
-  heartbeats, supersession and credential reload.
-- Owner leases, native completion without a surviving controller, command-time
-  admission and command budgets.
-- Exact physical write evidence with `WRITTEN`, `NOT_WRITTEN` and `UNKNOWN`.
-- Process-local REGISTER/SUBSCRIBE method policy and optional local initial
-  digest challenges.
-- Liveness, serving and readiness endpoints, counters, structured diagnostics and
-  optional SIP capture.
+- SIP over UDP, TCP and TLS. A dialog stays on the transport it started with.
+- SIP transactions, dialogs and timers, handled by a pinned build of the sipgo
+  library.
+- The JSON control protocol over a mutually authenticated WebSocket, with
+  heartbeats, reconnect handling and certificate reload without a restart.
+- Controller leases, so that sipbridge handles SIP completion and cleanup
+  when a controller disappears.
+- Delivery outcomes reported as `WRITTEN`, `NOT_WRITTEN` or `UNKNOWN`.
+- Continuing a dialog when a client's TLS connection is replaced, including on
+  another instance that shares Redis state.
+- Optional local rejection of REGISTER and SUBSCRIBE, and optional local digest
+  challenges.
+- Liveness, serving and readiness endpoints, Prometheus counters, structured
+  log events and optional SIP capture.
 
-## Fixture-only utilities
+## Not built yet
 
-These programs and paths test isolated contracts. They are not service modes and
-do not provide production evidence.
-
-| Utility | Scope |
+| Feature | State |
 | --- | --- |
-| `cmd/sipbridge-control` | Control transport only: hello, supersession, status, heartbeats, JSON validation, TLS reload. No SIP. |
-| `cmd/sipbridge-fixture` | Two-ingress TLS native-wire fixture with its own resident protocol objects, driven by `test/run.py`. Requires `SIPBRIDGE_FIXTURE_STDIO=1`, set only by the runner. |
-| Historical 1/7 relay fixtures | Shared-reducer assertions with trusted per-send grants and controller-relayed writes. Not linked into the service. |
+| Draining an instance before restart (`drain.begin` / `drain.status` / `drain.complete`) | Designed in PROTOCOL.md; not in the schema or the service. Restarting sipbridge closes its connections. See [Replacing a process](../guide/deployment.md#replacing-a-process). |
+| Listing the contexts an instance holds | Designed; not built. |
+| Output queues and additional operation markers | Designed; not built. |
+| Replacing a sipbridge process without disconnecting clients | Not available. |
+| A client SDK for writing controllers | None. Controllers implement the JSON protocol directly. |
+| Redis Cluster | Not supported. Use a single primary, optionally with Sentinel. |
 
-## Local service checks
+## Limitations to plan around
 
-Go race tests, real Redis/Sentinel restart tests and service subprocess/socket
-tests use synthetic controllers and disposable Redis. They show local contract
-behavior. They do not qualify real account policy, media, handset or carrier
-interoperability, load, version skew or safe production drain.
+These are properties of the current design that affect how you deploy and
+build. Each is explained where it matters:
 
-## Historical evidence
+- In-memory state is lost on restart and defaults to 16 Call-IDs at a time.
+  See [State Backends](../guide/state-backends.md#capacity).
+- Redis replication is asynchronous, so a failover can lose recent state and
+  drop the calls that depended on it. See
+  [Failure and recovery](../guide/state-backends.md#failure-and-recovery).
+- A call belongs to the controller process that set it up and ends if that
+  process is lost. See [Owner lease](../guide/lifecycle.md#owner-lease).
+- Some commands and sends end as `UNKNOWN`, and the controller has to inspect
+  rather than retry. See
+  [Commands and Outcomes](../protocol/commands.md#handling-unknown).
 
-[Verification](../verification.md#historical-evidence-not-current-qualification)
-records dated observations, including an isolated staging experiment. They
-describe the builds tested at the time and are not current readiness. Rerun the
-current gates for any candidate.
+## How it is tested
 
-## Proposed or gated
+Continuous integration runs these on every change, before an image is
+published:
 
-| Item | State |
+- Go unit and integration tests with the race detector, against both the
+  memory store and a real Redis.
+- Redis restart and Sentinel failover tests that start and stop real Redis
+  processes.
+- Tests that start the real `sipbridge` binary and exchange SIP with it over
+  real sockets.
+- The pinned SIP library's own test suite.
+- A SIP-over-TLS wire test using two listener processes.
+
+These scenarios use simulated controllers and SIP peers in controlled local
+environments.
+They show that the service does what its specification says under those
+conditions. What they do not cover is everything that depends on your
+environment: your phones and carriers, media, your controller's logic, and
+behavior under your traffic levels. These suites do not measure capacity under your workload. Test those things
+in your own setup before you rely on them.
+
+[Verification](../verification.md) lists the exact commands and what each check
+covers. It also keeps dated notes from earlier builds, including a short trial
+with real calls in an isolated staging environment. Those notes describe the
+builds tested at the time, not the current code.
+
+## Test programs in the repository
+
+Two other executables live in the repository. They exist for testing and are
+not alternative ways to run sipbridge:
+
+| Program | Purpose |
 | --- | --- |
-| Drain protocol (`drain.begin` / `status` / `complete`) | Proposed. No schema or implementation. |
-| Context inventory and drain generations | Proposed. |
-| Output queues and additional operation markers | Proposed bounds only. |
-| Full conformance suite (two processes, two controllers, all test groups) | Required evidence, not complete. See [Protocol section 12](../spec/protocol.md#_12-required-conformance-evidence). |
-| REFER/Replaces, PRACK, early UPDATE, forking, media/CDR and legacy paths | Require backend acceptance evidence. |
-| Zero-disconnect SIP-core replacement | Not provided. |
-| Production selection | Gated. The original platform's supported production SIP deployment is unchanged. |
+| `cmd/sipbridge-control` | Runs control sessions only (handshake, heartbeats, JSON validation, certificate reload), with no SIP. Useful for testing a controller's connection code. |
+| `cmd/sipbridge-fixture` | Used by the SIP-over-TLS wire test. It is driven by `test/run.py` and refuses to start any other way. |
 
-No document in this repository grants deployment authorization.
+The repository also keeps test data from an earlier internal design (labelled
+"1/7" in the specification). It is not part of the service.
+[Fixtures](../fixtures.md) describes all of these.
+
+## Where to get it
+
+Source code, issues and image builds are in the project's
+[GitLab repository](https://git.s24.dev/signal24/oss/sipbridge), and its CI
+publishes container images to `gcr.s24.dev/signal24/oss/sipbridge`. The GitHub
+repository at [zyno-io/sipbridge](https://github.com/zyno-io/sipbridge) carries
+only this documentation site. If you cannot reach the registry, build the image
+from source as shown in [Deployment](../guide/deployment.md#image).

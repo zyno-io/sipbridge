@@ -54,7 +54,7 @@ schema/generated consumers together; copying the local snapshot is not that proo
 
 Synthetic controllers cannot qualify Pilot account mutation, trusted-directory
 policy, media/CDR, handset/carrier behavior, full version skew, shared load or SIP-core
-drain. Production selection needs separately recorded acceptance. Redis/Sentinel
+drain. Redis/Sentinel
 fault tests make no exactly-once or rollback-survival guarantee.
 
 ## Historical evidence (not current qualification)
@@ -89,5 +89,3 @@ candidate; branch names, test totals and old artifacts are not present readiness
 The upstream module had six baseline vet warnings in unchanged client/test files
 in the foundation investigation; local adapter/native-package checks were distinct.
 Environment-opt-in upstream network suites are never implied by other passing gates.
-Historical task-specific alpha holds/authorizations are not current instructions;
-no evidence document grants deployment authority.

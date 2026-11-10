@@ -1,17 +1,24 @@
 # Getting Started
 
-This walkthrough runs one sipbridge process with the default memory state on
-loopback, uses a throwaway certificate authority, and opens one control session
-from a small demonstration client. Every name, key and address is synthetic.
+This walkthrough takes about ten minutes. You will build sipbridge, start one
+process on your own machine with the default in-memory state, and connect a
+small demonstration controller to it. By the end you will have seen the three
+things every setup needs: TLS identities, a running process and a control
+session. All names, keys and addresses are made up for the example.
 
 ## Prerequisites
 
-- Go 1.24.2. The pinned SIP library is vendored in `third_party/sipgo`.
+- Go 1.24.2. The SIP library sipbridge uses is included in the repository under
+  `third_party/sipgo`, so you do not need a separate checkout of it. Go downloads
+  the other module dependencies during the build.
 - The `openssl` command-line tool (1.1.1 or later), `curl` and a POSIX shell.
+- A checkout of the source from
+  [GitLab](https://git.s24.dev/signal24/oss/sipbridge). The GitHub repository
+  holds only this documentation.
 
 ## Build
 
-From a checkout of the repository:
+From the root of the checkout:
 
 ```sh
 go build -o bin/sipbridge ./cmd/sipbridge
@@ -19,15 +26,23 @@ go build -o bin/sipbridge ./cmd/sipbridge
 ```
 
 A plain `go build` reports `sipbridge dev`; image builds set the version and
-revision. To confirm the vendored SIP library matches its pinned manifest, run
-`python3 scripts/verify_dependency.py`.
+revision. To confirm the included SIP library matches its recorded checksums,
+run `python3 scripts/verify_dependency.py`.
 
 ## Create synthetic credentials
 
-sipbridge needs three TLS identities: a control server certificate, the public
-SIP server certificate and a trust bundle for controller client certificates.
-The controller needs a client certificate with a URI SAN that sipbridge will
-allow. This script creates all of them from one seven-day test CA:
+sipbridge always uses TLS, even on your laptop, so it needs some certificates
+before it will start:
+
+- a server certificate for the private control listener, which the controller
+  connects to;
+- a server certificate for the public SIP TLS listener, which phones connect to;
+- a CA bundle it trusts to sign controller client certificates.
+
+The controller in turn needs a client certificate. sipbridge identifies a
+controller by a URI in that certificate's subject alternative name (a "URI
+SAN") and accepts only the exact URIs you list. This script creates everything
+from one test CA that expires after seven days:
 
 ```sh
 mkdir -p dev-pki && cd dev-pki
@@ -87,14 +102,15 @@ Keep `dev-pki` out of version control and delete it when you are done.
   --initial-nexus controller-a
 ```
 
-No state variables are set, so the process uses memory state with a random
-identity key. When the listeners are open it writes one JSON line to stdout:
+No state settings are given, so the process keeps its state in memory and
+needs no Redis. When the listeners are open it writes one JSON line to stdout:
 
 ```json
 {"control":"127.0.0.1:8443","epoch":"<random UUID>","event":"sipbridge-listening","instance":"sipbridge-0","profile":"sip.state.v1","revision":"unknown","sip":"127.0.0.1:5061","stateBackend":"memory","version":"dev"}
 ```
 
-The `epoch` changes on every start. The admin listener defaults to
+The `epoch` is a random ID for this run of the process and changes on every
+start. Health endpoints are served on the admin listener, which defaults to
 `127.0.0.1:8800`:
 
 ```sh
@@ -103,16 +119,18 @@ curl -i http://127.0.0.1:8800/sip-servingz  # 200: listeners and public TLS are 
 curl -i http://127.0.0.1:8800/sip-readyz    # 503 "signaling unavailable": no ready controller yet
 ```
 
-Without a ready controller, sipbridge refuses new SIP work with `503`. That is the
-expected state until a controller connects.
+The last `503` is expected. sipbridge has nobody to ask what to do with a call
+yet, so it answers new SIP requests with `503` until a controller connects.
 
 ## Open a demonstration control session
 
-The program below opens a control session, sends `hello`, prints `helloAck`,
-declares readiness with `status` and answers heartbeats for one minute. It is a
-session demonstration, not a controller: it does not answer `ingress` routing
-requests, so SIP requests sent during the demo still fail after the routing
-budget.
+The program below does the minimum a controller must do to hold a session: it
+connects with its client certificate, sends `hello`, prints the `helloAck`
+reply, declares itself ready with `status` and answers heartbeats for one
+minute. It stops short of being a real controller because it does not answer
+the `ingress` messages that ask where to route a SIP request. A SIP request
+sent during the demo therefore still fails once its two-second routing budget
+runs out.
 
 Create a separate module outside the repository and save this as `main.go`:
 
@@ -237,7 +255,8 @@ go get github.com/coder/websocket@v1.8.15
 go run . /path/to/sipbridge/dev-pki
 ```
 
-The names line up deliberately:
+Most first-time connection failures come from two names that do not match. These
+are the pairs that have to agree:
 
 | Value | Where it appears |
 | --- | --- |
@@ -248,11 +267,13 @@ The names line up deliberately:
 
 While the demo runs, `/sip-readyz` returns `200`. After it exits, readiness
 returns `503` again. The [Session](../protocol/session.md) page explains each
-message.
+message, and [Troubleshooting](./troubleshooting.md#controller-cannot-connect)
+lists the errors you may see if the connection is refused.
 
 ## Next steps
 
+- [Building a Controller](./application.md) describes what a real controller
+  has to implement, starting from this demo.
 - [Configuration](./configuration.md) lists every flag and environment variable.
-- [State Backends](./state-backends.md) explains memory limits and explicit Redis.
-- [Application Responsibilities](./application.md) describes what a real
-  controller must implement.
+- [State Backends](./state-backends.md) explains the memory limits and when to
+  choose Redis.

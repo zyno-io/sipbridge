@@ -1,20 +1,29 @@
 # Deployment
 
-This page describes how the service is packaged and how to replace it safely.
-It is guidance for evaluation environments. It is not a production runbook, and
-production qualification remains gated (see [Implementation Status](../reference/status.md)).
+This page covers how to get an image, how to lay out a deployment, and how to
+restart sipbridge with the least disruption. The one fact that shapes all of it
+is that sipbridge holds your clients' connections, and a connection cannot
+survive the restart of the process that holds it. A good deployment therefore
+restarts sipbridge rarely and on purpose.
 
 ## Image
 
-Build a local image from a checkout:
+The source code and CI live in the project's
+[GitLab repository](https://git.s24.dev/signal24/oss/sipbridge). The GitHub
+repository contains only this documentation, so build from a GitLab checkout:
 
 ```sh
 SIPBRIDGE_IMAGE=sipbridge:local BUILD_VERSION=dev bash scripts/build-image.sh
 docker run --rm sipbridge:local --version
 ```
 
-The script verifies the pinned SIP library and control-schema snapshot, then runs
-`docker build` with the current Git revision.
+The script checks the included SIP library and control schema against their
+recorded checksums, then runs `docker build` with the current Git revision.
+
+GitLab CI also publishes images to the project's registry at
+`gcr.s24.dev/signal24/oss/sipbridge`. Every commit on `main` is tagged with its
+commit SHA and `main`; `latest` is moved by hand to a tested `main` image. If
+you cannot pull from that registry, build the image yourself as shown above.
 
 | Property | Value |
 | --- | --- |
@@ -22,87 +31,90 @@ The script verifies the pinned SIP library and control-schema snapshot, then run
 | Entrypoint | `/sipbridge` (pass flags as container arguments) |
 | User | UID/GID `65532` |
 | Exposed ports | `5060/udp`, `5060/tcp`, `5061/tcp`, `8443/tcp`, `8800/tcp` |
-| Control-contract receipt | `/usr/share/sipbridge/control-schema.json` |
+| Control schema record | `/usr/share/sipbridge/control-schema.json` |
 | OCI labels | Source, version and revision |
 
-The canonical CI publishes images to the project's own registry. This
-documentation does not assume that registry is publicly reachable. Wherever the
-image comes from, deploy it by immutable digest, chosen independently of
-controller releases, and check the contract receipt against the schema your
-controller was built from.
+Deploy by image digest rather than by a moving tag, and choose that digest
+independently of your controller's releases, so that shipping a new controller
+can never restart sipbridge by accident. The file
+`/usr/share/sipbridge/control-schema.json` inside the image records which
+version of the control schema it was built with; compare it with the schema
+your controller was built from.
 
-Because the admin listener defaults to `127.0.0.1:8800`, container platforms
-that probe from outside the container need `--admin-listen=:8800` (or the pod
-address) and network policy restricting who can reach it.
-
-The process needs no `NET_ADMIN` capability and does not write to its
-filesystem, so a read-only root filesystem is suitable.
+The container needs no special privileges. It does not need `NET_ADMIN` and
+does not write to its filesystem, so a read-only root filesystem works. The
+admin listener defaults to `127.0.0.1:8800`; on a platform that probes from
+outside the container, set `--admin-listen=:8800` (or the pod address) and
+limit who can reach it with network policy.
 
 ## Topology choices
 
 | Topology | State | Notes |
 | --- | --- | --- |
-| Single standalone instance | Memory | Simplest. A restart loses all SIP state and connections. |
-| Several workers sharing state | Redis | Compatible workers can continue retained logical contexts. Sockets still belong to one process. All workers in a namespace need the same identity key, partitions, profile and public advertisement. |
+| One standalone instance | Memory | The simplest setup. A restart loses all SIP state and connections. Remember to raise the [memory capacity](./state-backends.md#capacity) above its default of 16 Call-IDs. |
+| Several instances sharing state | Redis | A client that reconnects to another instance can continue its dialog there. Each connection still belongs to one process. All instances in a namespace need the same identity key, partition count, state format and advertised addresses. |
 
-Run controllers so that every controller holds a session to every sipbridge
-process that may need it.
+Every controller should hold a control session to every sipbridge instance it
+may have calls on.
 
 ## What restarts a SIP process
 
-Only changes to the sipbridge image, its flags or environment, or its state
-backend require replacing the process. These do not:
+Only a change to sipbridge itself needs a restart: a new image, different flags
+or environment, or a different state backend. None of the following do:
 
-- certificate, key or trust bundle renewal (reloaded in place);
-- controller restarts, rollouts or reconnects;
-- Redis failover;
-- controller policy, discovery or directory changes.
+- renewing certificates, keys or CA bundles (they are reloaded in place);
+- restarting, upgrading or reconnecting controllers;
+- a Redis failover;
+- changes to controller policy, discovery or routing data.
 
-Keep controller configuration out of the SIP process's deployment template so an
-ordinary controller release cannot roll it. On Kubernetes, an `OnDelete`
-StatefulSet update strategy stages template changes without restarting live
-processes.
+Arrange your deployment so that it stays that way. Keep controller settings out
+of the sipbridge pod template, or an ordinary controller release will roll
+sipbridge too. On Kubernetes, a StatefulSet with the `OnDelete` update strategy
+is a good fit: template changes are staged, and each pod picks them up only
+when you delete it.
 
 ## Replacing a process
 
-There is no in-process drain, and the proposed drain protocol is not
-implemented. `SIGTERM` closes the process's listeners and sockets promptly.
-Replacement is therefore a controlled procedure:
+sipbridge has no built-in drain. On `SIGTERM` it closes its listeners and
+connections promptly, whatever calls are in progress. (A drain protocol is
+proposed but not implemented.) To restart an instance gracefully, you do the
+draining around it:
 
-1. **Fence new admission.** Stop routing new clients and calls to the process,
-   for example by removing it from load balancing and having controllers stop
-   admitting new work through it.
-2. **Preserve retained paths.** Keep controller sessions and the process's
-   sockets up while existing calls, transactions and subscriptions finish.
-3. **Drain.** Wait for native and application work to complete. Registrations
-   and subscriptions can keep a process busy indefinitely; decide explicitly how
-   to end or move them.
-4. **Withdraw** the instance from any backend pools.
-5. **Restart deliberately**, then verify `/sip-servingz` and `/sip-readyz`.
+1. **Stop sending it new work.** Take the instance out of load balancing or
+   DNS, and have your controllers stop placing new calls through it.
+2. **Leave everything else connected.** Keep the controller sessions and the
+   process running so that existing calls, transactions and subscriptions can
+   finish normally.
+3. **Wait for work to finish.** Calls end by themselves; registrations and
+   subscriptions may not, since clients keep refreshing them. Decide how long to
+   wait and what to do with what remains.
+4. **Remove the instance** from any remaining backend pools.
+5. **Restart it**, then check `/sip-servingz` and `/sip-readyz`.
 
-Remaining client TLS connections close when the process stops. Controller calls
-do not migrate. Zero-disconnect replacement is not provided.
+Any client still connected when the process stops has to reconnect. With
+memory state, lost registrations and calls must be set up again; Redis can
+retain contexts for a replacement connection that passes the continuity checks. Calls do not move between controllers, and
+replacing sipbridge without disconnecting anyone is not possible today.
 
 ## Rollback
 
-Rollback means deploying a previous image digest with the same replacement
-procedure.
+To roll back, deploy the previous image digest using the same steps. What to
+check first depends on your state backend:
 
-- **Memory state:** any restart loses state, so rollback has no state
-  compatibility concern beyond normal client re-registration.
-- **Redis state:** every worker sharing a namespace must run the same
-  schema 2 / reducer 9 / timers 1 profile. Do not mix incompatible builds in one
-  namespace.
-- **Controller compatibility:** a controller must still accept the capability
-  set that the rolled-back build negotiates. PROTOCOL.md requires keeping
-  compatibility labels and generated fields until both sides retire them
-  together; see [Protocol: compatibility](../spec/protocol.md#_11-compatibility-reload-and-drain).
+- **Memory:** a restart loses state anyway, so there is nothing to keep
+  compatible. Clients register again as after any restart.
+- **Redis:** all instances sharing a namespace must use the same state format
+  (currently schema 2, reducer 9, timers 1). Do not run builds with different
+  state formats against one namespace.
+- **Controller:** your controller must still work with the capabilities the
+  older sipbridge build offers. See
+  [Protocol: compatibility](../spec/protocol.md#_11-compatibility-reload-and-drain).
 
 ## Changing configuration
 
 | Change | Method |
 | --- | --- |
-| Certificates and trust bundles | Replace files in the mounted directory. No restart. |
-| Method policy, required-auth methods, advertisement, listeners | Replace the process. |
-| State backend, namespace, identity key, partitions | Replace every affected process. Memory state is lost; Redis state is only usable under compatible settings. |
-| Allowed controller URI identities | Replace the process. Add new identities before rotating controller certificates. |
+| Certificates and CA bundles | Replace the files in the mounted directory. No restart. |
+| Method policy, required-auth methods, advertised addresses, listeners | Restart the process. |
+| State backend, namespace, identity key, partitions | Restart every affected process. Memory state is lost; Redis state is usable only by instances with matching settings. |
+| Allowed controller URI identities | Restart the process. Add the new identity before you rotate controller certificates, so both old and new are accepted during the change. |

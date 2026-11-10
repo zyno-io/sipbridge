@@ -3,7 +3,8 @@
 Status: experimental implemented service contract, with proposed conformance and
 drain requirements identified below. The current service uses UDP/TCP/TLS listeners,
 JSON/mTLS control, schema 2 / reducer 9 / timers 1 CAS and autonomous native
-completion. Full platform/production conformance remains gated. The session-only
+completion. [Verification](docs/verification.md) lists the current test coverage
+and its limits; full platform conformance is not yet qualified. The session-only
 and stdio programs are separate [fixtures](docs/fixtures.md).
 
 This is the normative wire/business-admission supplement to
@@ -21,8 +22,7 @@ trusted-directory Redis, Kubernetes or Pilot credentials.
 
 The current service supports actual UDP/TCP/TLS transport and explicitly authorized
 registered or network destinations. Existing carrier, media, REFER/Replaces and
-legacy behavior need their own backend acceptance evidence. Drachtio remains the
-supported production deployment until selection gates pass.
+legacy behavior need their own backend acceptance evidence.
 
 The canonical schema is `proto/sipbridge-control.proto` in Talk. It defines both
 session and application messages and owns field numbers/catalogs. Generated
@@ -823,9 +823,8 @@ connections, application/control disconnect handling, method-scoped admission an
 completed-transaction versus live-dialog lifetime. Full acceptance also covers
 forked UAC finals, REFER/Replaces/PRACK/early UPDATE, media/CDR and legacy paths.
 
-Staging tests that stop/replace Drachtio require task-specific authorization, a
-recorded configuration/restoration procedure and proof that no hidden SRF fallback
-remains. This document grants no deployment or teardown authorization.
+Staging tests that stop/replace Drachtio require a recorded
+configuration/restoration procedure and proof that no hidden SRF fallback remains.
 
 Protocol grounding: native SIP transaction/dialog behavior remains governed by
 [RFC 3261](https://www.rfc-editor.org/rfc/rfc3261.html); subscription semantics by

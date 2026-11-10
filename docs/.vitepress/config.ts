@@ -44,7 +44,7 @@ function siteHref(href: string, sourceFiles: string[]): string {
 
 export default defineConfig({
   title: 'sipbridge',
-  description: 'Experimental SIP data plane with external application control',
+  description: 'A SIP signaling server that your application controls over a WebSocket',
   base: '/sipbridge/',
   srcExclude: ['upstream/**'],
   markdown: {
@@ -82,12 +82,12 @@ export default defineConfig({
       {
         text: 'Guide',
         items: [
-          { text: 'Overview and Scope', link: '/guide/overview' },
+          { text: 'Overview', link: '/guide/overview' },
           { text: 'Getting Started', link: '/guide/getting-started' },
           { text: 'Configuration', link: '/guide/configuration' },
           { text: 'State Backends', link: '/guide/state-backends' },
           { text: 'Identities and TLS', link: '/guide/security' },
-          { text: 'Application Responsibilities', link: '/guide/application' },
+          { text: 'Building a Controller', link: '/guide/application' },
           { text: 'Health and Readiness', link: '/guide/health' },
           { text: 'Lifecycle and Retention', link: '/guide/lifecycle' },
           { text: 'Deployment', link: '/guide/deployment' },
@@ -112,11 +112,11 @@ export default defineConfig({
           { text: 'Limits and Timers', link: '/reference/limits' },
           { text: 'Admin Endpoints', link: '/reference/admin-endpoints' },
           { text: 'Glossary', link: '/reference/glossary' },
-          { text: 'Implementation Status', link: '/reference/status' }
+          { text: 'Project Status', link: '/reference/status' }
         ]
       },
       {
-        text: 'Specification (normative)',
+        text: 'Specification',
         items: [
           { text: 'Architecture', link: '/spec/architecture' },
           { text: 'Control Protocol', link: '/spec/protocol' },
@@ -131,7 +131,7 @@ export default defineConfig({
       { icon: new URL(repository).hostname === 'github.com' ? 'github' : 'gitlab', link: repository }
     ],
     footer: {
-      message: 'sipbridge is experimental. This documentation does not grant production qualification or deployment authorization.'
+      message: 'sipbridge holds SIP connections and runs the protocol; your application decides what happens on each call.'
     }
   }
 })

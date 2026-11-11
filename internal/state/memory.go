@@ -170,10 +170,18 @@ func (m *MemoryStore) group(ref Ref) (*memoryGroup, error) {
 }
 
 func copyReceipt(r Receipt) Receipt { r.Outcome = append([]byte(nil), r.Outcome...); return r }
-func (m *MemoryStore) record(g *memoryGroup, now int64, inputIDs []string) (Record, error) {
+func (m *MemoryStore) protocolRecord(g *memoryGroup) (Record, error) {
 	r := Record{Ref: g.ref, Authority: m.authority, Versions: m.cfg.Versions, Revision: g.revision}
 	if err := r.Payload.UnmarshalBinary(g.data); err != nil {
 		return Record{}, ErrCorrupt
+	}
+	return r, nil
+}
+
+func (m *MemoryStore) record(g *memoryGroup, now int64, inputIDs []string) (Record, error) {
+	r, err := m.protocolRecord(g)
+	if err != nil {
+		return Record{}, err
 	}
 	for _, receipt := range g.receipts {
 		r.Receipts = append(r.Receipts, copyReceipt(receipt))

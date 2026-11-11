@@ -175,6 +175,26 @@ The admitted first read retains its caller store-I/O bound so it can return a
 receipt after semantic expiry; no receipt after expiry means no reduction or CAS.
 Exact live replay is checked before fresh admission expiry.
 
+Read-only scheduling, physical-dispatch discovery, dispatch fallback and existing-
+selector lookup use a separate non-authorizing state view. The view includes the
+exact group reference/incarnation, revision, versions, bounded validated binary
+payload, same-read store time and pending-input presence. It does not read or
+decode receipt/proof bodies, pending-input contents or application-lease
+observations, and cannot supply a replay result, CAS admission or delivery permit.
+It does not initialize owner-recovery deadlines as a side effect of observation.
+Validation is scoped to those selected fields: malformed unselected history does
+not poison the view, while full Load, ReadUpdate, replay and retirement retain
+their complete validation and evidence requirements. A pending input still
+blocks scheduler and existing-selector admission. Existing idempotent recovery
+RPCs may use their retained effect identity from the view; physical sends still
+require native reservation/permit proof. Native group decoding preserves versions
+so server-transaction disposition checks cannot be bypassed. Returned values are
+independently owned and discarded before socket/RPC I/O; there is no resident
+snapshot or receipt cache.
+Redis credentials must grant `HSTRLEN` on the already-scoped group hashes for the
+pending-presence check; activate that command grant before replacing a worker with
+this reader. It requires no additional key namespace or write permission.
+
 Internal negative checks can refuse before native-payload decoding, only with no
 legacy Pending and matching outer/decoded kinds: effect-start absent/already started/
 physical; effect-result whose exact effect was collected; timer whose exact ID and

@@ -154,18 +154,18 @@ func (e *StateEngine) schedulePhysicalGroup(worker string, ref state.Ref) {
 		}()
 		ctx, cancel := context.WithTimeout(e.ctx, 2*time.Second)
 		defer cancel()
-		record, err := e.store.Load(ctx, ref)
+		view, _, err := e.store.ReadState(ctx, ref)
 		if err != nil {
 			return
 		}
-		current, revision := record.Ref, record.Revision
+		current, revision := view.Ref, view.Revision
 		var effects []state.Effect
-		for _, effect := range e.dispatchableEffects(record.Payload.Effects, time.Now().UnixMilli()) {
+		for _, effect := range e.dispatchableEffects(view.Payload.Effects, time.Now().UnixMilli()) {
 			if effect.Worker == worker || effect.Worker == state.AnyDispatchWorker {
 				effects = append(effects, effect)
 			}
 		}
-		record = state.Record{} // No authoritative aggregate survives socket/RPC I/O.
+		view = state.StateView{} // No authoritative aggregate survives socket/RPC I/O.
 		for _, effect := range effects {
 			e.dispatchEffectWithin(ctx, current, effect, true)
 		}

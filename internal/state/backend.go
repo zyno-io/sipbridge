@@ -27,6 +27,7 @@ type Backend interface {
 	Close() error
 	Load(context.Context, Ref) (Record, error)
 	LoadAt(context.Context, Ref) (Record, int64, error)
+	ReadState(context.Context, Ref) (StateView, int64, error)
 	ReadUpdate(context.Context, Ref, Input) (UpdateResult, error)
 	CompareAndSwap(context.Context, Update, Payload, []byte) (Receipt, error)
 	InspectOperation(context.Context, Ref, string, string) (Inspection, error)

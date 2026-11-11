@@ -37,6 +37,9 @@ func TestEachRecordRejectsIncompatibleConfiguration(t *testing.T) {
 			if _, err := other.Load(ctx, step.Record.Ref); !errors.Is(err, ErrAuthority) && !errors.Is(err, ErrVersion) {
 				t.Fatal("incompatible record accepted", err)
 			}
+			if _, _, err := other.ReadState(ctx, step.Record.Ref); !errors.Is(err, ErrAuthority) && !errors.Is(err, ErrVersion) {
+				t.Fatal("incompatible state view accepted", err)
+			}
 		})
 	}
 	if err := s.Ready(ctx); err != nil {

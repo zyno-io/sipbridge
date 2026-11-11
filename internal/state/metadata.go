@@ -100,18 +100,11 @@ func (s *metadata) validateInput(input Input) error {
 }
 
 func (s *metadata) decodeRecord(ref Ref, inc, revision, data, receipts, pending, callID, proof string) (Record, error) {
-	ref.Incarnation = inc
-	ref.CallID = callID
-	if err := s.validateRef(ref); err != nil {
-		return Record{}, ErrCorrupt
+	record, err := s.decodeProtocolRecord(ref, inc, revision, []byte(data), callID)
+	if err != nil {
+		return Record{}, err
 	}
-	if len(data) > s.cfg.Limits.GroupBytes-4096 {
-		return Record{}, ErrCorrupt
-	}
-	record := Record{Ref: ref, Authority: s.authority, Versions: s.cfg.Versions, Revision: revision}
-	// Decode the bounded binary payload once; small Lua-inspected envelopes
-	// keep their separate JSON representation.
-	if record.Payload.UnmarshalBinary([]byte(data)) != nil || json.Unmarshal([]byte(receipts), &record.Receipts) != nil {
+	if json.Unmarshal([]byte(receipts), &record.Receipts) != nil {
 		return Record{}, ErrCorrupt
 	}
 	if proof != "" {
@@ -125,6 +118,22 @@ func (s *metadata) decodeRecord(ref Ref, inc, revision, data, receipts, pending,
 		if json.Unmarshal([]byte(pending), record.Pending) != nil {
 			return Record{}, ErrCorrupt
 		}
+	}
+	return record, nil
+}
+
+func (s *metadata) decodeProtocolRecord(ref Ref, inc, revision string, data []byte, callID string) (Record, error) {
+	ref.Incarnation = inc
+	ref.CallID = callID
+	if err := s.validateRef(ref); err != nil {
+		return Record{}, ErrCorrupt
+	}
+	if len(data) > s.cfg.Limits.GroupBytes-4096 {
+		return Record{}, ErrCorrupt
+	}
+	record := Record{Ref: ref, Authority: s.authority, Versions: s.cfg.Versions, Revision: revision}
+	if record.Payload.UnmarshalBinary(data) != nil {
+		return Record{}, ErrCorrupt
 	}
 	if err := s.validatePayloadStructure(record.Payload); err != nil {
 		return Record{}, ErrCorrupt

@@ -385,13 +385,14 @@ func (e *StateEngine) locateExisting(ctx context.Context, ref state.Ref, message
 	e.lifecycleMu.Unlock()
 	defer e.wg.Done()
 	defer func() { <-e.work }()
-	record, now, err := e.store.LoadAt(ctx, ref)
-	if errors.Is(err, state.ErrNotFound) || err == nil && record.Pending != nil {
+	view, now, err := e.store.ReadState(ctx, ref)
+	if errors.Is(err, state.ErrNotFound) || err == nil && view.HasPending {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, classifyStateReadFailure(err)
 	}
+	record := stateViewProtocolRecord(view)
 	group, err := decodeStateGroup(record)
 	if err != nil {
 		return nil, classifyStateReadFailure(err)
@@ -766,13 +767,21 @@ type stateSchedulePlan struct {
 }
 
 func (e *StateEngine) schedulePlan(ctx context.Context, ref state.Ref) (stateSchedulePlan, error) {
-	record, now, err := e.store.LoadAt(ctx, ref)
+	view, now, err := e.store.ReadState(ctx, ref)
 	if err != nil {
 		return stateSchedulePlan{}, err
 	}
-	return stateSchedulePlan{ref: record.Ref, pending: record.Pending != nil,
+	record := stateViewProtocolRecord(view)
+	return stateSchedulePlan{ref: record.Ref, pending: view.HasPending,
 		retire: record.Payload.Retention.Terminal && record.Payload.ActiveTransactions == 0 && len(record.Payload.Effects) == 0 && len(record.Payload.Timers) == 0,
 		timers: e.dueTimers(record, now), effects: e.dispatchableEffects(record.Payload.Effects, now)}, nil
+}
+
+// Only pure group/selector/timer helpers consume this adapter. It carries no
+// replay history, observed leases or CAS token and must never authorize a write.
+func stateViewProtocolRecord(view state.StateView) state.Record {
+	return state.Record{Ref: view.Ref, Authority: view.Authority, Versions: view.Versions,
+		Revision: view.Revision, Payload: view.Payload}
 }
 
 func (e *StateEngine) applyScheduledTimers(ctx context.Context, ref state.Ref, timers []state.Timer) bool {
@@ -802,16 +811,16 @@ func (e *StateEngine) dispatchCommitted(ref state.Ref, committed *execution.Comm
 
 func (e *StateEngine) dispatchAfterEffect(ref state.Ref, effectID, previousKind string) {
 	e.dispatchWork(func() {
-		record, err := e.store.Load(e.ctx, ref)
+		view, _, err := e.store.ReadState(e.ctx, ref)
 		if err != nil {
 			return
 		}
-		if effectID != "" && !stateRPCProgressed(effectID, previousKind, record.Payload.Effects) {
+		if effectID != "" && !stateRPCProgressed(effectID, previousKind, view.Payload.Effects) {
 			return
 		}
-		effects := e.dispatchableEffects(record.Payload.Effects, time.Now().UnixMilli())
-		ref := record.Ref
-		record = state.Record{} // Never retain the authoritative SIP snapshot across RPC.
+		effects := e.dispatchableEffects(view.Payload.Effects, time.Now().UnixMilli())
+		ref := view.Ref
+		view = state.StateView{} // Never retain the authoritative SIP snapshot across RPC.
 		e.dispatchEffects(ref, effects)
 	})
 }

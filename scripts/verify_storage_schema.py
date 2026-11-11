@@ -14,7 +14,7 @@ files = [
     'internal/storagepb/sipbridge-storage.pb.go', 'scripts/gen-state-storage.py',
     'internal/engine/storage_generate_test.go', 'internal/engine/storage_generated.go',
     'internal/state/storage_generated.go', 'internal/storagecodec/codec.go',
-    'internal/storagecodec/receipt.go', 'internal/state/metadata.go',
+    'internal/storagecodec/receipt.go', 'internal/state/metadata.go', 'internal/state/view.go',
     'internal/engine/state_engine_binary.go', 'internal/state/binary.go',
     'internal/engine/state_engine_fixture_inspection.go', 'cmd/sipbridge-state-inspect/main.go',
     'internal/engine/state_engine.go', 'internal/engine/state_engine_reduce.go',

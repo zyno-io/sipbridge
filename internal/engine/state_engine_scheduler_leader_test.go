@@ -75,6 +75,11 @@ func (s *observedSchedulerStore) LoadAt(ctx context.Context, ref state.Ref) (sta
 	return s.Backend.LoadAt(ctx, ref)
 }
 
+func (s *observedSchedulerStore) ReadState(ctx context.Context, ref state.Ref) (state.StateView, int64, error) {
+	s.loads.Add(1)
+	return s.Backend.ReadState(ctx, ref)
+}
+
 func (s *observedSchedulerStore) ReleaseScheduler(ctx context.Context, token string) error {
 	if s.dropRelease.Load() {
 		return nil // Simulate a killed process that cannot release its lease.

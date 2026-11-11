@@ -168,6 +168,16 @@ independent expiration gets its own window. Terminal contexts can offer renewal 
 their shared owner but never revive themselves. Cleanup and resume race atomically
 through the seal. Only a fresh authenticated handshake acquires a successor term.
 
+Native owner checks are deadline-driven. A live context's next check is the exact
+expiration of its currently observed pinned lease, rather than a recurring
+five-second context timer. If that lease has renewed when the check runs, the
+next check follows its new expiration. An expired term inside its fixed recovery
+window schedules that window's existing deadline; it never starts or extends a
+window itself. Every transition still validates current native lease observations
+and the original term. Earlier SIP transaction, physical and cleanup deadlines
+remain independent. This removes otherwise empty read/reduce/CAS cycles for
+healthy owners without retaining a second authoritative protocol state.
+
 Referenced terms have bounded reference counts and no TTL. Releasing the final
 reference restores the 120-second idle TTL. Bounded pruning rescores pinned expired
 records to avoid starving reclaimable ones. Read/write operations validate current
@@ -189,8 +199,8 @@ dead-owner nonphysical policy/events/adoption, invalidates unstarted ordinary wo
 cancels pending UAC setup and selects 503 for pending UAS requests. Existing ACK,
 CANCEL, late-fork and physical DISPATCHING/UNKNOWN obligations remain. A UAS success
 waits for matching ACK or native timeout. With healthy scheduling, the 30-second
-lease, five-second inspection and five-second recovery window normally detect loss
-about 40 seconds after renewal; outages can delay this. The fixed 64-second protocol
+lease and fixed five-second recovery window normally detect loss about 35 seconds
+after renewal, plus bounded scheduling delay; outages can delay this. The fixed 64-second protocol
 cleanup bound starts at the fence, without extending any earlier native deadline.
 Unsendable cleanup can end locally; physical uncertainty remains retained/charged.
 
@@ -499,18 +509,79 @@ requires retention. Missing/changed credentials fail setup, never adopt another 
 
 ## Scheduling, results and reclamation
 
-One group recovery timer replaces per-effect timers. Every 20 ms the scheduler visits
-ceil(partitions/8), clamped to 1–8 partitions, with a 100-ms read budget. Through 64
-partitions a healthy sweep takes at most 160 ms, below 500-ms native T1. One bounded
-read-only Lua call visits consecutive partitions with a common Redis TIME cutoff;
-only ready/due keys are read, with independent eight-entry score-ordered limits.
-There are no namespace markers. Primary/clock/transport failure fences the poll;
-index type/member corruption isolates its ready/due class. Mutation still refuses
-bad index types. The first admitted partition rotates per full cursor cycle, including
-failures. This assumes single-primary/Sentinel, not Redis Cluster cross-slot support.
+One group recovery timer replaces per-effect timers. One background scheduler per
+state namespace holds a 250-ms Redis-time lease, renewed every 50 ms with a unique
+leadership token. Followers retry acquisition every 100 ms and do not enumerate
+queues or repair indexes. Conditional renewal/release cannot revive or delete a
+successor's lease. A changed primary invalidates the lease. Leadership coordinates
+background work only; both SIP workers remain active and all CAS, owner, deadline
+and exact physical-write guards remain authoritative. An uncertain/expired local
+lease stops new scheduler admissions and cancels that leader's background work.
+
+Native physical delivery has a separate, per-process dispatch index. Each commit
+projects the opaque ingress process/epoch target of unsettled native delivery
+effects into that worker's queue and emits a bounded wake marker. Every worker
+listens for its own work independently of scheduler leadership; followers never
+enumerate shared timer/ready partitions. They load only their indexed groups,
+discard the aggregate before physical I/O, and acknowledge a hint only against
+its exact observed revision. A newer commit cannot be erased by an older ack.
+The index is a hint: exact native reservation, permit, process/epoch and socket
+guards alone admit writes. Recovery timers can republish an unsuccessful attempt;
+no process can take over a dead process's socket. Index entries remain bounded by
+retained physical obligations and disappear on settlement/retirement. Blocking
+wake reads use a separate bounded connection pool, never the execution pool.
+Controller/credential/network effects are indexed to every currently registered
+worker, so a missing control connection on the scheduler leader cannot suppress
+an operation another worker can service. Registration is a two-second scheduling
+hint renewed every 500 ms, bounded to 256 live workers and pruned on renewal; it
+grants no application authority. Per-process acknowledgements are independent.
+New/reconnected workers receive retained work on the next committed recovery
+transition. Existing exact effect-start, receiver deduplication, owner and physical
+guards still decide which operation may progress. Physical ingress targets remain
+explicit and are never expanded through this registration. Blocking application
+I/O has a separate group-admission memo from timer reduction.
+
+Every index mutation atomically updates a sorted head projection containing at most
+two entries per partition. A queue whose head advances appends a constant marker to
+a wake stream, exactly trimmed to its latest entry. This is a bounded notification,
+not an event/job history or a consumer group. Types and required command permissions
+are checked before protocol mutation. The head, wake cursor and Redis time are read
+atomically under the current scheduler lease. Only the next deadline and stream
+cursor survive that read; neither is protocol authority. The deadline becomes a
+local monotonic timer. A separate blocking XREAD from that explicit cursor wakes
+earlier work without consuming another leader's notification. Timeout/lease renewal
+alone does not reload queues or protocol records. A change between head-read and
+XREAD remains visible; coalesced/trimmed notifications require one fresh head read.
+The memory store supplies the same boundary with process-local notifications.
+
+A new leader rebuilds the head projection from the ready/due queue heads before
+waiting; it never adopts its predecessor's cached timestamp/cursor. Redis failure,
+primary change or notification error discards the cache and reacquires leadership.
+When work is due, every 20 ms the leader visits ceil(partitions/8), clamped to 1–8
+partitions, with a 100-ms read budget. Through 64 partitions a healthy sweep takes
+at most 160 ms, below 500-ms native T1. One bounded Lua call validates the current
+lease and reads consecutive partitions at a common Redis TIME cutoff; ready/due
+classes retain independent eight-entry score-ordered limits. The first admitted
+batch after an idle wait or leader replacement starts at the cached head's partition;
+continued due work follows the rotating cursor rather than repeatedly favoring a
+hot head. Timer eligibility uses the validated store clock from that group's read.
+The first admitted partition rotates per full cursor cycle, including failures. Index type/member
+corruption isolates its class; mutation still refuses bad index types. This assumes
+single-primary/Sentinel, not Redis Cluster cross-slot support. Lease handoff plus
+healthy store/admission latency must be qualified against native deadlines; outages
+do not extend SIP deadlines or promise uninterrupted retransmissions.
 
 Hints grant no authority; each selected group reloads current state and timer generation.
-Ready precedes due; overlapping work deduplicates. Incremental scan repairs missed hints.
+Ready precedes due; overlapping work deduplicates. A newly elected leader, or a
+leader observing corrupt hints, runs one bounded incremental metadata-repair scan,
+at most one 128-key page per second alongside normal dispatch. It stops at the end
+of that scan instead of continuously rescanning an idle namespace. Normal commits
+maintain both indexes and the head atomically; scheduling never destructively pops
+an obligation before its transition commits. Repair cannot recreate lost protocol
+records or guarantee timely recovery from arbitrary external index corruption.
+The admin metrics expose scheduler leadership, acquisitions, head reads, hint
+batches, coalesced wakeups and repair pages as bounded process counters/gauges;
+collecting them performs no store reads and includes no context/queue identity.
 A group with no eligible effects allocates no dispatcher/read. Prepared bounded effect
 metadata goes to separate transport workers after dropping aggregate/scheduler admission.
 Overdue timers get bounded processing time, never renewed semantic deadlines; hard

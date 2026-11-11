@@ -229,6 +229,13 @@ func run() error {
 			stats := ingress.Statistics()
 			fmt.Fprintf(w, "zt_sipbridge_ingress_rejected_total %d\nzt_sipbridge_tls_handshake_failures_total %d\nzt_sipbridge_invalid_messages_total %d\n", stats.FlowRejected, stats.TLSFailed, stats.InvalidMessages)
 			fmt.Fprintf(w, "zt_sipbridge_method_rejected_total %d\n", stats.MethodRejected)
+			scheduler := stateNative.SchedulerStatistics()
+			leader := 0
+			if scheduler.Leader {
+				leader = 1
+			}
+			fmt.Fprintf(w, "zt_sipbridge_scheduler_leader %d\nzt_sipbridge_scheduler_acquisitions_total %d\nzt_sipbridge_scheduler_head_reads_total %d\nzt_sipbridge_scheduler_hint_batches_total %d\nzt_sipbridge_scheduler_wakeups_total %d\nzt_sipbridge_scheduler_repair_pages_total %d\n",
+				leader, scheduler.Acquisitions, scheduler.HeadReads, scheduler.HintBatches, scheduler.Wakeups, scheduler.RepairPages)
 			if sipCapture != nil {
 				dropped, failures := sipCapture.Stats()
 				fmt.Fprintf(w, "zt_sipbridge_capture_dropped_total %d\nzt_sipbridge_capture_export_failures_total %d\n", dropped, failures)

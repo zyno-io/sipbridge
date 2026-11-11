@@ -132,6 +132,7 @@ type Effect struct {
 	AttemptID        string               `json:"attemptId,omitempty"`
 	Payload          []byte               `json:"payload,omitempty"`
 	ApplicationLease *ApplicationLeaseRef `json:"applicationLease,omitempty"`
+	Worker           string               `json:"worker,omitempty"`
 }
 
 type Timer struct {

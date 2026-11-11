@@ -337,7 +337,7 @@ func (p *redisReservationFaultProxy) matchCommit(command, reply redisFaultFrame)
 		return empty, receipt, false
 	}
 	keyCount, err := strconv.Atoi(string(args[2].scalar))
-	if err != nil || keyCount != 3 || len(args) < 3+keyCount+14 || string(args[3].scalar) != p.target.groupKey {
+	if err != nil || keyCount != 6 || len(args) < 3+keyCount+14 || string(args[3].scalar) != p.target.groupKey {
 		return empty, receipt, false
 	}
 	argv := args[3+keyCount:]

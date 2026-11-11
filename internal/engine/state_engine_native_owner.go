@@ -135,10 +135,33 @@ func (r *stateReduction) nativeOwnerTimer() (bool, error) {
 		if c.OwnerLost && c.Subscription == nil {
 			return true, r.finishOwnerCleanup(c)
 		}
-		c.OwnerProbeAtMS = r.now + stateOwnerProbeInterval
+		next, err := r.nativeOwnerProbeDeadline(c)
+		if err != nil {
+			return true, err
+		}
+		c.OwnerProbeAtMS = next
 		return true, nil
 	}
 	return false, nil
+}
+
+// A live owner cannot expire before its observed native lease deadline. Rechecking
+// every context on a shorter fixed interval only rewrites unchanged protocol state.
+func (r *stateReduction) nativeOwnerProbeDeadline(c *stateContext) (int64, error) {
+	lease, err := r.nativeLease(c.Snapshot.Application)
+	if err != nil {
+		return 0, err
+	}
+	if lease.Term != c.Snapshot.ApplicationLeaseTerm || lease.Sealed {
+		return 0, errStateApplicationOwner
+	}
+	if lease.ExpiresAtMS > r.now {
+		return lease.ExpiresAtMS, nil
+	}
+	if lease.RecoveryUntilMS > r.now {
+		return lease.RecoveryUntilMS, nil
+	}
+	return 0, errStateApplicationOwner
 }
 
 func (r *stateReduction) appendNativeOwnerTimers() error {
@@ -162,7 +185,13 @@ func (r *stateReduction) appendNativeOwnerTimers() error {
 		if c.OwnerLost && c.Subscription != nil || !stateOwnerProbeNeeded(c, pending) && c.OwnerCleanupAtMS == 0 {
 			continue
 		}
-		if c.OwnerProbeAtMS == 0 {
+		if !c.OwnerLost {
+			next, err := r.nativeOwnerProbeDeadline(c)
+			if err != nil {
+				return err
+			}
+			c.OwnerProbeAtMS = next
+		} else if c.OwnerProbeAtMS == 0 {
 			c.OwnerProbeAtMS = r.now + stateOwnerProbeInterval
 		}
 		due := r.ownerDue(c)

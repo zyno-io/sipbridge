@@ -61,7 +61,7 @@ func newContinuityTLS(t *testing.T, prefix string) continuityTLS {
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(cert)
 	out.config = &tls.Config{RootCAs: roots, ServerName: "redis.fixture.test", MinVersion: tls.VersionTLS12}
-	commands := "+hello +ping +client|setinfo +client|setname +info +mget +scan +get +set +time +type +exists +pttl +hget +hset +hincrby +hlen +hmget +zadd +zrem +zrangebyscore +zcard +zscore +pexpire +persist +del +eval +evalsha"
+	commands := "+hello +ping +client|setinfo +client|setname +info +mget +scan +get +set +time +type +exists +pttl +hget +hset +hincrby +hlen +hmget +zadd +zrem +zrange +zrangebyscore +xadd +xread +xrevrange +zcard +zscore +pexpire +persist +del +eval +evalsha"
 	acl := fmt.Sprintf("user default reset off\nuser operator reset on >%s +@all ~* &*\nuser replication reset on >%s +psync +replconf +ping\nuser sipbridge reset on >%s %s ~%s*\n", out.operator, out.replication, out.state, commands, prefix)
 	sentinel := fmt.Sprintf("user default reset off\nuser operator reset on >%s +@all ~* &*\nuser discovery reset on >%s +hello +ping +info +client|setinfo +client|setname +sentinel|get-master-addr-by-name +sentinel|sentinels +sentinel|replicas +subscribe &+switch-master\n", out.operator, out.discovery)
 	if err := os.WriteFile(out.acl, []byte(acl), 0600); err != nil {

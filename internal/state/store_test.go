@@ -218,7 +218,7 @@ func TestStateNamespaceACL(t *testing.T) {
 	commands := []interface{}{"ACL", "SETUSER", user, "reset", "on", ">" + password, "~" + s.root + "*",
 		"+hello", "+ping", "+client|setinfo", "+client|setname", "+info", "+mget", "+scan",
 		"+get", "+set", "+time", "+type", "+exists", "+pttl", "+hget", "+hset", "+hincrby",
-		"+hlen", "+hmget", "+zadd", "+zrem", "+zrangebyscore", "+zcard", "+zscore", "+pexpire", "+persist", "+del", "+eval", "+evalsha"}
+		"+hlen", "+hmget", "+zadd", "+zrem", "+zrange", "+zrangebyscore", "+xadd", "+xread", "+xrevrange", "+zcard", "+zscore", "+pexpire", "+persist", "+del", "+eval", "+evalsha"}
 	if err := s.client.Do(ctx, commands...).Err(); err != nil {
 		t.Fatal(err)
 	}

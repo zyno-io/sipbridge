@@ -30,11 +30,12 @@ var masterPattern = regexp.MustCompile(`(?m)^role:master\r?$`)
 // protocol records. Empty Redis state needs no external initialization.
 type Store struct {
 	metadata
-	client     *redis.Client
-	ready      atomic.Bool
-	transport  atomic.Pointer[primaryObservation]
-	validated  atomic.Pointer[primaryObservation]
-	validation singleflight.Group
+	client        *redis.Client
+	notifications *redis.Client
+	ready         atomic.Bool
+	transport     atomic.Pointer[primaryObservation]
+	validated     atomic.Pointer[primaryObservation]
+	validation    singleflight.Group
 }
 
 // OpenDeferred creates connection resources without opening Redis. Logical
@@ -45,22 +46,27 @@ func OpenDeferred(cfg Config) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{metadata: newMetadata(cfg)}
+	s.client = s.newRedisClient(cfg.Redis.PoolSize)
+	s.notifications = s.newRedisClient(2)
+	return s, nil
+}
+
+func (s *Store) newRedisClient(poolSize int) *redis.Client {
+	cfg := s.cfg
 	onConnect := func(ctx context.Context, conn *redis.Conn) error { return s.observeConnection(ctx, conn) }
 
 	if len(cfg.Redis.SentinelAddresses) > 0 {
-		s.client = redis.NewFailoverClient(&redis.FailoverOptions{MasterName: cfg.Redis.SentinelMaster,
+		return redis.NewFailoverClient(&redis.FailoverOptions{MasterName: cfg.Redis.SentinelMaster,
 			SentinelAddrs: cfg.Redis.SentinelAddresses, SentinelUsername: cfg.Redis.SentinelUsername,
 			SentinelPassword: cfg.Redis.SentinelPassword, Username: cfg.Redis.Username, Password: cfg.Redis.Password,
 			TLSConfig: cfg.Redis.TLS, DialTimeout: cfg.Redis.DialTimeout, ReadTimeout: cfg.Redis.IOTimeout,
-			WriteTimeout: cfg.Redis.IOTimeout, PoolSize: cfg.Redis.PoolSize, MaxRetries: -1,
+			WriteTimeout: cfg.Redis.IOTimeout, PoolSize: poolSize, MaxRetries: -1,
 			ContextTimeoutEnabled: true, OnConnect: onConnect})
-	} else {
-		s.client = redis.NewClient(&redis.Options{Addr: cfg.Redis.Address, Username: cfg.Redis.Username,
-			Password: cfg.Redis.Password, TLSConfig: cfg.Redis.TLS, DialTimeout: cfg.Redis.DialTimeout,
-			ReadTimeout: cfg.Redis.IOTimeout, WriteTimeout: cfg.Redis.IOTimeout, PoolSize: cfg.Redis.PoolSize,
-			MaxRetries: -1, ContextTimeoutEnabled: true, OnConnect: onConnect})
 	}
-	return s, nil
+	return redis.NewClient(&redis.Options{Addr: cfg.Redis.Address, Username: cfg.Redis.Username,
+		Password: cfg.Redis.Password, TLSConfig: cfg.Redis.TLS, DialTimeout: cfg.Redis.DialTimeout,
+		ReadTimeout: cfg.Redis.IOTimeout, WriteTimeout: cfg.Redis.IOTimeout, PoolSize: poolSize,
+		MaxRetries: -1, ContextTimeoutEnabled: true, OnConnect: onConnect})
 }
 
 // Open verifies a current writable Redis primary. Empty state is ready.
@@ -132,7 +138,11 @@ func (s *Store) Available() bool {
 	return s.ready.Load() && observation != nil && s.validated.Load() == observation
 }
 
-func (s *Store) Close() error { return s.client.Close() }
+func (s *Store) Close() error {
+	clientErr := s.client.Close()
+	notificationErr := s.notifications.Close()
+	return errors.Join(clientErr, notificationErr)
+}
 
 func (s *Store) partitionPrefix(p uint16) string { return fmt.Sprintf("%s{p%04d}:", s.root, p) }
 func (s *Store) keys(ref Ref) []string {
@@ -238,7 +248,8 @@ func (s *Store) baseArgs(ref Ref, observed *primaryObservation) []interface{} {
 }
 
 func (s *Store) run(ctx context.Context, script *redis.Script, ref Ref, extra []interface{}, mutation bool, expected ...*primaryObservation) ([]interface{}, error) {
-	return s.runKeys(ctx, script, ref, s.keys(ref), extra, mutation, expected...)
+	keys := append(s.keys(ref), s.schedulerKeys()...)
+	return s.runKeys(ctx, script, ref, keys, extra, mutation, expected...)
 }
 
 func (s *Store) runKeys(ctx context.Context, script *redis.Script, ref Ref, keys []string, extra []interface{}, mutation bool, expected ...*primaryObservation) ([]interface{}, error) {
@@ -556,6 +567,11 @@ func (s *Store) commit(ctx context.Context, step Step, next Payload, outcome []b
 		return Receipt{}, err
 	}
 	args = append(args, string(contextProjection))
+	workers, err := json.Marshal(dispatchWorkers(next.Effects))
+	if err != nil {
+		return Receipt{}, err
+	}
+	args = append(args, string(workers))
 	values, err := s.run(ctx, script, step.Claim.Ref, args, true, step.Claim.transport)
 	if err != nil {
 		return Receipt{}, err
@@ -622,7 +638,7 @@ func (s *Store) decodeHints(values []interface{}, partition uint16, limit int) (
 		if err != nil {
 			return nil, err
 		}
-		if ref.Partition != partition {
+		if partition != anySchedulePartition && ref.Partition != partition {
 			return nil, ErrCorrupt
 		}
 		score, err := textAt(values, i+1)
@@ -643,6 +659,17 @@ func (s *Store) decodeHints(values []interface{}, partition uint16, limit int) (
 // Shared authority/clock/transport failures reject the poll. Hints grant no claims.
 // This bounded cross-partition read requires the single-primary/Sentinel topology.
 func (s *Store) ScheduleHints(ctx context.Context, first uint16, count, limit int) ([]HintBatch, error) {
+	return s.scheduleHints(ctx, "", first, count, limit)
+}
+
+func (s *Store) SchedulerHints(ctx context.Context, token string, first uint16, count, limit int) ([]HintBatch, error) {
+	if !workerPattern.MatchString(token) {
+		return nil, ErrConflict
+	}
+	return s.scheduleHints(ctx, token, first, count, limit)
+}
+
+func (s *Store) scheduleHints(ctx context.Context, token string, first uint16, count, limit int) ([]HintBatch, error) {
 	if first >= s.cfg.Partitions || count < 1 || count > min(8, int(s.cfg.Partitions)) || limit < 1 || limit > 256 {
 		return nil, errors.New("invalid scheduling batch")
 	}
@@ -652,7 +679,8 @@ func (s *Store) ScheduleHints(ctx context.Context, first uint16, count, limit in
 		prefix := s.partitionPrefix(partition)
 		keys = append(keys, prefix+"ready", prefix+"due")
 	}
-	values, err := s.runKeys(ctx, scheduleHintsScript, Ref{Partition: first}, keys, []interface{}{limit}, false)
+	keys = append(keys, s.schedulerKeys()[2])
+	values, err := s.runKeys(ctx, scheduleHintsScript, Ref{Partition: first}, keys, []interface{}{limit, token}, false)
 	if err != nil {
 		return nil, err
 	}
@@ -683,8 +711,25 @@ func (s *Store) decodeHintClass(value interface{}, partition uint16, limit int) 
 // RepairSchedule repairs one bounded SCAN page. The caller must complete scans
 // frequently enough for its admitted protocol deadlines; no notification is truth.
 func (s *Store) RepairSchedule(ctx context.Context, cursor uint64, count int) (uint64, int, error) {
+	return s.repairSchedule(ctx, "", cursor, count)
+}
+
+func (s *Store) RepairScheduler(ctx context.Context, token string, cursor uint64, count int) (uint64, int, error) {
+	if !workerPattern.MatchString(token) {
+		return cursor, 0, ErrConflict
+	}
+	return s.repairSchedule(ctx, token, cursor, count)
+}
+
+func (s *Store) repairSchedule(ctx context.Context, token string, cursor uint64, count int) (uint64, int, error) {
 	if count < 1 || count > 256 {
 		return cursor, 0, errors.New("invalid repair batch")
+	}
+	if token != "" {
+		_, err := s.runKeys(ctx, schedulerValidateScript, Ref{}, []string{s.schedulerKeys()[2]}, []interface{}{token}, false)
+		if err != nil {
+			return cursor, 0, err
+		}
 	}
 	if _, err := s.ensurePrimary(ctx); err != nil {
 		return cursor, 0, err
@@ -698,7 +743,7 @@ func (s *Store) RepairSchedule(ctx context.Context, cursor uint64, count int) (u
 		if err != nil {
 			return cursor, i, err
 		}
-		_, err = s.run(ctx, repairScript, ref, nil, true)
+		_, err = s.run(ctx, repairScript, ref, []interface{}{token}, true)
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return cursor, i, err
 		}

@@ -1475,6 +1475,9 @@ func (r *stateReduction) finish() (state.Payload, error) {
 			return state.Payload{}, err
 		}
 		r.projectNativeLeases()
+		if err := r.projectDispatchWorkers(); err != nil {
+			return state.Payload{}, err
+		}
 	}
 	budget, err := r.completionBudget()
 	if err != nil {
@@ -1494,4 +1497,37 @@ func (r *stateReduction) finish() (state.Payload, error) {
 	r.payload.ProtocolState = data
 	r.finishedBudget = budget
 	return r.payload, nil
+}
+
+func (r *stateReduction) projectDispatchWorkers() error {
+	workers := make(map[[2]string]string)
+	for index := range r.payload.Effects {
+		effect := &r.payload.Effects[index]
+		effect.Worker = ""
+		if !stateDispatchableEffect(*effect, r.now) || effect.Kind == "open" && (effect.Status != state.EffectPending || effect.DeadlineMS <= r.now) {
+			continue
+		}
+		if effect.Kind == "present" || effect.Kind == "event" || effect.Kind == "adopt" || effect.Kind == "credential" || effect.Kind == "open" {
+			effect.Worker = state.AnyDispatchWorker
+			continue
+		}
+		if effect.Kind != "deliver" {
+			continue
+		}
+		var body stateEngineEffect
+		if err := body.UnmarshalJSON(effect.Payload); err != nil {
+			return err
+		}
+		if body.Native && !body.Settled && body.Permit.GetFlow().GetIngress() != nil {
+			process := body.Permit.Flow.Ingress
+			key := [2]string{process.InstanceId, process.Epoch}
+			worker, found := workers[key]
+			if !found {
+				worker = r.engine.dispatchWorker(process)
+				workers[key] = worker
+			}
+			effect.Worker = worker
+		}
+	}
+	return nil
 }

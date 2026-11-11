@@ -376,6 +376,10 @@ func (r *stateReduction) subscriptionResponse(c *stateContext, tx *stateTransact
 }
 
 func (e *StateEngine) scheduleGroup(ref state.Ref, _ bool) {
+	e.scheduleGroupIn(e.ctx, ref)
+}
+
+func (e *StateEngine) scheduleGroupIn(parent context.Context, ref state.Ref) {
 	key := ref.ID + ":" + ref.Incarnation
 	e.lifecycleMu.Lock()
 	if e.closed || e.scheduled[key] || len(e.scheduled) >= 16 {
@@ -410,7 +414,7 @@ func (e *StateEngine) scheduleGroup(ref state.Ref, _ bool) {
 			delete(e.scheduled, key)
 			e.lifecycleMu.Unlock()
 		}()
-		ctx, cancel := context.WithTimeout(e.ctx, 2*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 		defer cancel()
 		plan, err := e.schedulePlan(ctx, ref)
 		if err != nil {

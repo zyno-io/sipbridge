@@ -26,21 +26,23 @@ const stateEffectRecoveryMS = int64(1000)
 // StateEngine retains execution resources only. Every context/transaction value
 // is decoded for one transition, committed, and discarded.
 type StateEngine struct {
-	cfg         Config
-	store       state.Backend
-	control     *control.Server
-	runtime     execution.Driver
-	ctx         context.Context
-	cancel      context.CancelFunc
-	work        chan struct{}
-	background  chan struct{}
-	scheduled   map[string]bool
-	wg          sync.WaitGroup
-	lifecycleMu sync.Mutex
-	closed      bool
-	dispatchMu  sync.Mutex
-	dispatching map[string]bool
-	waiters     map[string]map[chan struct{}]struct{}
+	cfg            Config
+	store          state.Backend
+	control        *control.Server
+	runtime        execution.Driver
+	ctx            context.Context
+	cancel         context.CancelFunc
+	work           chan struct{}
+	background     chan struct{}
+	scheduled      map[string]bool
+	physicalGroups map[string]bool
+	wg             sync.WaitGroup
+	lifecycleMu    sync.Mutex
+	closed         bool
+	dispatchMu     sync.Mutex
+	dispatching    map[string]bool
+	waiters        map[string]map[chan struct{}]struct{}
+	scheduler      schedulerStatistics
 }
 
 type stateEngineInput struct {
@@ -709,60 +711,46 @@ func (e *StateEngine) Complete(ctx context.Context, write *pb.FlowWrite, deliver
 	return nil
 }
 
-func (e *StateEngine) schedule() {
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	var cursor uint64
-	var cycles uint64
-	var hints stateScheduleCursor
-	for {
-		select {
-		case <-e.ctx.Done():
-			return
-		case <-ticker.C:
-		}
-		// Preserve the 160ms sweep without oversampling small namespaces.
-		pass, stop := context.WithTimeout(e.ctx, 100*time.Millisecond)
-		e.scheduleHints(pass, &hints)
-		stop()
-
-		cycles++
-		if cycles%50 == 0 {
-			next, _, err := e.store.RepairSchedule(e.ctx, cursor, 128)
-			if err == nil {
-				cursor = next
-			}
-		}
-	}
-}
-
 type stateScheduleCursor struct{ partition, admission uint16 }
 
 func (e *StateEngine) scheduleHints(ctx context.Context, cursor *stateScheduleCursor) {
+	_, _ = e.scheduleLeasedHints(ctx, e.ctx, cursor, "")
+}
+
+func (e *StateEngine) scheduleLeasedHints(ctx, leader context.Context, cursor *stateScheduleCursor, token string) (bool, error) {
 	count := stateSchedulePartitions(e.store.PartitionCount())
 	first := cursor.partition
-	batches, err := e.store.ScheduleHints(ctx, first, count, 8)
+	var batches []state.HintBatch
+	var err error
+	if token == "" {
+		batches, err = e.store.ScheduleHints(ctx, first, count, 8)
+	} else {
+		batches, err = e.store.SchedulerHints(ctx, token, first, count, 8)
+	}
 	cursor.partition = (first + uint16(count)) % e.store.PartitionCount()
 	start := int(cursor.admission)
 	if cursor.partition == 0 {
 		cursor.admission = (cursor.admission + 1) % uint16(count)
 	}
 	if err != nil {
-		return
+		return false, err
 	}
+	corrupt := false
 	for n := range batches {
 		hints := batches[(start+n)%len(batches)]
+		corrupt = corrupt || hints.ReadyError != nil || hints.DueError != nil
 		if hints.ReadyError == nil {
 			for _, hint := range hints.Ready {
-				e.scheduleGroup(hint.Ref, false)
+				e.scheduleGroupIn(leader, hint.Ref)
 			}
 		}
 		if hints.DueError == nil {
 			for _, hint := range hints.Due {
-				e.scheduleGroup(hint.Ref, true)
+				e.scheduleGroupIn(leader, hint.Ref)
 			}
 		}
 	}
+	return corrupt, nil
 }
 
 func stateSchedulePartitions(partitions uint16) int {
@@ -778,11 +766,10 @@ type stateSchedulePlan struct {
 }
 
 func (e *StateEngine) schedulePlan(ctx context.Context, ref state.Ref) (stateSchedulePlan, error) {
-	record, err := e.store.Load(ctx, ref)
+	record, now, err := e.store.LoadAt(ctx, ref)
 	if err != nil {
 		return stateSchedulePlan{}, err
 	}
-	now := time.Now().UnixMilli()
 	return stateSchedulePlan{ref: record.Ref, pending: record.Pending != nil,
 		retire: record.Payload.Retention.Terminal && record.Payload.ActiveTransactions == 0 && len(record.Payload.Effects) == 0 && len(record.Payload.Timers) == 0,
 		timers: e.dueTimers(record, now), effects: e.dispatchableEffects(record.Payload.Effects, now)}, nil
@@ -916,7 +903,11 @@ func stateSupportedEffectKind(kind string) bool {
 func (e *StateEngine) dispatchableEffects(effects []state.Effect, now int64) []state.Effect {
 	eligible := stateDispatchableEffects(effects, now)
 	filtered := eligible[:0]
+	worker := e.dispatchWorker(e.cfg.Process)
 	for _, effect := range eligible {
+		if effect.Worker != "" && effect.Worker != state.AnyDispatchWorker && effect.Worker != worker {
+			continue
+		}
 		if e.autonomousCompletion() && stateTrustedRelayEffect(effect) {
 			continue
 		}
@@ -928,26 +919,26 @@ func (e *StateEngine) dispatchableEffects(effects []state.Effect, now int64) []s
 func stateDispatchableEffects(effects []state.Effect, now int64) []state.Effect {
 	var eligible []state.Effect
 	for _, effect := range effects {
-		if !stateSupportedEffectKind(effect.Kind) || effect.Kind == "owner" && effect.Status == state.EffectUnknown {
-			continue
+		if stateDispatchableEffect(effect, now) {
+			eligible = append(eligible, effect)
 		}
-		known := effect.Kind == "deliver" && (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten)
-		if known {
-			var body stateEngineEffect
-			if body.UnmarshalJSON(effect.Payload) != nil || body.Settled {
-				continue
-			}
-		} else {
-			if effect.Status != state.EffectPending && effect.Status != state.EffectAuthorized && effect.Status != state.EffectDispatching && effect.Status != state.EffectUnknown {
-				continue
-			}
-			if effect.Kind != "owner" && effect.DeadlineMS+120000 <= now && !stateHistoricalDelivery(effect) && !stateHistoricalAuthorization(effect) {
-				continue
-			}
-		}
-		eligible = append(eligible, effect)
 	}
 	return eligible
+}
+
+func stateDispatchableEffect(effect state.Effect, now int64) bool {
+	if !stateSupportedEffectKind(effect.Kind) || effect.Kind == "owner" && effect.Status == state.EffectUnknown {
+		return false
+	}
+	known := effect.Kind == "deliver" && (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten)
+	if known {
+		var body stateEngineEffect
+		return body.UnmarshalJSON(effect.Payload) == nil && !body.Settled
+	}
+	if effect.Status != state.EffectPending && effect.Status != state.EffectAuthorized && effect.Status != state.EffectDispatching && effect.Status != state.EffectUnknown {
+		return false
+	}
+	return effect.Kind == "owner" || effect.DeadlineMS+120000 > now || stateHistoricalDelivery(effect) || stateHistoricalAuthorization(effect)
 }
 
 func (e *StateEngine) dispatchEffects(ref state.Ref, effects []state.Effect) {

@@ -160,6 +160,9 @@ func (s *metadata) validatePayloadStructure(payload Payload) error {
 	}
 	seen := make(map[string]bool, len(payload.Effects))
 	for _, effect := range payload.Effects {
+		if effect.Worker != "" && effect.Worker != AnyDispatchWorker && !dispatchWorkerPattern.MatchString(effect.Worker) {
+			return ErrCorrupt
+		}
 		if effect.ApplicationLease != nil && (!validApplicationLeaseRef(*effect.ApplicationLease) || !leaseIDs[effect.ApplicationLease.ID]) {
 			return ErrCorrupt
 		}

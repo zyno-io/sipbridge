@@ -29,6 +29,12 @@ type MemoryStore struct {
 	leases              map[string]*memoryLease
 	applicationContexts map[string]map[string]ApplicationContextEntry
 	leaseOrder          list.List
+	schedulerHolder     string
+	schedulerUntil      int64
+	schedulerCursor     uint64
+	schedulerWake       chan struct{}
+	dispatchQueues      map[string]*hintHeap
+	dispatchWorkers     map[string]int64
 }
 
 type memoryGroup struct {
@@ -38,6 +44,7 @@ type memoryGroup struct {
 	receipts           []Receipt
 	proof              *Receipt
 	ready, due, retire int64
+	workers            []string
 }
 
 type memoryLease struct {
@@ -84,7 +91,7 @@ func newMemory(cfg Config, clock func() time.Time) (*MemoryStore, error) {
 		return nil, errors.New("invalid SIP memory capacity")
 	}
 	m := &MemoryStore{metadata: newMetadata(cfg), gate: make(chan struct{}, 1), clock: clock,
-		groups: make(map[string]*memoryGroup), leases: make(map[string]*memoryLease), schedules: make([]memorySchedule, cfg.Partitions)}
+		groups: make(map[string]*memoryGroup), leases: make(map[string]*memoryLease), schedules: make([]memorySchedule, cfg.Partitions), schedulerWake: make(chan struct{})}
 	// Even explicitly identical configuration never joins independent local stores.
 	m.authority.RunID = uuid.NewString()
 	m.available.Store(true)
@@ -129,12 +136,18 @@ func (m *MemoryStore) Ready(ctx context.Context) error {
 func (m *MemoryStore) Close() error {
 	m.gate <- struct{}{}
 	defer m.unlock()
+	if m.closed {
+		return nil
+	}
 	m.closed = true
+	close(m.schedulerWake)
 	m.available.Store(false)
 	m.groups = nil
 	m.leases = nil
 	m.applicationContexts = nil
 	m.schedules = nil
+	m.dispatchQueues = nil
+	m.dispatchWorkers = nil
 	m.leaseOrder.Init()
 	return nil
 }
@@ -394,6 +407,19 @@ func (m *MemoryStore) CompareAndSwap(ctx context.Context, update Update, next Pa
 		encodedContexts, _ := json.Marshal(contexts)
 		projectionBytes += len(encodedContexts)
 	}
+	requestedWorkers := dispatchWorkers(next.Effects)
+	workers := m.resolveDispatchWorkers(requestedWorkers, now)
+	if len(workers) > 4096 {
+		return Receipt{}, ErrCapacity
+	}
+	if len(requestedWorkers) > 0 {
+		encodedWorkers, _ := json.Marshal(requestedWorkers)
+		projectionBytes += len(encodedWorkers)
+	}
+	if len(workers) > 0 {
+		encodedWorkers, _ := json.Marshal(workers)
+		projectionBytes += len(encodedWorkers)
+	}
 	outcomeReserve := base64.StdEncoding.EncodedLen(m.cfg.Limits.OutcomeBytes) + 1024
 	if int64(len(data))+int64(len(encodedReceipts))+4096+int64(next.ReservedCompletionBytes)+int64(outcomeReserve)+int64(projectionBytes) > int64(m.cfg.Limits.GroupBytes) {
 		return Receipt{}, ErrCapacity
@@ -422,6 +448,7 @@ func (m *MemoryStore) CompareAndSwap(ctx context.Context, update Update, next Pa
 	g.ready, g.due, g.retire = ready, due, retire
 	m.groups[g.ref.ID] = g
 	m.schedule(g)
+	m.scheduleDispatch(g, workers, now)
 	return copyReceipt(receipt), nil
 }
 
@@ -500,6 +527,7 @@ func (m *MemoryStore) Retire(ctx context.Context, ref Ref) error {
 	}
 	m.applyApplicationContexts(contextChanges)
 	delete(m.groups, ref.ID)
+	m.scheduleDispatch(g, nil, now)
 	m.schedules[ref.Partition].ready.set(ref, 0)
 	m.schedules[ref.Partition].due.set(ref, 0)
 	return nil
@@ -747,10 +775,26 @@ type memorySchedule struct{ ready, due hintHeap }
 
 func (m *MemoryStore) schedule(g *memoryGroup) {
 	index := &m.schedules[g.ref.Partition]
+	previous := m.scheduleDeadline()
 	index.ready.set(g.ref, g.ready)
 	index.due.set(g.ref, g.due)
+	next := m.scheduleDeadline()
+	if next > 0 && (previous == 0 || next < previous) {
+		m.wakeSchedule()
+	}
 }
 func (m *MemoryStore) ScheduleHints(ctx context.Context, first uint16, count, limit int) ([]HintBatch, error) {
+	return m.scheduleHints(ctx, "", first, count, limit)
+}
+
+func (m *MemoryStore) SchedulerHints(ctx context.Context, token string, first uint16, count, limit int) ([]HintBatch, error) {
+	if !workerPattern.MatchString(token) {
+		return nil, ErrConflict
+	}
+	return m.scheduleHints(ctx, token, first, count, limit)
+}
+
+func (m *MemoryStore) scheduleHints(ctx context.Context, token string, first uint16, count, limit int) ([]HintBatch, error) {
 	if first >= m.cfg.Partitions || count < 1 || count > min(8, int(m.cfg.Partitions)) || limit < 1 || limit > 256 {
 		return nil, errors.New("invalid scheduling batch")
 	}
@@ -759,6 +803,9 @@ func (m *MemoryStore) ScheduleHints(ctx context.Context, first uint16, count, li
 		return nil, err
 	}
 	defer m.unlock()
+	if token != "" && !m.schedulerCurrent(token, now) {
+		return nil, ErrStale
+	}
 	batches := make([]HintBatch, count)
 	for n := range batches {
 		index := &m.schedules[(int(first)+n)%int(m.cfg.Partitions)]

@@ -271,7 +271,7 @@ func InspectFixtureCompletion(payload state.Payload) (FixtureCompletionProjectio
 			return FixtureCompletionProjection{}, state.ErrCorrupt
 		}
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return FixtureCompletionProjection{}, state.ErrCorrupt
 		}
 		next := fixtureInspectionEffect{Kind: effect.Kind, Status: effect.Status, DeadlineMS: effect.DeadlineMS}

@@ -99,3 +99,26 @@ func FuzzStrictRetainedWire(f *testing.F) {
 		_ = Unmarshal(data, Payload, &value)
 	})
 }
+
+func TestMarshalMatchesCanonicalProtobufAfterMutation(t *testing.T) {
+	value := &storagepb.StatePayload{ProtocolState: []byte("initial"), Effects: &storagepb.StatePayloadEffectsValues{Values: []*storagepb.StateEffect{{Id: "effect", Payload: []byte("wire")}}}}
+	for n := 0; n < 3; n++ {
+		// Cached sizing may be used only within one Marshal invocation. Reusing the
+		// caller's graph after any mutation must compute fresh lengths throughout.
+		value.ProtocolState = append(value.ProtocolState, bytes.Repeat([]byte{'x'}, 127)...)
+		value.Effects.Values[0].Payload = append(value.Effects.Values[0].Payload, bytes.Repeat([]byte{'y'}, 257)...)
+		expected, err := (proto.MarshalOptions{Deterministic: true}).Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := Marshal(Payload, value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prefix := append(bytes.Clone(magic), Payload)
+		expected = append(prefix, expected...)
+		if !bytes.Equal(encoded, expected) {
+			t.Fatal("cached sizing changed canonical record bytes")
+		}
+	}
+}

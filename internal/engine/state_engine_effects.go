@@ -25,7 +25,7 @@ func (r *stateReduction) findEffect(id string) (int, state.Effect, stateEngineEf
 				return 0, effect, stateEngineEffect{}, state.ErrCorrupt
 			}
 			var body stateEngineEffect
-			if body.UnmarshalBinary(effect.Payload) != nil {
+			if body.unmarshalMetadata(effect.Payload) != nil {
 				return 0, effect, body, state.ErrCorrupt
 			}
 			return index, effect, body, nil

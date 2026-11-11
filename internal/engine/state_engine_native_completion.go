@@ -29,7 +29,7 @@ func (r *stateReduction) prepareAutonomousEffects() error {
 			continue
 		}
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return state.ErrCorrupt
 		}
 		c := r.group.Contexts[body.Context]
@@ -55,6 +55,9 @@ func (r *stateReduction) prepareAutonomousEffects() error {
 			}
 		}
 		if effect.Kind == "wire" && effect.Status == state.EffectPending {
+			if err := body.materializeMessage(); err != nil {
+				return err
+			}
 			request := body.Envelope.GetEgress()
 			if request == nil || request.Snapshot == nil || request.Message == nil || body.Flow == nil ||
 				body.Authorization.CompletionScope != r.engine.nativeCompletionScope(c.Snapshot.Context) ||

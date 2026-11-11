@@ -7,6 +7,40 @@ import (
 	pb "sipbridge/internal/controlpb"
 )
 
+const (
+	stateSelectorMemoEntries = 256
+	stateSelectorMemoBytes   = 1 << 20
+)
+
+type stateSelectorKey struct {
+	wire     string
+	outbound bool
+}
+
+// The exact immutable key owns its bytes. Values are read-only derived hints,
+// never parsed message objects or permission to perform an external operation.
+func (r *stateReduction) selectorsForWire(wire []byte, outbound bool) ([]string, error) {
+	if selectors, found := r.selectorMemo[stateSelectorKey{wire: string(wire), outbound: outbound}]; found {
+		return selectors, nil
+	}
+	selectors, err := observeSelectors(wire, outbound)
+	if err != nil {
+		return nil, err
+	}
+	if len(r.selectorMemo) < stateSelectorMemoEntries && len(wire) <= stateSelectorMemoBytes-r.selectorMemoBytes {
+		if r.selectorMemo == nil {
+			r.selectorMemo = make(map[stateSelectorKey][]string)
+		}
+		r.selectorMemo[stateSelectorKey{wire: string(wire), outbound: outbound}] = selectors
+		r.selectorMemoBytes += len(wire)
+	}
+	return selectors, nil
+}
+
+func (r *stateReduction) clearSelectorMemo() {
+	r.selectorMemo, r.selectorMemoBytes = nil, 0
+}
+
 func (r *stateReduction) pruneTransactions() {
 	for id, c := range r.group.Contexts {
 		for key, tx := range c.Transactions {

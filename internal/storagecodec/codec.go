@@ -38,13 +38,17 @@ var magic = []byte{'S', 'I', 'P', 'B', 1}
 func Marshal(kind byte, value proto.Message) (result []byte, err error) {
 	started := time.Now()
 	defer func() { observe(kind, true, started, len(result), err) }()
-	if kind < Payload || kind > Disposition || proto.Size(value) > MaxBytes-len(magic)-1 {
+	options := proto.MarshalOptions{Deterministic: true}
+	size := options.Size(value)
+	if kind < Payload || kind > Disposition || size > MaxBytes-len(magic)-1 {
 		return nil, ErrRecord
 	}
-	data := make([]byte, len(magic)+1, len(magic)+1+proto.Size(value))
+	data := make([]byte, len(magic)+1, len(magic)+1+size)
 	copy(data, magic)
 	data[len(magic)] = kind
-	encoded, err := (proto.MarshalOptions{Deterministic: true}).MarshalAppend(data, value)
+	// No intervening mutation or external call can invalidate this graph size.
+	options.UseCachedSize = true
+	encoded, err := options.MarshalAppend(data, value)
 	if err != nil {
 		return nil, err
 	}

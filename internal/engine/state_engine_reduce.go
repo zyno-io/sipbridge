@@ -160,19 +160,21 @@ func stateHeaders(headers []*pb.Header) []portable.Header {
 }
 
 type stateReduction struct {
-	engine         *StateEngine
-	record         state.Record
-	group          stateGroup
-	payload        state.Payload
-	in             stateEngineInput
-	now            int64
-	deadline       int64
-	fingerprint    string
-	ordinal        int
-	result         *pb.OperationResult
-	requestFence   *stateRequestFence
-	finishedBudget stateCompletionBudget // Pure result of the latest successful finish, never retained.
-	policy         *statePolicyAdmission // Current command selection; never a second authoritative aggregate.
+	engine            *StateEngine
+	record            state.Record
+	group             stateGroup
+	payload           state.Payload
+	in                stateEngineInput
+	now               int64
+	deadline          int64
+	fingerprint       string
+	ordinal           int
+	result            *pb.OperationResult
+	requestFence      *stateRequestFence
+	finishedBudget    stateCompletionBudget // Pure result of the latest successful finish, never retained.
+	policy            *statePolicyAdmission // Current command selection; never a second authoritative aggregate.
+	selectorMemo      map[stateSelectorKey][]string
+	selectorMemoBytes int
 }
 
 func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) (state.Payload, []byte, error) {
@@ -304,6 +306,7 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 	if err != nil {
 		// Handlers stage values decoded from the immutable record. A failed
 		// transition cannot leave a partial dialog mutation or output intent.
+		r.clearSelectorMemo()
 		r.group, _ = decodeStateGroup(record)
 		r.payload = record.Payload
 		r.payload.Effects = append([]state.Effect(nil), record.Payload.Effects...)
@@ -344,6 +347,7 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 	if !ownerRefusal && ((in.Kind == "command" || in.Kind == "ingest") && !input.Proof || in.Kind == "reject") && (!e.statePayloadFits(record, data) || !r.capacityFits(r.finishedBudget)) {
 		// Fresh work may be refused; it cannot strand a pending slot needed by
 		// previously admitted native completion/evidence transitions.
+		r.clearSelectorMemo()
 		r.group, _ = decodeStateGroup(record)
 		r.payload = record.Payload
 		r.payload.Effects = append([]state.Effect(nil), record.Payload.Effects...)
@@ -394,11 +398,11 @@ func (r *stateReduction) touch(c *stateContext) {
 	c.Snapshot.Context.Owner = proto.Clone(r.engine.cfg.Process).(*pb.ProcessRef)
 }
 func (r *stateReduction) index(c *stateContext, m portable.Message, outbound bool) {
-	observed, err := Observe(m.Wire, outbound)
+	selectors, err := r.selectorsForWire(m.Wire, outbound)
 	if err != nil {
 		return
 	}
-	for _, selector := range observed.Selectors {
+	for _, selector := range selectors {
 		r.group.Selectors[selector] = c.Snapshot.Context.Id
 		if !contains(c.Snapshot.Selectors, selector) {
 			c.Snapshot.Selectors = append(c.Snapshot.Selectors, selector)
@@ -1142,7 +1146,7 @@ func (r *stateReduction) command() error {
 				continue
 			}
 			var body stateEngineEffect
-			if body.UnmarshalBinary(effect.Payload) == nil && body.Transaction == tx.Native.Key && body.Context == c.Snapshot.Context.Id {
+			if body.unmarshalMetadata(effect.Payload) == nil && body.Transaction == tx.Native.Key && body.Context == c.Snapshot.Context.Id {
 				effect.Status = state.EffectWritten
 				if effect.AttemptID == "" {
 					effect.AttemptID = "consumed-" + r.engine.id(effect.ID)[:32]
@@ -1440,7 +1444,7 @@ func (r *stateReduction) finish() (state.Payload, error) {
 		}
 		if (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten || effect.Status == state.EffectCancelled) && effect.DeadlineMS+120000 <= r.now {
 			var body stateEngineEffect
-			if err := body.UnmarshalBinary(effect.Payload); err != nil {
+			if err := body.unmarshalMetadata(effect.Payload); err != nil {
 				return state.Payload{}, err
 			}
 			if effect.Kind != "deliver" || body.Settled {
@@ -1449,7 +1453,7 @@ func (r *stateReduction) finish() (state.Payload, error) {
 		}
 		if (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten || effect.Status == state.EffectCancelled) && effect.Kind != "credential" && effect.Kind != "wire" {
 			var body stateEngineEffect
-			if err := body.UnmarshalBinary(effect.Payload); err != nil {
+			if err := body.unmarshalMetadata(effect.Payload); err != nil {
 				return state.Payload{}, err
 			}
 			body.Wire = nil
@@ -1515,7 +1519,7 @@ func (r *stateReduction) projectDispatchWorkers() error {
 			continue
 		}
 		var body stateEngineEffect
-		if err := body.UnmarshalBinary(effect.Payload); err != nil {
+		if err := body.unmarshalMetadata(effect.Payload); err != nil {
 			return err
 		}
 		if body.Native && !body.Settled && body.Permit.GetFlow().GetIngress() != nil {

@@ -40,7 +40,7 @@ func migrationEstablished(t *testing.T, f nativeOwnerFixture) *pb.ContextRef {
 	return ref
 }
 
-func migrationSubscribe(t *testing.T, f nativeOwnerFixture, expires int) *pb.ContextRef {
+func migrationSubscribe(t testing.TB, f nativeOwnerFixture, expires int) *pb.ContextRef {
 	t.Helper()
 	initial := stateTestRequest("SUBSCRIBE", 1, "", "migration-subscribe")
 	wire := bytes.Replace(initial.Wire, []byte("Content-Length:"), []byte("Event: message-summary\r\nExpires: 90\r\nContent-Length:"), 1)

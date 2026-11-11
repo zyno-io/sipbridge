@@ -35,7 +35,7 @@ func newNativeOwnerFixture(t *testing.T) nativeOwnerFixture {
 	return newNativeOwnerFixtureBackend(t, state.RedisBackend)
 }
 
-func newNativeOwnerFixtureBackend(t *testing.T, backend string) nativeOwnerFixture {
+func newNativeOwnerFixtureBackend(t testing.TB, backend string) nativeOwnerFixture {
 	t.Helper()
 	address := os.Getenv("SIPBRIDGE_STATE_TEST_REDIS")
 	if address == "" && backend == state.RedisBackend {
@@ -97,7 +97,7 @@ func newNativeOwnerFixtureBackend(t *testing.T, backend string) nativeOwnerFixtu
 		flow: &pb.FlowRef{Ingress: e.cfg.Process, ConnectionId: "flow-a", SourceIp: "192.0.2.10", SourcePort: 50000, Listener: "sip.example.test:5061", Transport: "tls"}}
 }
 
-func (f nativeOwnerFixture) apply(t *testing.T, ref *pb.ContextRef, id string, in stateEngineInput) *pb.OperationResult {
+func (f nativeOwnerFixture) apply(t testing.TB, ref *pb.ContextRef, id string, in stateEngineInput) *pb.OperationResult {
 	t.Helper()
 	group, err := f.engine.group(ref)
 	if err != nil {
@@ -117,7 +117,7 @@ func (f nativeOwnerFixture) apply(t *testing.T, ref *pb.ContextRef, id string, i
 
 // The fixture acts as an admitted Controller producer. Retried commands retain the
 // original decision bytes, including its fixed expiry and delivery observation.
-func (f nativeOwnerFixture) admitCommand(t *testing.T, ref *pb.ContextRef, operation string, command *pb.Command) {
+func (f nativeOwnerFixture) admitCommand(t testing.TB, ref *pb.ContextRef, operation string, command *pb.Command) {
 	t.Helper()
 	if decision := f.admissions[operation]; decision != nil {
 		command.Admission = proto.Clone(decision).(*pb.CommandAdmission)

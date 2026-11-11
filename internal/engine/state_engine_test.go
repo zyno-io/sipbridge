@@ -128,7 +128,7 @@ func stateTestApply(t *testing.T, e *StateEngine, ref *pb.ContextRef, id string,
 	}
 	return result
 }
-func stateTestLoad(t *testing.T, e *StateEngine, ref *pb.ContextRef) (state.Record, stateGroup) {
+func stateTestLoad(t testing.TB, e *StateEngine, ref *pb.ContextRef) (state.Record, stateGroup) {
 	t.Helper()
 	group, err := e.group(ref)
 	if err != nil {

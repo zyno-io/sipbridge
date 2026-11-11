@@ -284,7 +284,7 @@ func (r *stateReduction) ownerPendingWork() (map[string]bool, error) {
 			continue
 		}
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return nil, state.ErrCorrupt
 		}
 		if c := r.group.Contexts[body.Context]; c != nil && !c.OwnerLost && sameProcess(body.Application, c.Snapshot.Application) {
@@ -598,7 +598,7 @@ func (r *stateReduction) ownerAdopted(c *stateContext, oldApplication, applicati
 func (r *stateReduction) abandonOwnerWork(c *stateContext, application *pb.ProcessRef) error {
 	for index, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Context != c.Snapshot.Context.Id || !sameProcess(body.Application, application) || effect.Kind == "owner" {
@@ -732,7 +732,7 @@ func (r *stateReduction) expireOwnerComputations() error {
 			continue
 		}
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return state.ErrCorrupt
 		}
 		effect.Status = state.EffectCancelled
@@ -766,7 +766,7 @@ func (r *stateReduction) terminalPreWireSetup(c *stateContext) (bool, error) {
 			continue
 		}
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return false, state.ErrCorrupt
 		}
 		if body.Context != c.Snapshot.Context.Id {
@@ -787,7 +787,7 @@ func (r *stateReduction) expireTerminalSetupNotifications() error {
 			continue
 		}
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Envelope.GetDialogEvent().GetKind() != pb.DialogEvent_FAILED {

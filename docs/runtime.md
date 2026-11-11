@@ -105,7 +105,9 @@ The public controller schema and JSON control transport are independent.
 
 The payload contains raw protocol-state and effect bytes; the engine owns their
 typed binary codecs. No JSON/base64/hex wrapper belongs around those large values.
-Small Lua-inspected input/receipt/lease envelopes retain their bounded existing
+Encoding sizes each immutable generated graph once and reuses that size only
+within the same marshal call; it does not retain a graph or size cache between
+operations. Small Lua-inspected input/receipt/lease envelopes retain their bounded existing
 representation. Record data, revision, scheduling and lease projections still
 commit atomically. Memory uses the same codec and independent snapshot ownership.
 Before generated decoding allocates, records are capped at 64 MiB, recursion at
@@ -116,6 +118,13 @@ unknown fields, duplicate singular/map fields and unsupported encodings fail
 closed before a reducer observes a partially interpreted value. Exact SIP wire,
 integer values, explicit presence, replay identity, UNKNOWN outcomes and reserved
 native completion capacity retain their existing semantics.
+
+Effect metadata reads validate retained SIP identity with the same parser and
+mandatory-header/branch checks as full observation, without constructing public
+message headers, addresses or digest fields. Full message projections are
+materialized only for native wire-fingerprint admission and outgoing controller
+RPCs. Neither representation is cached across operations. Non-SIP effect wire
+(such as a network-open target) keeps its existing typed decoding rules.
 
 Codec telemetry uses only fixed record-kind and encode/decode labels, with
 operation/failure counts, cumulative bytes and elapsed seconds on `/metrics`.
@@ -633,6 +642,14 @@ healthy store/admission latency must be qualified against native deadlines; outa
 do not extend SIP deadlines or promise uninterrupted retransmissions.
 
 Hints grant no authority; each selected group reloads current state and timer generation.
+Selector rebuilding uses the same parsed-wire identity and transaction-key rules
+as full message observation without constructing controller header, address or
+digest projections. One reduction may memoize these derived selectors by exact
+wire bytes and direction, bounded to 256 entries and 1 MiB of retained key bytes.
+The memo contains no parsed mutable SIP object or authorization, is discarded at
+the operation boundary, and is cleared before a failed transition restores its
+original aggregate. It never bypasses a fresh store read, native validation or
+CAS fencing. Exhausting the memo budget falls back to ordinary reconstruction.
 Ready precedes due; overlapping work deduplicates. A newly elected leader, or a
 leader observing corrupt hints, runs one bounded incremental metadata-repair scan,
 at most one 128-key page per second alongside normal dispatch. It stops at the end

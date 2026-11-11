@@ -192,7 +192,7 @@ func (r *stateReduction) releaseACKCleanup(c *stateContext, ack stateEngineEffec
 	byTransaction := make(map[string][]int)
 	for index, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Context == c.Snapshot.Context.Id && body.Dialog == ack.Dialog && body.AfterACK == hash {
@@ -228,7 +228,7 @@ func (r *stateReduction) releaseACKCleanup(c *stateContext, ack stateEngineEffec
 		for _, index := range indices {
 			effect := r.payload.Effects[index]
 			var body stateEngineEffect
-			if body.UnmarshalBinary(effect.Payload) != nil {
+			if body.unmarshalMetadata(effect.Payload) != nil {
 				return state.ErrCorrupt
 			}
 			switch {
@@ -296,7 +296,7 @@ func (r *stateReduction) contextRetirementProven(id string, c *stateContext) boo
 	}
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return false
 		}
 		if body.Context == id && effect.Kind == "deliver" && !body.Settled {
@@ -339,7 +339,7 @@ func (r *stateReduction) coldTrustedHistory(id string, c *stateContext) bool {
 			continue
 		}
 		var identity stateEngineEffect
-		if identity.UnmarshalBinary(effect.Payload) != nil {
+		if identity.unmarshalMetadata(effect.Payload) != nil {
 			return false
 		}
 		if identity.Context == id {
@@ -353,7 +353,7 @@ func (r *stateReduction) coldTrustedHistory(id string, c *stateContext) bool {
 	found := false
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return false
 		}
 		if body.Context != id {
@@ -381,7 +381,7 @@ func (r *stateReduction) coldNativeHistory(id string, c *stateContext) bool {
 	found := false
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalBinary(effect.Payload) != nil {
+		if body.unmarshalMetadata(effect.Payload) != nil {
 			return false
 		}
 		if body.Context != id {

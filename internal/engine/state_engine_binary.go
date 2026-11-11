@@ -77,6 +77,16 @@ func (value stateEngineEffect) MarshalBinary() ([]byte, error) {
 	return storagecodec.Marshal(storagecodec.Effect, storageEncodeEngineStateEngineEffect(retained))
 }
 func (value *stateEngineEffect) UnmarshalBinary(data []byte) error {
+	return value.unmarshalBinary(data, true)
+}
+
+// Metadata consumers validate the same retained SIP identity without building
+// controller message projections. Decoded values remain operation-local.
+func (value *stateEngineEffect) unmarshalMetadata(data []byte) error {
+	return value.unmarshalBinary(data, false)
+}
+
+func (value *stateEngineEffect) unmarshalBinary(data []byte, project bool) error {
 	decoded := new(storagepb.EngineStateEngineEffect)
 	if err := storagecodec.Unmarshal(data, storagecodec.Effect, decoded); err != nil {
 		return state.ErrCorrupt
@@ -85,28 +95,49 @@ func (value *stateEngineEffect) UnmarshalBinary(data []byte) error {
 	if next.Policy != nil && !next.Policy.valid() {
 		return state.ErrCorrupt
 	}
-	envelope := next.Envelope
-	if envelope != nil && len(next.Wire) > 0 && (envelope.GetRequest() != nil || envelope.GetEgress() != nil || envelope.GetDialogEvent() != nil) {
-		message, err := Observe(next.Wire, envelope.GetEgress() != nil)
-		if err != nil {
+	if project {
+		if err := next.materializeMessage(); err != nil {
 			return err
 		}
-		if next.Rejection {
-			message.Selectors = nil
-		}
-		if request := envelope.GetRequest(); request != nil && request.Message == nil {
-			request.Message = message
-		}
-		if egress := envelope.GetEgress(); egress != nil && egress.Message == nil {
-			egress.Message = message
-		}
-		if event := envelope.GetDialogEvent(); event != nil && event.Message == nil {
-			event.Message = message
+	} else if next.hasMessageWire() {
+		if _, err := parseObservedMessage(next.Wire); err != nil {
+			return err
 		}
 	}
 	*value = next
 	return nil
 }
+func (value stateEngineEffect) hasMessageWire() bool {
+	envelope := value.Envelope
+	return envelope != nil && len(value.Wire) > 0 && (envelope.GetRequest() != nil || envelope.GetEgress() != nil || envelope.GetDialogEvent() != nil)
+}
+
+// Call only at a boundary requiring the public projection. All retained metadata
+// and wire have already been validated; this does not establish send authority.
+func (value *stateEngineEffect) materializeMessage() error {
+	if !value.hasMessageWire() {
+		return nil
+	}
+	envelope := value.Envelope
+	message, err := Observe(value.Wire, envelope.GetEgress() != nil)
+	if err != nil {
+		return err
+	}
+	if value.Rejection {
+		message.Selectors = nil
+	}
+	if request := envelope.GetRequest(); request != nil && request.Message == nil {
+		request.Message = message
+	}
+	if egress := envelope.GetEgress(); egress != nil && egress.Message == nil {
+		egress.Message = message
+	}
+	if event := envelope.GetDialogEvent(); event != nil && event.Message == nil {
+		event.Message = message
+	}
+	return nil
+}
+
 func (value stateDigestChallenge) MarshalBinary() ([]byte, error) {
 	return storagecodec.Marshal(storagecodec.Digest, storageEncodeEngineStateDigestChallenge(value))
 }

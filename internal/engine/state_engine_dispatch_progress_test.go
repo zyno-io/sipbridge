@@ -159,12 +159,26 @@ func TestStateRPCRefusalWaitsForDurableRecoveryThenProgresses(t *testing.T) {
 			// Execute the original durable timer, without changing its generation,
 			// effect/attempt or native deadline, after the peer becomes available.
 			allow.Store(true)
-			timer := time.NewTimer(time.Until(time.UnixMilli(recovery.DueMS)))
-			select {
-			case <-timer.C:
-			case <-engine.ctx.Done():
-				timer.Stop()
-				t.Fatal("fixture expired before durable recovery")
+			// The deadline belongs to Redis TIME. Waiting on the client's wall
+			// clock can wake before the store considers the timer due, especially
+			// once faster reductions stop masking that boundary race.
+			waitCtx, stopWait := context.WithTimeout(engine.ctx, 2*time.Second)
+			defer stopWait()
+			for {
+				_, now, err := engine.store.LoadAt(waitCtx, r.record.Ref)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if now >= recovery.DueMS {
+					break
+				}
+				timer := time.NewTimer(min(10*time.Millisecond, time.Duration(recovery.DueMS-now)*time.Millisecond))
+				select {
+				case <-timer.C:
+				case <-waitCtx.Done():
+					timer.Stop()
+					t.Fatal("fixture expired before the store's durable recovery deadline")
+				}
 			}
 			engine.tickGroup(engine.ctx, r.record.Ref)
 			waitRPCDispatchDrain(t, engine)

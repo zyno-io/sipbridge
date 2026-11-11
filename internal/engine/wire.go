@@ -31,8 +31,7 @@ func header(m sip.Message, name string) string {
 }
 func tag(params sip.HeaderParams) string { value, _ := params.Get("tag"); return value }
 
-// Observe parses an immutable serialization. Native objects never cross control.
-func Observe(wire []byte, outbound bool) (*pb.SipMessage, error) {
+func parseObservedMessage(wire []byte) (sip.Message, error) {
 	m, err := sip.ParseMessage(wire)
 	if err != nil {
 		return nil, err
@@ -44,6 +43,15 @@ func Observe(wire []byte, outbound bool) (*pb.SipMessage, error) {
 		if _, err := sip.ClientTxKeyMake(m); err != nil {
 			return nil, fmt.Errorf("RFC 3261 Via branch required")
 		}
+	}
+	return m, nil
+}
+
+// Observe parses an immutable serialization. Native objects never cross control.
+func Observe(wire []byte, outbound bool) (*pb.SipMessage, error) {
+	m, err := parseObservedMessage(wire)
+	if err != nil {
+		return nil, err
 	}
 	w := &pb.SipMessage{Wire: wire, Body: m.Body(), Addresses: make(map[string]*pb.AddressList)}
 	var all []sip.Header
@@ -80,6 +88,27 @@ func Observe(wire []byte, outbound bool) (*pb.SipMessage, error) {
 		w.Status = uint32(r.StatusCode)
 		w.Reason = r.Reason
 	}
+	w.Selectors = observedMessageSelectors(m, outbound)
+	if auth, err := digest.ParseCredentials(header(m, "Authorization")); err == nil {
+		w.Authorization = &pb.DigestCredentials{Username: auth.Username, Realm: auth.Realm, Nonce: auth.Nonce, Uri: auth.URI, Response: auth.Response, Algorithm: auth.Algorithm, Qop: auth.QOP, Nc: fmt.Sprintf("%08x", auth.Nc), Cnonce: auth.Cnonce}
+	}
+	return w, nil
+}
+
+// observeSelectors preserves wire validation and native key rules without
+// allocating controller header/address/digest projections.
+func observeSelectors(wire []byte, outbound bool) ([]string, error) {
+	m, err := parseObservedMessage(wire)
+	if err != nil {
+		return nil, err
+	}
+	return observedMessageSelectors(m, outbound), nil
+}
+
+func observedMessageSelectors(m sip.Message, outbound bool) []string {
+	var selectors []string
+	request, isRequest := m.(*sip.Request)
+
 	if isRequest != outbound {
 		var keyMessage sip.Message = m
 		if m.CSeq().MethodName == sip.CANCEL {
@@ -94,21 +123,18 @@ func Observe(wire []byte, outbound bool) (*pb.SipMessage, error) {
 			}
 		}
 		if key, err := sip.ServerTxKeyMake(keyMessage); err == nil {
-			w.Selectors = append(w.Selectors, opaque("stx:", key))
+			selectors = append(selectors, opaque("stx:", key))
 		}
 	} else if key, err := sip.ClientTxKeyMake(m); err == nil {
-		w.Selectors = append(w.Selectors, opaque("ctx:", key))
+		selectors = append(selectors, opaque("ctx:", key))
 	}
 	from, to := tag(m.From().Params), tag(m.To().Params)
 	if from != "" && to != "" {
 		tags := []string{from, to}
 		sort.Strings(tags)
-		w.Selectors = append(w.Selectors, opaque("dlg:", m.CallID().Value(), tags[0], tags[1]))
+		selectors = append(selectors, opaque("dlg:", m.CallID().Value(), tags[0], tags[1]))
 	}
-	if auth, err := digest.ParseCredentials(header(m, "Authorization")); err == nil {
-		w.Authorization = &pb.DigestCredentials{Username: auth.Username, Realm: auth.Realm, Nonce: auth.Nonce, Uri: auth.URI, Response: auth.Response, Algorithm: auth.Algorithm, Qop: auth.QOP, Nc: fmt.Sprintf("%08x", auth.Nc), Cnonce: auth.Cnonce}
-	}
-	return w, nil
+	return selectors
 }
 
 func headers(values []*pb.Header) ([]sip.Header, error) {

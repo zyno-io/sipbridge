@@ -640,7 +640,7 @@ func (e *StateEngine) Reserve(ctx context.Context, write *pb.FlowWrite) (*Commit
 			}
 			found = true
 			var body stateEngineEffect
-			if body.UnmarshalBinary(effect.Payload) != nil || body.Permit == nil || body.Authorization == nil || !proto.Equal(body.Permit, write.Permit) || !proto.Equal(body.Permit.Flow, write.Flow) || !stateSameContext(body.Authorization.Effect.Context, write.Effect.Context) || body.Authorization.Effect.AttemptId != write.Effect.AttemptId {
+			if body.unmarshalMetadata(effect.Payload) != nil || body.Permit == nil || body.Authorization == nil || !proto.Equal(body.Permit, write.Permit) || !proto.Equal(body.Permit.Flow, write.Flow) || !stateSameContext(body.Authorization.Effect.Context, write.Effect.Context) || body.Authorization.Effect.AttemptId != write.Effect.AttemptId {
 				return nil, errors.New("effect authority mismatch")
 			}
 			if effect.AttemptID != "" && effect.AttemptID != write.Effect.AttemptId {
@@ -834,7 +834,7 @@ func stateRPCProgressed(effectID, previousKind string, effects []state.Effect) b
 			return true
 		}
 		var body stateEngineEffect
-		return body.UnmarshalBinary(effect.Payload) == nil && body.Settled
+		return body.unmarshalMetadata(effect.Payload) == nil && body.Settled
 	}
 	return true // A completed/collected effect no longer needs its RPC repeated.
 }
@@ -884,7 +884,7 @@ func stateTrustedRelayEffect(effect state.Effect) bool {
 		// Selection needs only this identity bit. The dispatcher validates the
 		// complete owned body once before any physical or control operation.
 		var identity stateEngineEffect
-		return identity.UnmarshalBinary(effect.Payload) != nil || !identity.Native
+		return identity.unmarshalMetadata(effect.Payload) != nil || !identity.Native
 	default:
 		return false
 	}
@@ -933,7 +933,7 @@ func stateDispatchableEffect(effect state.Effect, now int64) bool {
 	known := effect.Kind == "deliver" && (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten)
 	if known {
 		var body stateEngineEffect
-		return body.UnmarshalBinary(effect.Payload) == nil && !body.Settled
+		return body.unmarshalMetadata(effect.Payload) == nil && !body.Settled
 	}
 	if effect.Status != state.EffectPending && effect.Status != state.EffectAuthorized && effect.Status != state.EffectDispatching && effect.Status != state.EffectUnknown {
 		return false
@@ -946,7 +946,7 @@ func (e *StateEngine) dispatchEffects(ref state.Ref, effects []state.Effect) {
 	for _, effect := range effects {
 		if effect.Kind == "event" {
 			var body stateEngineEffect
-			if body.UnmarshalBinary(effect.Payload) != nil || eventPrefix[body.Context] {
+			if body.unmarshalMetadata(effect.Payload) != nil || eventPrefix[body.Context] {
 				continue
 			}
 			eventPrefix[body.Context] = true
@@ -975,7 +975,7 @@ func (e *StateEngine) dispatchEffect(ref state.Ref, effect state.Effect) {
 
 func (e *StateEngine) dispatchEffectWithin(parent context.Context, ref state.Ref, effect state.Effect, chain bool) {
 	var body stateEngineEffect
-	if body.UnmarshalBinary(effect.Payload) != nil {
+	if body.unmarshalMetadata(effect.Payload) != nil {
 		return
 	}
 	if !stateSupportedEffectKind(effect.Kind) || e.autonomousCompletion() && (effect.Kind == "wire" || effect.Kind == "deliver" && !body.Native) {
@@ -1106,6 +1106,9 @@ func (e *StateEngine) dispatchEffectWithin(parent context.Context, ref state.Ref
 		executor = nil
 	}
 	if effect.Kind == "wire" {
+		if err := body.materializeMessage(); err != nil {
+			return
+		}
 		if body.Envelope == nil {
 			return
 		}
@@ -1151,6 +1154,9 @@ func (e *StateEngine) dispatchEffectWithin(parent context.Context, ref state.Ref
 	// Presentation and lifecycle effects use stable IDs. The result receipt is a
 	// separate transition; the Controller receiver must reconcile that same operation.
 	if body.Envelope == nil {
+		return
+	}
+	if err := body.materializeMessage(); err != nil {
 		return
 	}
 	request := body.Envelope

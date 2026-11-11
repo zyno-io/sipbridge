@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -294,5 +295,63 @@ func TestWaitStateOperationPollTimerAndCancellation(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("cancellation waited for the polling timer")
+	}
+}
+
+type operationCompletionViewStore struct {
+	state.Backend
+	view state.StateView
+	err  error
+	ref  state.Ref
+}
+
+func (s *operationCompletionViewStore) Load(context.Context, state.Ref) (state.Record, error) {
+	return state.Record{}, errors.New("unrelated retained history is corrupt")
+}
+
+func (s *operationCompletionViewStore) ReadState(_ context.Context, ref state.Ref) (state.StateView, int64, error) {
+	s.ref = ref
+	return s.view, 0, s.err
+}
+
+func TestStateOperationSignalCompletionNeedsNoUnrelatedHistory(t *testing.T) {
+	ref := state.Ref{ID: "group", Incarnation: "incarnation"}
+	record := operationWaitRecord(t, "operation", &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, SipStatus: 200})
+	for _, mode := range []string{"completed", "store-failure", "private-corruption"} {
+		for _, respond := range []bool{false, true} {
+			t.Run(mode+"-respond-"+strconv.FormatBool(respond), func(t *testing.T) {
+				store := &operationCompletionViewStore{view: state.StateView{Ref: ref, Payload: record.Payload, HasPending: true}}
+				if mode == "store-failure" {
+					store.err = state.ErrNotFound
+				}
+				if mode == "private-corruption" {
+					store.view.Payload.ProtocolState = []byte("corrupt private group")
+				}
+				engine := &StateEngine{store: store, cfg: Config{Process: &pb.ProcessRef{InstanceId: "poller", Epoch: "epoch"}}}
+				accepted := &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED, SipStatus: 503, Error: "retained refusal"}
+				result, err := engine.awaitOperationSignal(context.Background(), ref, "context", "operation", accepted, respond, nil, false)
+				if store.ref != ref || accepted.Certainty != pb.OperationResult_ACCEPTED {
+					t.Fatal("completion changed its exact group reference or admission result")
+				}
+				switch mode {
+				case "completed":
+					if err != nil || result.Certainty != pb.OperationResult_COMPLETED || result.SipStatus != 200 || result.Snapshot.Revision != 17 || !proto.Equal(result.Snapshot.Executor, engine.cfg.Process) {
+						t.Fatal("current completion depends on unrelated replay history or pending input", err)
+					}
+				case "store-failure":
+					if !respond {
+						if !errors.Is(err, state.ErrNotFound) {
+							t.Fatal("non-Respond read error changed", err)
+						}
+					} else if err != nil || result.Certainty != pb.OperationResult_UNKNOWN || result.SipStatus != 503 || result.Error != "retained refusal" {
+						t.Fatal("Respond read failure lost uncertainty or its latest refusal", err)
+					}
+				case "private-corruption":
+					if !errors.Is(err, state.ErrCorrupt) {
+						t.Fatal("private corruption became read-failure UNKNOWN", err)
+					}
+				}
+			})
+		}
 	}
 }

@@ -44,10 +44,11 @@ func (e *StateEngine) preflightSubscriptionController(ctx context.Context, ref s
 			return false, nil // an exact native response completes a transaction, not business ownership
 		}
 	}
-	record, err := e.store.Load(ctx, ref)
+	view, _, err := e.store.ReadState(ctx, ref)
 	if err != nil {
 		return false, err
 	}
+	record := stateViewProtocolRecord(view)
 	group, err := decodeStateGroup(record)
 	if err != nil {
 		return false, err
@@ -61,7 +62,7 @@ func (e *StateEngine) preflightSubscriptionController(ctx context.Context, ref s
 		return false, fmt.Errorf("%w: subscription controller proof unavailable", errStateApplicationOwner)
 	}
 	probe := &pb.ApplicationProbe{Context: e.contextRef(record.Ref, in.Context.Id), Application: proto.Clone(in.Application).(*pb.ProcessRef)}
-	record, group, c = state.Record{}, stateGroup{}, nil
+	view, record, group, c = state.StateView{}, state.Record{}, stateGroup{}, nil
 	reply, err := peers[0].Call(ctx, &pb.Envelope{Payload: &pb.Envelope_ProbeApplication{ProbeApplication: probe}})
 	if err != nil || reply.GetApplicationStatus() == nil {
 		return false, fmt.Errorf("%w: subscription controller proof unavailable", errStateApplicationOwner)

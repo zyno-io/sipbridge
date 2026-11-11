@@ -295,7 +295,13 @@ func waitStateOperationSignal(ctx context.Context, delay time.Duration, signal <
 
 func (e *StateEngine) awaitOperationSignal(ctx context.Context, ref state.Ref, contextID, operation string, accepted *pb.OperationResult, respond bool, signal <-chan struct{}, waitBeforeRead bool) (*pb.OperationResult, error) {
 	return e.awaitOperationPolling(ctx, ref, contextID, operation, accepted, respond, stateOperationPolling{
-		load: func(ctx context.Context, ref state.Ref) (state.Record, error) { return e.store.Load(ctx, ref) },
+		load: func(ctx context.Context, ref state.Ref) (state.Record, error) {
+			view, _, err := e.store.ReadState(ctx, ref)
+			if err != nil {
+				return state.Record{}, err
+			}
+			return stateViewProtocolRecord(view), nil
+		},
 		wait: func(ctx context.Context, delay time.Duration) bool {
 			return waitStateOperationSignal(ctx, delay, signal)
 		},

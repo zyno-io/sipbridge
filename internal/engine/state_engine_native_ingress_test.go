@@ -108,8 +108,13 @@ func testNativeCompletionIngressRetainsExactFlowAndNativeAuthority(t *testing.T,
 	if handled, err := f.engine.TryNativeCompletion(context.Background(), lowered, correct); err != nil || handled {
 		t.Fatalf("TLS downgrade gained native authority: %v / %v", handled, err)
 	}
-	if handled, err := f.engine.TryNativeCompletion(context.Background(), f.flow, correct); err != nil || !handled {
-		t.Fatalf("exact retained CANCEL required Controller: %v / %v", handled, err)
+	original := f.engine.store
+	f.engine.store = &selectorStateViewStore{Backend: original}
+	defer func() { f.engine.store = original }()
+	handled, completionErr := f.engine.TryNativeCompletion(context.Background(), f.flow, correct)
+	f.engine.store = original
+	if completionErr != nil || !handled {
+		t.Fatalf("exact retained CANCEL required unrelated history or Controller: %v / %v", handled, completionErr)
 	}
 	record, group := stateTestLoad(t, f.engine, ref)
 	if len(group.Contexts) != 1 || group.Contexts[ref.Id].Snapshot.ApplicationLeaseTerm != f.term {

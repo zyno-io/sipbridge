@@ -271,10 +271,11 @@ func (r *stateReduction) releaseNoStartACKCleanup(c *stateContext, body stateEng
 func (e *StateEngine) ackDependencyReady(ref state.Ref, body stateEngineEffect) bool {
 	ctx, cancel := context.WithTimeout(e.ctx, 2*time.Second)
 	defer cancel()
-	record, err := e.store.Load(ctx, ref)
+	view, _, err := e.store.ReadState(ctx, ref)
 	if err != nil {
 		return false
 	}
+	record := stateViewProtocolRecord(view)
 	group, err := decodeStateGroup(record)
 	return err == nil && stateACKDependencyReady(group.Contexts[body.Context], body)
 }

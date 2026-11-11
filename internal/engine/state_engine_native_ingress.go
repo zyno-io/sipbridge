@@ -62,13 +62,14 @@ func (e *StateEngine) TryNativeCompletion(parent context.Context, flow *pb.FlowR
 	if err != nil {
 		return false, err
 	}
-	record, err := e.store.Load(ctx, ref)
+	view, _, err := e.store.ReadState(ctx, ref)
 	if errors.Is(err, state.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {
 		return false, classifyStateReadFailure(err)
 	}
+	record := stateViewProtocolRecord(view)
 	group, err := decodeStateGroup(record)
 	if err != nil {
 		return false, classifyStateReadFailure(err)
@@ -102,7 +103,9 @@ func (e *StateEngine) TryNativeCompletion(parent context.Context, flow *pb.FlowR
 	c := group.Contexts[selected.Context.Id]
 	in := stateEngineInput{Kind: "native-ingest", NativeCompletion: true, Context: selected.Context, Flow: flow, Ingest: selected,
 		Application: proto.Clone(c.Snapshot.Application).(*pb.ProcessRef), ApplicationLeaseTerm: c.Snapshot.ApplicationLeaseTerm}
-	result, committed, err := e.applyCommitted(ctx, record.Ref, uuid.NewString(), in, time.Now().Add(2*time.Second), false)
+	operationRef := record.Ref
+	view, record, group, c, selected = state.StateView{}, state.Record{}, stateGroup{}, nil, nil
+	result, committed, err := e.applyCommitted(ctx, operationRef, uuid.NewString(), in, time.Now().Add(2*time.Second), false)
 	if err != nil {
 		return true, err
 	}
@@ -113,7 +116,7 @@ func (e *StateEngine) TryNativeCompletion(parent context.Context, flow *pb.FlowR
 		}
 		return true, rejectIngest(status, "native completion refused")
 	}
-	e.dispatchCommitted(record.Ref, committed, "", "")
+	e.dispatchCommitted(operationRef, committed, "", "")
 	return true, nil
 }
 

@@ -176,7 +176,10 @@ receipt after semantic expiry; no receipt after expiry means no reduction or CAS
 Exact live replay is checked before fresh admission expiry.
 
 Read-only scheduling, physical-dispatch discovery, dispatch fallback and existing-
-selector lookup use a separate non-authorizing state view. The view includes the
+selector lookup, protocol-only control/controller preflight, native-completion
+selection, ACK dependency checks, exact reference bootstrap, historical physical-
+outcome inspection and completion observation for an already-admitted command use
+a separate non-authorizing state view. The view includes the
 exact group reference/incarnation, revision, versions, bounded validated binary
 payload, same-read store time and pending-input presence. It does not read or
 decode receipt/proof bodies, pending-input contents or application-lease
@@ -186,7 +189,13 @@ Validation is scoped to those selected fields: malformed unselected history does
 not poison the view, while full Load, ReadUpdate, replay and retirement retain
 their complete validation and evidence requirements. A pending input still
 blocks scheduler and existing-selector admission. Existing idempotent recovery
-RPCs may use their retained effect identity from the view; physical sends still
+RPCs may use their retained effect identity from the view. Completion observation
+still reconstructs the canonical private group and matches the exact context and
+operation, including public-BYE write evidence; it does not replay admission or
+gate on pending-input presence. Store-read failure and private-group corruption
+retain their distinct result/error behavior. Historical write inspection retains
+every effect/authorization/permit/flow/attempt comparison and reports absence or
+unproven status as UNKNOWN; it supplies no new send permission. Physical sends still
 require native reservation/permit proof. Native group decoding preserves versions
 so server-transaction disposition checks cannot be bypassed. Returned values are
 independently owned and discarded before socket/RPC I/O; there is no resident

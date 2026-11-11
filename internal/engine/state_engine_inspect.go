@@ -19,10 +19,11 @@ func (e *StateEngine) InspectWrite(ctx context.Context, write *pb.FlowWrite) (*p
 	if err != nil {
 		return nil, err
 	}
-	record, err := e.store.Load(ctx, ref)
+	view, _, err := e.store.ReadState(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
+	record := stateViewProtocolRecord(view)
 	result := &pb.DeliveryResult{Outcome: pb.DeliveryResult_UNKNOWN, Effect: proto.Clone(write.Effect).(*pb.StateEffectRef)}
 	for _, effect := range record.Payload.Effects {
 		if effect.ID != write.Effect.Id {

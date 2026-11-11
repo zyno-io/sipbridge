@@ -71,17 +71,21 @@ func stateSkipSubscriptionPreflight(in stateEngineInput, c *stateContext) bool {
 }
 
 func (e *StateEngine) preflightControl(ctx context.Context, ref state.Ref, in stateEngineInput, deadline time.Time) error {
-	record, err := e.store.Load(ctx, ref)
+	view, _, err := e.store.ReadState(ctx, ref)
 	if err != nil {
 		return err
 	}
+	pending := view.HasPending
+	record := stateViewProtocolRecord(view)
+	view = state.StateView{}
 	group, err := decodeStateGroup(record)
 	if err != nil {
 		return err
 	}
-	if record.Pending == nil && stateSkipSubscriptionPreflight(in, group.Contexts[in.Context.GetId()]) {
+	if !pending && stateSkipSubscriptionPreflight(in, group.Contexts[in.Context.GetId()]) {
 		return nil
 	}
+	record, group = state.Record{}, stateGroup{}
 	_, err = e.preflightSubscriptionController(ctx, ref, in, deadline)
 	return err
 }

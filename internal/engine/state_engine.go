@@ -447,7 +447,7 @@ func (e *StateEngine) Reject(ctx context.Context, flow *pb.FlowRef, message *pb.
 		if groupErr != nil {
 			return groupErr
 		}
-		record, loadErr := e.store.Load(ctx, group)
+		view, _, loadErr := e.store.ReadState(ctx, group)
 		possibleRecovery := false
 		if errors.Is(loadErr, state.ErrNotFound) {
 			if message.Method == "ACK" {
@@ -456,7 +456,7 @@ func (e *StateEngine) Reject(ctx context.Context, flow *pb.FlowRef, message *pb.
 			possibleRecovery = true
 			_, loadErr = e.apply(ctx, group, uuid.NewString(), stateEngineInput{Kind: "locate"}, time.Now().Add(2*time.Second), true)
 			if loadErr == nil {
-				record, loadErr = e.store.Load(ctx, group)
+				view, _, loadErr = e.store.ReadState(ctx, group)
 			}
 		}
 		if loadErr != nil {
@@ -465,7 +465,8 @@ func (e *StateEngine) Reject(ctx context.Context, flow *pb.FlowRef, message *pb.
 			}
 			return classifyStateReadFailure(loadErr)
 		}
-		ref = e.contextRef(record.Ref, "private-refusal")
+		ref = e.contextRef(view.Ref, "private-refusal")
+		view = state.StateView{}
 	} else {
 		ref, err = e.Locate(ctx, message)
 		if err != nil {
@@ -574,11 +575,12 @@ func (e *StateEngine) handle(ctx context.Context, peer *control.Peer, envelope *
 			if _, err = e.apply(ctx, group, e.id("outbound-locate", ref.Id), stateEngineInput{Kind: "locate"}, deadline, true); err != nil {
 				return nil, err
 			}
-			record, err := e.store.Load(ctx, group)
+			view, _, err := e.store.ReadState(ctx, group)
 			if err != nil {
 				return nil, err
 			}
-			ref = e.contextRef(record.Ref, ref.Id)
+			ref = e.contextRef(view.Ref, ref.Id)
+			view = state.StateView{}
 			in.Command = proto.Clone(body.Command).(*pb.Command)
 			in.Command.Context = ref
 		}
@@ -777,8 +779,9 @@ func (e *StateEngine) schedulePlan(ctx context.Context, ref state.Ref) (stateSch
 		timers: e.dueTimers(record, now), effects: e.dispatchableEffects(record.Payload.Effects, now)}, nil
 }
 
-// Only pure group/selector/timer helpers consume this adapter. It carries no
-// replay history, observed leases or CAS token and must never authorize a write.
+// Only protocol-only preflight/discovery, historical outcome inspection and
+// already-admitted completion observation consume this adapter. It carries no replay history, observed leases
+// or CAS token and must never authorize a write.
 func stateViewProtocolRecord(view state.StateView) state.Record {
 	return state.Record{Ref: view.Ref, Authority: view.Authority, Versions: view.Versions,
 		Revision: view.Revision, Payload: view.Payload}

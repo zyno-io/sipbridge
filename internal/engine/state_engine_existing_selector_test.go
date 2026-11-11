@@ -30,7 +30,7 @@ func (s *selectorStateViewStore) ReadState(ctx context.Context, ref state.Ref) (
 	return s.Backend.ReadState(ctx, ref)
 }
 
-func TestSelectorAndScheduleUseStateViewWithoutFullHistory(t *testing.T) {
+func TestProtocolDiscoveryAndPreflightUseStateViewWithoutFullHistory(t *testing.T) {
 	f, ref, renewal := requestFenceSubscriptionFixture(t)
 	f.engine.work = make(chan struct{}, 8)
 	original := f.engine.store
@@ -47,8 +47,15 @@ func TestSelectorAndScheduleUseStateViewWithoutFullHistory(t *testing.T) {
 	if _, err := f.engine.schedulePlan(context.Background(), groupRef); err != nil {
 		t.Fatal("schedule plan failed without full replay history", err)
 	}
-	if observed.views != 2 {
-		t.Fatalf("selector/scheduler did not use their bounded state views: %d", observed.views)
+	in := stateEngineInput{Kind: "command", Application: f.app, Context: ref}
+	if err := f.engine.preflightControl(context.Background(), groupRef, in, time.Now().Add(time.Second)); err != nil {
+		t.Fatal("controller preflight depended on unrelated history", err)
+	}
+	if !f.engine.ackDependencyReady(groupRef, stateEngineEffect{Context: ref.Id}) {
+		t.Fatal("ACK dependency observation depended on unrelated history")
+	}
+	if observed.views != 5 {
+		t.Fatalf("protocol-only observations did not use their bounded state views: %d", observed.views)
 	}
 }
 
@@ -79,6 +86,11 @@ func TestStateViewKeepsNativeDispositionVersionChecks(t *testing.T) {
 	view := state.StateView{Ref: record.Ref, Authority: record.Authority, Versions: record.Versions, Revision: record.Revision, Payload: payload}
 	if _, err := decodeStateGroup(stateViewProtocolRecord(view)); !errors.Is(err, state.ErrCorrupt) {
 		t.Fatal("state view bypassed version-conditioned native disposition checks", err)
+	}
+	observed := &operationCompletionViewStore{view: view}
+	engine := &StateEngine{store: observed, cfg: f.engine.cfg}
+	if _, err := engine.awaitOperationSignal(context.Background(), record.Ref, ref.Id, "operation", &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}, true, nil, false); !errors.Is(err, state.ErrCorrupt) {
+		t.Fatal("completion observation bypassed native disposition checks", err)
 	}
 }
 
@@ -155,5 +167,36 @@ func TestLocateRouteBusyReadOnlySlotFallsBackToAtomicSelector(t *testing.T) {
 	}
 	if len(f.engine.work) != 1 {
 		t.Fatal("busy fast-path fallback consumed a slot it did not acquire")
+	}
+}
+
+func TestStateHistoricalWriteOutcomeNeedsNoReplayHistory(t *testing.T) {
+	for _, backend := range []string{state.MemoryBackend, state.RedisBackend} {
+		t.Run(backend, func(t *testing.T) {
+			f, _, write := publicByeFixture(t, backend)
+			original := f.engine.store
+			f.engine.store = &selectorStateViewStore{Backend: original}
+			defer func() { f.engine.store = original }()
+			before, err := f.engine.InspectWrite(context.Background(), write)
+			if err != nil || before.Outcome != pb.DeliveryResult_UNKNOWN || before.Recorded {
+				t.Fatal("unwritten/uncertain effect gained historical write evidence", err)
+			}
+			reserved, err := f.engine.Reserve(context.Background(), write)
+			if err != nil || reserved.Known || len(reserved.Wire) == 0 {
+				t.Fatal("fresh reservation failed", err)
+			}
+			if err := f.engine.Complete(context.Background(), write, &pb.DeliveryResult{Effect: write.Effect, Outcome: pb.DeliveryResult_WRITTEN}); err != nil {
+				t.Fatal(err)
+			}
+			after, err := f.engine.InspectWrite(context.Background(), write)
+			if err != nil || after.Outcome != pb.DeliveryResult_WRITTEN || !after.Recorded {
+				t.Fatal("lost exact committed physical outcome", err)
+			}
+			wrong := proto.Clone(write).(*pb.FlowWrite)
+			wrong.Flow.ConnectionId = "another-flow"
+			if _, err := f.engine.InspectWrite(context.Background(), wrong); err == nil {
+				t.Fatal("historical outcome ignored exact physical-flow proof")
+			}
+		})
 	}
 }

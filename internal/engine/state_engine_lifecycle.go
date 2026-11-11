@@ -146,6 +146,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 	if admissionDue > 0 {
 		r.payload.Timers = append(r.payload.Timers, state.Timer{ID: r.timerID("group", "admission", "expiry", ""), Generation: strconv.FormatInt(admissionDue, 10), DueMS: admissionDue, DeadlineMS: admissionDue})
 	}
+	var coldNative map[string]bool
 	for id, c := range r.group.Contexts {
 		active := false
 		for _, tx := range c.Transactions {
@@ -172,7 +173,13 @@ func (r *stateReduction) appendLifecycleTimers() error {
 			c.Snapshot.Ended = true
 			c.RetireMS = r.now + 120000
 		}
-		if c.RetireMS > 0 && !r.coldTrustedHistory(id, c) {
+		if r.coldNativeHistory(id, c) {
+			if coldNative == nil {
+				coldNative = make(map[string]bool)
+			}
+			coldNative[id] = true
+		}
+		if c.RetireMS > 0 && !coldNative[id] && !r.coldTrustedHistory(id, c) {
 			replayUntil := max(c.ReplayUntilMS, c.RetireMS)
 			markerCapacity := replayUntil <= r.now || len(r.group.Retired) < stateRetiredMarkerLimit || r.group.Retired[id] > r.now
 			if c.RetireMS <= r.now && !active && markerCapacity && r.contextRetirementProven(id, c) {
@@ -225,6 +232,15 @@ func (r *stateReduction) appendLifecycleTimers() error {
 		}
 		if r.engine.autonomousCompletion() && stateTrustedRelayEffect(effect) {
 			continue
+		}
+		if len(coldNative) > 0 && stateHistoricalDelivery(effect) {
+			var body stateEngineEffect
+			if err := body.UnmarshalJSON(effect.Payload); err != nil {
+				return err
+			}
+			if coldNative[body.Context] {
+				continue
+			}
 		}
 		knownUnsettled := false
 		if effect.Kind == "deliver" && (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten) {

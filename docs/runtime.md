@@ -630,7 +630,17 @@ but preserves identity/hash/permit/outcome and causal written-ACK proof. Settled
 physical and receiver-acknowledged nonphysical effects alone free slots. Expired obsolete
 non-native UNKNOWN in an ended context stops legacy recovery polling only after its
 fixed windows and every live continuation expire; it is never relabeled WRITTEN or
-NOT_WRITTEN. Timer projections change atomically, not by deleting rebuildable indexes.
+NOT_WRITTEN. An ended, owner-lost native context also stops recurring retirement and
+effect-recovery timers after its original retirement/replay bounds and each unresolved
+physical delivery's deadline plus 120 seconds have elapsed, provided no transaction,
+active dialog timer, owner cleanup or current request fence remains. Only expired
+native DISPATCHING/UNKNOWN may remain unresolved; pending work and known unsettled
+outcomes keep maintenance enabled. These cold records and their exact effect bytes,
+attempts, reservations and UNKNOWN evidence remain charged and inspectable. This does
+not prove retirement, change settlement or authorize another write. Exact-worker
+physical dispatch and late completion remain independently available; worker registry
+expiry is not death proof. Other contexts continue normally. Timer projections change
+atomically, not by deleting rebuildable indexes.
 
 Native context IDs never reuse. Backend cleanup of trusted permits/directory records
 requires exact indexed metadata and native inspection under the same authority, then

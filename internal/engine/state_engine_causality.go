@@ -310,10 +310,9 @@ func (r *stateReduction) contextRetirementProven(id string, c *stateContext) boo
 	return true
 }
 
-// Cold historical uncertainty is retained verbatim, not declared settled. Once
-// its entire context is terminal and its replay window has elapsed, obsolete
-// trusted RPC polling cannot establish another useful physical outcome.
-func (r *stateReduction) coldTrustedHistory(id string, c *stateContext) bool {
+// No continuation or current immutable input may be hidden by cold-history
+// scheduling. The unresolved evidence remains independently authoritative.
+func (r *stateReduction) coldHistoryContext(id string, c *stateContext) bool {
 	if !r.engine.autonomousCompletion() || !c.Snapshot.Ended || c.RetireMS <= 0 || c.RetireMS > r.now || c.ReplayUntilMS > r.now ||
 		len(c.Transactions) != 0 || c.OwnerCleanupAtMS != 0 ||
 		r.requestFence != nil && r.requestFence.context == id {
@@ -325,6 +324,13 @@ func (r *stateReduction) coldTrustedHistory(id string, c *stateContext) bool {
 				return false
 			}
 		}
+	}
+	return true
+}
+
+func (r *stateReduction) coldTrustedHistory(id string, c *stateContext) bool {
+	if !r.coldHistoryContext(id, c) {
+		return false
 	}
 	// The common case has no obsolete UNKNOWN at all. Do not materialize
 	// every physical body merely to establish that it is not cold history.
@@ -357,6 +363,34 @@ func (r *stateReduction) coldTrustedHistory(id string, c *stateContext) bool {
 			continue
 		}
 		if effect.Status == state.EffectUnknown && stateTrustedRelayEffect(effect) && effect.DeadlineMS+120000 <= r.now {
+			found = true
+			continue
+		}
+		if effect.Kind == "deliver" && !body.Settled || effect.Status == state.EffectPending || effect.Status == state.EffectAuthorized ||
+			effect.Status == state.EffectDispatching || effect.Status == state.EffectUnknown {
+			return false
+		}
+	}
+	return found
+}
+
+// A cold native attempt remains uncertain and charged. Without a live protocol
+// continuation, periodic lifecycle rewrites cannot establish physical evidence;
+// exact ingress dispatch and a late physical completion remain independent.
+func (r *stateReduction) coldNativeHistory(id string, c *stateContext) bool {
+	if !c.OwnerLost || !r.coldHistoryContext(id, c) {
+		return false
+	}
+	found := false
+	for _, effect := range r.payload.Effects {
+		var body stateEngineEffect
+		if body.UnmarshalJSON(effect.Payload) != nil {
+			return false
+		}
+		if body.Context != id {
+			continue
+		}
+		if stateHistoricalDelivery(effect) && body.Native && !body.Settled && effect.DeadlineMS+120000 <= r.now {
 			found = true
 			continue
 		}

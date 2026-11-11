@@ -487,6 +487,12 @@ Subscription Contact/expiry commits are separately defined below.
 
 ## 7. Message families and execution boundary
 
+Observed SIP requests require a top Via branch accepted by sipgo's RFC 3261
+client transaction key function, including the magic cookie and a nonempty suffix.
+Unsupported branch forms are invalid input before state/control admission. UDP
+drops them; stream parsing closes the invalid connection. Responses and ACK never
+receive a newly generated error response from this validation.
+
 The current `sip.v1` family carries actual `udp`/`tcp`/`tls` on FlowRef and native
 transport on snapshots. OpenUac carries an authorized registered binding or explicit
 URI/proxy/network target with an opaque credential reference. Credentials are

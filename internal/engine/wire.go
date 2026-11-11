@@ -40,6 +40,11 @@ func Observe(wire []byte, outbound bool) (*pb.SipMessage, error) {
 	if m.CallID() == nil || m.CSeq() == nil || m.From() == nil || m.To() == nil || m.Via() == nil {
 		return nil, fmt.Errorf("missing mandatory SIP identity")
 	}
+	if _, request := m.(*sip.Request); request {
+		if _, err := sip.ClientTxKeyMake(m); err != nil {
+			return nil, fmt.Errorf("RFC 3261 Via branch required")
+		}
+	}
 	w := &pb.SipMessage{Wire: wire, Body: m.Body(), Addresses: make(map[string]*pb.AddressList)}
 	var all []sip.Header
 	if request, ok := m.(*sip.Request); ok {

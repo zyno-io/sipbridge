@@ -21,6 +21,26 @@ type observedSchedulerStore struct {
 	lastError   atomic.Value
 }
 
+type slowSchedulerRepairStore struct {
+	state.Backend
+	started chan struct{}
+}
+
+func (s *slowSchedulerRepairStore) RepairScheduler(ctx context.Context, token string, cursor uint64, count int) (uint64, int, error) {
+	select {
+	case s.started <- struct{}{}:
+	default:
+	}
+	timer := time.NewTimer(600 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return cursor, 0, ctx.Err()
+	case <-timer.C:
+	}
+	return s.Backend.RepairScheduler(ctx, token, cursor, count)
+}
+
 func (s *observedSchedulerStore) LeaseScheduler(ctx context.Context, token string, acquire bool) (time.Time, error) {
 	until, err := s.Backend.LeaseScheduler(ctx, token, acquire)
 	if err != nil && !errors.Is(err, state.ErrBusy) {
@@ -67,6 +87,10 @@ func schedulerTestStore(t *testing.T, backend string) (state.Backend, state.Back
 	f := newNativeOwnerFixtureBackend(t, backend)
 	cfg := f.config
 	cfg.Backend, cfg.Namespace, cfg.Partitions = backend, "scheduler-"+uuid.NewString(), 64
+	// These pure timer groups need little payload space. Admit the many-group
+	// maintenance fixture without reserving native 64-MiB capacity per group.
+	cfg.Limits.GroupBytes, cfg.Memory.MaxGroups = 1<<20, 256
+	cfg.Limits.InputBytes, cfg.Limits.OutcomeBytes = 16<<10, 16<<10
 	s, err := state.OpenBackend(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -218,6 +242,38 @@ func TestSchedulerPairIdleWaitsWithoutQueuePollingOrRecordLoads(t *testing.T) {
 				return err == nil && len(record.Payload.Timers) == 0
 			})
 			t.Logf("new earlier timer dispatched with %s lag across 64 partitions", time.Since(due))
+		})
+	}
+}
+
+func TestSchedulerSlowRepairPreservesLeadershipAndTimerAdmission(t *testing.T) {
+	for _, backend := range []string{state.MemoryBackend, state.RedisBackend} {
+		t.Run(backend, func(t *testing.T) {
+			s, peer := schedulerTestStore(t, backend)
+			for range 192 {
+				schedulerSeedTimer(t, s, time.Now().Add(time.Minute))
+			}
+			started := make(chan struct{}, 1)
+			a, observedA := startSchedulerTestEngine(t, &slowSchedulerRepairStore{Backend: s, started: started})
+			b, observedB := startSchedulerTestEngine(t, &slowSchedulerRepairStore{Backend: peer, started: started})
+			select {
+			case <-started:
+			case <-time.After(2 * time.Second):
+				t.Fatal("leader never started its maintenance page")
+			}
+			due := time.Now().Add(50 * time.Millisecond)
+			ref := schedulerSeedTimer(t, s, due)
+			schedulerAwait(t, due.Add(450*time.Millisecond), func() bool {
+				record, err := s.Load(context.Background(), ref)
+				return err == nil && len(record.Payload.Timers) == 0
+			})
+			schedulerAwait(t, time.Now().Add(time.Second), func() bool {
+				return a.SchedulerStatistics().RepairPages+b.SchedulerStatistics().RepairPages == 1
+			})
+			left, right := a.SchedulerStatistics(), b.SchedulerStatistics()
+			if left.Acquisitions+right.Acquisitions != 1 || left.Leader == right.Leader {
+				t.Fatal("maintenance stalled renewal or restarted leadership", left, right, observedA.lastError.Load(), observedB.lastError.Load())
+			}
 		})
 	}
 }

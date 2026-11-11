@@ -418,6 +418,7 @@ func (e *StateEngine) scheduleGroupIn(parent context.Context, ref state.Ref) {
 		defer cancel()
 		plan, err := e.schedulePlan(ctx, ref)
 		if err != nil {
+			e.scheduler.fail(schedulerGroupFailure, err)
 			return
 		}
 		if plan.pending {

@@ -779,6 +779,7 @@ func (e *StateEngine) applyScheduledTimers(ctx context.Context, ref state.Ref, t
 	changed := false
 	for _, timer := range timers {
 		_, committed, err := e.applyCommitted(ctx, ref, e.id("timer", ref.Incarnation, timer.ID, timer.Generation), stateEngineInput{Kind: "timer", Timer: timer.ID, Generation: timer.Generation}, time.Now().Add(2*time.Second), false)
+		e.scheduler.fail(schedulerTimerFailure, err)
 		changed = changed || err == nil && (!e.usesCAS() || committed != nil)
 	}
 	return changed

@@ -204,6 +204,18 @@ func (r *stateReduction) ownerRefuseRequest(c *stateContext, tx *stateTransactio
 	if err != nil {
 		return err
 	}
+	if c.OwnerLost {
+		origin, err := tx.Native.Origin.Parse()
+		if err != nil {
+			return err
+		}
+		if _, err := sip.ClientTxKeyMake(origin); err != nil {
+			// Earlier admission accepted branch forms the native response matcher
+			// cannot prove. Preserve the owner fence and request-disposition proof,
+			// and end the unsendable transaction without inventing physical output.
+			return r.stepTransaction(c, tx, portable.Input{Kind: portable.Terminate, Now: r.now, Error: "unsupported request response identity"})
+		}
+	}
 	if parsed, err := tx.Native.Origin.Parse(); err == nil && parsed.CSeq().MethodName == sip.INVITE {
 		for key, dialog := range c.Dialogs {
 			if dialog.RemoteInvite != nil && portable.MatchRequest(dialog.RemoteInvite.Request, tx.Native.Origin) {

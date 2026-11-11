@@ -236,6 +236,9 @@ func run() error {
 			}
 			fmt.Fprintf(w, "zt_sipbridge_scheduler_leader %d\nzt_sipbridge_scheduler_acquisitions_total %d\nzt_sipbridge_scheduler_head_reads_total %d\nzt_sipbridge_scheduler_hint_batches_total %d\nzt_sipbridge_scheduler_wakeups_total %d\nzt_sipbridge_scheduler_repair_pages_total %d\n",
 				leader, scheduler.Acquisitions, scheduler.HeadReads, scheduler.HintBatches, scheduler.Wakeups, scheduler.RepairPages)
+			for _, failure := range scheduler.Failures {
+				fmt.Fprintf(w, "zt_sipbridge_scheduler_failures_total{stage=%q,class=%q} %d\n", failure.Stage, failure.Class, failure.Count)
+			}
 			if sipCapture != nil {
 				dropped, failures := sipCapture.Stats()
 				fmt.Fprintf(w, "zt_sipbridge_capture_dropped_total %d\nzt_sipbridge_capture_export_failures_total %d\n", dropped, failures)

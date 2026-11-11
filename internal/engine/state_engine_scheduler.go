@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,17 +16,19 @@ type schedulerStatistics struct {
 	hintBatches  atomic.Uint64
 	wakeups      atomic.Uint64
 	repairPages  atomic.Uint64
+	failures     schedulerFailureCounters
 }
 
 type SchedulerStatistics struct {
 	Leader                                                     bool
 	Acquisitions, HeadReads, HintBatches, Wakeups, RepairPages uint64
+	Failures                                                   []SchedulerFailure
 }
 
 func (e *StateEngine) SchedulerStatistics() SchedulerStatistics {
 	return SchedulerStatistics{Leader: e.scheduler.leader.Load(), Acquisitions: e.scheduler.acquisitions.Load(),
 		HeadReads: e.scheduler.headReads.Load(), HintBatches: e.scheduler.hintBatches.Load(), Wakeups: e.scheduler.wakeups.Load(),
-		RepairPages: e.scheduler.repairPages.Load()}
+		RepairPages: e.scheduler.repairPages.Load(), Failures: e.scheduler.failureSnapshot()}
 }
 
 func (e *StateEngine) schedule() {
@@ -60,14 +63,48 @@ func (e *StateEngine) schedule() {
 func (e *StateEngine) scheduleLeader(token string, until time.Time) {
 	leader, cancel := context.WithCancel(e.ctx)
 	defer cancel()
+	// Queue discovery and maintenance must never hold up lease renewal. The
+	// deadline remains a scheduling hint; every store operation fences its token.
+	var deadlineMu sync.Mutex
+	deadline := func() time.Time {
+		deadlineMu.Lock()
+		defer deadlineMu.Unlock()
+		return until
+	}
+	renewDone := make(chan struct{})
+	go func() {
+		defer close(renewDone)
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-leader.Done():
+				return
+			case <-ticker.C:
+				ctx, stop := context.WithDeadline(leader, minTime(deadline(), time.Now().Add(100*time.Millisecond)))
+				next, err := e.store.LeaseScheduler(ctx, token, false)
+				stop()
+				if err != nil {
+					e.scheduler.fail(schedulerLeaseFailure, err)
+					cancel()
+					return
+				}
+				deadlineMu.Lock()
+				until = next
+				deadlineMu.Unlock()
+			}
+		}
+	}()
+	defer func() { cancel(); <-renewDone }()
 	pass := func() (context.Context, context.CancelFunc) {
-		return context.WithDeadline(leader, minTime(until, time.Now().Add(100*time.Millisecond)))
+		return context.WithDeadline(leader, minTime(deadline(), time.Now().Add(100*time.Millisecond)))
 	}
 	ctx, stop := pass()
 	e.scheduler.headReads.Add(1)
 	head, err := e.store.ScheduleHead(ctx, token, true)
 	stop()
-	if err != nil || !time.Now().Before(until) {
+	if err != nil || !time.Now().Before(deadline()) {
+		e.scheduler.fail(schedulerHeadFailure, err)
 		return
 	}
 	e.scheduler.leader.Store(true)
@@ -80,6 +117,9 @@ func (e *StateEngine) scheduleLeader(token string, until time.Time) {
 		for leader.Err() == nil {
 			next, err := e.store.WaitSchedule(leader, cursor)
 			if err != nil {
+				if leader.Err() == nil {
+					e.scheduler.fail(schedulerWatchFailure, err)
+				}
 				select {
 				case failure <- struct{}{}:
 				default:
@@ -97,8 +137,6 @@ func (e *StateEngine) scheduleLeader(token string, until time.Time) {
 	}(head.Cursor)
 	defer func() { e.scheduler.leader.Store(false); cancel(); <-watchDone }()
 
-	renew := time.NewTicker(50 * time.Millisecond)
-	defer renew.Stop()
 	repair := time.NewTicker(time.Second)
 	defer repair.Stop()
 	timer := time.NewTimer(time.Hour)
@@ -115,33 +153,45 @@ func (e *StateEngine) scheduleLeader(token string, until time.Time) {
 	idle := true
 	var repairCursor uint64
 	repairing := true
-	for leader.Err() == nil && time.Now().Before(until) {
+	type repairResult struct {
+		cursor uint64
+		err    error
+	}
+	repaired := make(chan repairResult, 1)
+	var repairDone chan struct{}
+	defer func() {
+		cancel()
+		if repairDone != nil {
+			<-repairDone
+		}
+	}()
+	for leader.Err() == nil && time.Now().Before(deadline()) {
 		refresh := false
 		select {
 		case <-leader.Done():
 			return
 		case <-failure:
 			return
-		case <-renew.C:
-			ctx, stop := pass()
-			nextUntil, err := e.store.LeaseScheduler(ctx, token, false)
-			stop()
-			if err != nil {
+		case <-repair.C:
+			if repairing && repairDone == nil {
+				repairDone = make(chan struct{})
+				go func(cursor uint64, done chan struct{}) {
+					defer close(done)
+					ctx, stop := context.WithTimeout(leader, 2*time.Second)
+					defer stop()
+					next, _, err := e.store.RepairScheduler(ctx, token, cursor, 128)
+					repaired <- repairResult{cursor: next, err: err}
+				}(repairCursor, repairDone)
+			}
+		case result := <-repaired:
+			<-repairDone
+			repairDone = nil
+			if result.err != nil {
+				e.scheduler.fail(schedulerRepairFailure, result.err)
 				return
 			}
-			until = nextUntil
-		case <-repair.C:
-			if repairing {
-				ctx, stop := pass()
-				next, _, err := e.store.RepairScheduler(ctx, token, repairCursor, 128)
-				stop()
-				if err == nil {
-					e.scheduler.repairPages.Add(1)
-					repairCursor, repairing = next, next != 0
-				} else {
-					return
-				}
-			}
+			e.scheduler.repairPages.Add(1)
+			repairCursor, repairing = result.cursor, result.cursor != 0
 		case <-wake:
 			e.scheduler.wakeups.Add(1)
 			refresh = true
@@ -155,6 +205,7 @@ func (e *StateEngine) scheduleLeader(token string, until time.Time) {
 			corrupt, err := e.scheduleLeasedHints(ctx, leader, &hints, token)
 			stop()
 			if err != nil {
+				e.scheduler.fail(schedulerHintFailure, err)
 				return
 			}
 			repairing = repairing || corrupt
@@ -167,6 +218,7 @@ func (e *StateEngine) scheduleLeader(token string, until time.Time) {
 			head, err = e.store.ScheduleHead(ctx, token, false)
 			stop()
 			if err != nil {
+				e.scheduler.fail(schedulerHeadFailure, err)
 				return
 			}
 			if head.DueMS == 0 || head.After > 0 {

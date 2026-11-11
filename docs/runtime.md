@@ -203,6 +203,12 @@ lease and fixed five-second recovery window normally detect loss about 35 second
 after renewal, plus bounded scheduling delay; outages can delay this. The fixed 64-second protocol
 cleanup bound starts at the fence, without extending any earlier native deadline.
 Unsendable cleanup can end locally; physical uncertainty remains retained/charged.
+If an already-retained pending server request has an unsupported Via branch and
+its owner is permanently lost, the pinned reducer terminates that unsendable
+transaction locally instead of attempting a mismatched 503. The owner fence,
+request-disposition proof and any earlier physical uncertainty are preserved;
+no response or physical retry is inferred. Fresh unsupported branches are refused
+at parsing, as specified in [Protocol](../PROTOCOL.md).
 
 ### Opt-in controller reattachment
 
@@ -517,6 +523,11 @@ successor's lease. A changed primary invalidates the lease. Leadership coordinat
 background work only; both SIP workers remain active and all CAS, owner, deadline
 and exact physical-write guards remain authoritative. An uncertain/expired local
 lease stops new scheduler admissions and cancels that leader's background work.
+Lease renewal runs independently of queue reads and maintenance. Every read uses
+the latest conservative local lease deadline; renewal failure cancels the leader
+and its admitted work. One repair page may run concurrently with due-work
+discovery, with a two-second total budget and the same per-operation Redis lease
+guards. A slow repair page cannot block renewal or native timer admission.
 
 Native physical delivery has a separate, per-process dispatch index. Each commit
 projects the opaque ingress process/epoch target of unsettled native delivery
@@ -582,6 +593,9 @@ records or guarantee timely recovery from arbitrary external index corruption.
 The admin metrics expose scheduler leadership, acquisitions, head reads, hint
 batches, coalesced wakeups and repair pages as bounded process counters/gauges;
 collecting them performs no store reads and includes no context/queue identity.
+Scheduler failures expose fixed stage/error-class counters, including group
+decode and timer-transition failures that would otherwise leave an overdue hint
+unchanged. Raw errors, payloads and SIP identities never become metric labels.
 A group with no eligible effects allocates no dispatcher/read. Prepared bounded effect
 metadata goes to separate transport workers after dropping aggregate/scheduler admission.
 Overdue timers get bounded processing time, never renewed semantic deadlines; hard

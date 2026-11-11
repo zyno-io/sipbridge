@@ -64,6 +64,7 @@ func (e *StateEngine) dueTimers(record state.Record, now int64) []state.Timer {
 	}
 	g, err := decodeStateGroup(record)
 	if err != nil {
+		e.scheduler.fail(schedulerDecodeFailure, err)
 		return nil
 	}
 	priority := make(map[string]bool)

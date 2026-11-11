@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"encoding/json"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -17,7 +16,7 @@ func TestStateCancellationCannotStartLateAuthorizedInvite(t *testing.T) {
 	}
 	effect := r.payload.Effects[0]
 	var body stateEngineEffect
-	if err := json.Unmarshal(effect.Payload, &body); err != nil {
+	if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 		t.Fatal(err)
 	}
 	r.in = stateEngineInput{Effect: effect.ID}
@@ -61,7 +60,7 @@ func TestStateCancellationPreservesAlreadyReservedPhysicalAttempt(t *testing.T) 
 	}
 	effect := r.payload.Effects[0]
 	var body stateEngineEffect
-	if err := json.Unmarshal(effect.Payload, &body); err != nil {
+	if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 		t.Fatal(err)
 	}
 	r.in = stateEngineInput{Effect: effect.ID}

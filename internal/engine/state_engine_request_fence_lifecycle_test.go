@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -97,7 +96,7 @@ func TestRequestFenceRecoveredCommitCancellationIsNotReadFailure(t *testing.T) {
 				private.Id = id
 				old = stateEngineInput{Kind: "reject", Context: private, Application: f.engine.cfg.Process, Operation: operation, Flow: foreign, Message: message, Status: 503}
 			}
-			payload, err := json.Marshal(old)
+			payload, err := marshalRetainedFixture(old)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -224,13 +223,13 @@ func TestRequestFenceExpiredInputsCannotStartNewWork(t *testing.T) {
 			}
 			r.in = stateEngineInput{Kind: kind, Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Message: message, Status: 503,
 				Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: message.Wire}}
-			before, _ := json.Marshal(r.group)
+			before, _ := marshalRetainedFixture(r.group)
 			if kind == "ingest" {
 				err = r.ingest()
 			} else {
 				err = r.reject()
 			}
-			after, _ := json.Marshal(r.group)
+			after, _ := marshalRetainedFixture(r.group)
 			if err != nil || string(before) != string(after) || len(r.payload.Effects) != 0 || r.result.Certainty != pb.OperationResult_COMPLETED || r.result.Error != "" || r.result.SipStatus != 0 {
 				t.Fatalf("expired %s started new work or selected a fallback: %s / %v", kind, r.result, err)
 			}
@@ -255,11 +254,11 @@ func TestRequestFenceSaturationCannotRecreateFinalThroughReject(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.in = stateEngineInput{Kind: "reject", Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: unproved, Message: message, Status: 503}
-	before, _ := json.Marshal(c)
+	before, _ := marshalRetainedFixture(c)
 	if err = r.reject(); err != nil || r.result.Certainty != pb.OperationResult_COMPLETED || r.result.Error != "" || r.result.SipStatus != 0 || len(r.payload.Effects) != 0 {
 		t.Fatalf("lost saturated handoff result selected another final: %s / %v", r.result, err)
 	}
-	after, _ := json.Marshal(c)
+	after, _ := marshalRetainedFixture(c)
 	if string(before) != string(after) {
 		t.Fatal("saturation admitted the extra flow or altered original SIP state")
 	}
@@ -337,7 +336,7 @@ func TestRequestFenceNativeMetadataIsMandatory(t *testing.T) {
 			case "client-floor":
 				tx.Native.Family, tx.AdmittedFlowProofs = portable.NonInviteClient, nil
 			}
-			encoded, err := json.Marshal(r.group)
+			encoded, err := marshalRetainedFixture(r.group)
 			if err != nil {
 				t.Fatal(err)
 			}

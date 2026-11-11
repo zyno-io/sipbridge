@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"math/big"
 	"net"
@@ -159,7 +158,7 @@ func TestStateApplicationGrantTargetsOriginalDrainingControllerOwner(t *testing.
 			continue
 		}
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) != nil || effect.Kind != "deliver" || effect.Status != state.EffectAuthorized || !proto.Equal(body.Permit.Flow, flow) {
+		if unmarshalRetainedFixture(effect.Payload, &body) != nil || effect.Kind != "deliver" || effect.Status != state.EffectAuthorized || !proto.Equal(body.Permit.Flow, flow) {
 			t.Fatal("original owner grant was not durably committed")
 		}
 		return

@@ -21,6 +21,7 @@ import (
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/engine"
 	"sipbridge/internal/state"
+	"sipbridge/internal/storagecodec"
 )
 
 func main() {
@@ -31,6 +32,7 @@ func main() {
 }
 func run() error {
 	version := flag.Bool("version", false, "print build version and exit")
+	stateSchema := flag.Bool("state-schema", false, "print private retained storage receipt and exit")
 	private := flag.String("control-listen", ":8443", "private control listener")
 	controlAuth := flag.String("control-auth", "mtls", "control authentication: mtls or bearer")
 	controlTransport := flag.String("control-transport", "tls", "control transport: tls or explicit loopback-only plain")
@@ -56,6 +58,10 @@ func run() error {
 	allowSubscribe := flag.Bool("allow-subscribe", true, "allow inbound SUBSCRIBE requests")
 	requiredAuth := flag.String("require-auth-methods", "", "locally challenge initial REGISTER, INVITE and/or SUBSCRIBE (comma separated)")
 	flag.Parse()
+	if *stateSchema {
+		_, err := os.Stdout.Write(storagecodec.Receipt())
+		return err
+	}
 	if *version {
 		fmt.Printf("sipbridge %s\n", buildinfo.Version)
 		return nil
@@ -226,6 +232,8 @@ func run() error {
 	adminServer := &http.Server{Addr: *admin, ReadHeaderTimeout: 2 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/metrics" {
 			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+			storagecodec.WriteMetrics(w)
+			writeRuntimeMetrics(w)
 			stats := ingress.Statistics()
 			fmt.Fprintf(w, "zt_sipbridge_ingress_rejected_total %d\nzt_sipbridge_tls_handshake_failures_total %d\nzt_sipbridge_invalid_messages_total %d\n", stats.FlowRejected, stats.TLSFailed, stats.InvalidMessages)
 			fmt.Fprintf(w, "zt_sipbridge_method_rejected_total %d\n", stats.MethodRejected)

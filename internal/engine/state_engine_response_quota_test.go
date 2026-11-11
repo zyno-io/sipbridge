@@ -2,7 +2,6 @@ package engine
 
 import (
 	"bytes"
-	"encoding/json"
 	"testing"
 
 	"github.com/emiago/sipgo/sip"
@@ -35,17 +34,17 @@ func TestStateServerProvisionalQuotaCannotConsumeFinalBudget(t *testing.T) {
 	// consumed-sequence contract, rather than calling command in isolation.
 	record := r.record
 	record.Payload = r.payload
-	record.Payload.ProtocolState, _ = json.Marshal(r.group)
+	record.Payload.ProtocolState, _ = marshalRetainedFixture(r.group)
 	input := stateEngineInput{Kind: "command", Context: c.Snapshot.Context, Application: c.Snapshot.Application, Operation: "quota-refusal",
 		Command: &pb.Command{Context: c.Snapshot.Context, Sequence: 2, Action: &pb.Command_Respond{Respond: &pb.Respond{RequestId: tx.RequestID, Status: 180}}}}
-	encoded, _ := json.Marshal(input)
+	encoded, _ := marshalRetainedFixture(input)
 	deadline := r.now + 20000
 	next, outcome, err := r.engine.reduce(record, state.Input{ID: input.Operation, Kind: input.Kind, Payload: encoded, DeadlineMS: deadline, ReceiptUntilMS: deadline + 120000}, r.now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var refused pb.OperationResult
-	if json.Unmarshal(outcome, &refused) != nil || refused.Certainty != pb.OperationResult_NOT_ACCEPTED || refused.Error == "" {
+	if unmarshalRetainedFixture(outcome, &refused) != nil || refused.Certainty != pb.OperationResult_NOT_ACCEPTED || refused.Error == "" {
 		t.Fatal("application provisional quota was silently accepted or uncertain")
 	}
 	record.Payload = next
@@ -88,7 +87,7 @@ func TestStateNonInviteFinalNoStartRecoversUDPAndTLS(t *testing.T) {
 				tx.Written = true
 				advertiseCommand(t, r, c, &pb.Command{Sequence: 1, Action: &pb.Command_Respond{Respond: &pb.Respond{RequestId: tx.RequestID, Status: status}}})
 				_, original, body := responseEffectForStatus(t, r, status)
-				originalNative, _ := json.Marshal(tx.Native)
+				originalNative, _ := marshalRetainedFixture(tx.Native)
 				deadline, until, retire := tx.RespondDeadlineMS, tx.FinalResponse.UntilMS, tx.RetireMS
 				if until > deadline || until <= r.now {
 					t.Fatal("selected non-INVITE final lost its original command/native bound")
@@ -109,7 +108,7 @@ func TestStateNonInviteFinalNoStartRecoversUDPAndTLS(t *testing.T) {
 					tx.RespondDeadlineMS != deadline || tx.FinalResponse.UntilMS != until || tx.RetireMS != retire {
 					t.Fatal("non-INVITE retry changed response, flow, command or native lifetime")
 				}
-				afterNative, _ := json.Marshal(tx.Native)
+				afterNative, _ := marshalRetainedFixture(tx.Native)
 				if !bytes.Equal(originalNative, afterNative) {
 					t.Fatal("non-INVITE response recovery restarted native timers/state")
 				}
@@ -133,7 +132,7 @@ func TestStateProvisionalRecoveryAppliesToBothServerFamiliesAndAllTransports(t *
 				r.result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}
 				advertiseCommand(t, r, c, &pb.Command{Sequence: 1, Action: &pb.Command_Respond{Respond: &pb.Respond{RequestId: tx.RequestID, Status: 183}}})
 				_, first, body := responseEffectForStatus(t, r, 183)
-				native, _ := json.Marshal(tx.Native)
+				native, _ := marshalRetainedFixture(tx.Native)
 				completeLatestResponse(t, r, pb.DeliveryResult_NOT_WRITTEN)
 				r.now = tx.FinalResponse.RetryAtMS
 				if r.now == 0 || c.Result.Certainty != pb.OperationResult_ACCEPTED {
@@ -143,7 +142,7 @@ func TestStateProvisionalRecoveryAppliesToBothServerFamiliesAndAllTransports(t *
 					t.Fatal(err)
 				}
 				_, retry, retried := responseEffectForStatus(t, r, 183)
-				afterNative, _ := json.Marshal(tx.Native)
+				afterNative, _ := marshalRetainedFixture(tx.Native)
 				if first.ID == retry.ID || !bytes.Equal(body.Wire, retried.Wire) || !proto.Equal(body.Flow, retried.Flow) ||
 					!bytes.Equal(native, afterNative) || tx.RespondDeadlineMS != r.deadline || tx.ProvisionalEmissions != 2 {
 					t.Fatal("provisional recovery changed response identity or native lifetime")
@@ -172,7 +171,7 @@ func TestStateProvisionalWrittenOtherFlowSurvivesCompactionWithoutCompletingSele
 	completeResponseEffectAt(t, r, firstIndex, pb.DeliveryResult_WRITTEN)
 	first := r.payload.Effects[firstIndex]
 	var firstBody stateEngineEffect
-	if json.Unmarshal(first.Payload, &firstBody) != nil {
+	if unmarshalRetainedFixture(first.Payload, &firstBody) != nil {
 		t.Fatal("invalid fixture effect")
 	}
 	firstBody.Settled = true
@@ -317,17 +316,17 @@ func TestStateRespondRefusesNativeTerminalTransactionWithoutAnEmission(t *testin
 					t.Fatal(err)
 				}
 				r.record.Payload = r.payload
-				r.record.Payload.ProtocolState, _ = json.Marshal(r.group)
-				beforeNative, _ := json.Marshal(tx.Native)
+				r.record.Payload.ProtocolState, _ = marshalRetainedFixture(r.group)
+				beforeNative, _ := marshalRetainedFixture(tx.Native)
 				input := stateEngineInput{Kind: "command", Context: c.Snapshot.Context, Application: c.Snapshot.Application, Operation: "terminated-response",
 					Command: &pb.Command{Context: c.Snapshot.Context, Sequence: 1, Action: &pb.Command_Respond{Respond: &pb.Respond{RequestId: tx.RequestID, Status: 200}}}}
-				encoded, _ := json.Marshal(input)
+				encoded, _ := marshalRetainedFixture(input)
 				payload, outcome, err := r.engine.reduce(r.record, state.Input{ID: input.Operation, Kind: input.Kind, Payload: encoded, DeadlineMS: r.now + 20000, ReceiptUntilMS: r.now + 140000}, r.now)
 				if err != nil {
 					t.Fatal(err)
 				}
 				var result pb.OperationResult
-				if json.Unmarshal(outcome, &result) != nil || result.Certainty != pb.OperationResult_NOT_ACCEPTED || result.Error == "" {
+				if unmarshalRetainedFixture(outcome, &result) != nil || result.Certainty != pb.OperationResult_NOT_ACCEPTED || result.Error == "" {
 					t.Fatal("native ignored response silently committed ACCEPTED")
 				}
 				r.record.Payload = payload
@@ -337,7 +336,7 @@ func TestStateRespondRefusesNativeTerminalTransactionWithoutAnEmission(t *testin
 				}
 				current := group.Contexts[c.Snapshot.Context.Id]
 				retained := current.Transactions[tx.Native.Key]
-				afterNative, _ := json.Marshal(retained.Native)
+				afterNative, _ := marshalRetainedFixture(retained.Native)
 				if !bytes.Equal(beforeNative, afterNative) || retained.Emissions != 0 || retained.RespondDeadlineMS != 0 || current.Snapshot.CommandSequence != 1 {
 					t.Fatal("definite response refusal mutated native state/budget or lost consumed sequence")
 				}

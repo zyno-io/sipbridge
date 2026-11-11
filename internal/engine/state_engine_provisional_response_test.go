@@ -2,7 +2,6 @@ package engine
 
 import (
 	"bytes"
-	"encoding/json"
 	"testing"
 
 	"github.com/emiago/sipgo/sip"
@@ -32,7 +31,7 @@ func responseEffectForStatus(t *testing.T, r *stateReduction, status uint32) (in
 	for index := len(r.payload.Effects) - 1; index >= 0; index-- {
 		effect := r.payload.Effects[index]
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) == nil && body.WireStatus == status && (effect.Kind == "wire" || effect.Kind == "deliver") {
+		if unmarshalRetainedFixture(effect.Payload, &body) == nil && body.WireStatus == status && (effect.Kind == "wire" || effect.Kind == "deliver") {
 			return index, effect, body
 		}
 	}

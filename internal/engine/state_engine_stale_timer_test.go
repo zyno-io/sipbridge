@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"reflect"
 	"strconv"
 	"testing"
@@ -76,7 +75,7 @@ func staleTimerFixture(t *testing.T, due time.Time) (nativeOwnerFixture, *pb.Con
 				payload.Timers[i].DeadlineMS = due.UnixMilli()
 			}
 		}
-		payload.ProtocolState, err = json.Marshal(decoded)
+		payload.ProtocolState, err = marshalRetainedFixture(decoded)
 		return payload, nil, err
 	}), "fixture-timer-writer", 1)
 	if err != nil {
@@ -227,7 +226,7 @@ func TestStateCASLegacyPendingStaleTimerFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := stateEngineInput{Kind: "timer", Timer: timer.ID, Generation: strconv.FormatUint(generation+1, 10)}
-	payload, err := json.Marshal(in)
+	payload, err := marshalRetainedFixture(in)
 	if err != nil {
 		t.Fatal(err)
 	}

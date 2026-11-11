@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +46,7 @@ func TestCommandPolicyRegisteredOpenUsesOnlyNativePhysicalLedger(t *testing.T) {
 			continue
 		}
 		var body stateEngineEffect
-		if err = json.Unmarshal(effect.Payload, &body); err != nil {
+		if err = unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		tx := c.Transactions[body.Transaction]
@@ -129,7 +128,7 @@ func TestCommandPolicyResponsesKeepEarlierPhysicalExpiry(t *testing.T) {
 	var originalBody stateEngineEffect
 	for _, e := range before.Payload.Effects {
 		var b stateEngineEffect
-		if e.Kind == "deliver" && json.Unmarshal(e.Payload, &b) == nil && b.Command == "first-response" {
+		if e.Kind == "deliver" && unmarshalRetainedFixture(e.Payload, &b) == nil && b.Command == "first-response" {
 			original = e
 			originalBody = b
 		}
@@ -158,7 +157,7 @@ func TestCommandPolicyResponsesKeepEarlierPhysicalExpiry(t *testing.T) {
 		if e.ID == original.ID {
 			found = true
 			var body stateEngineEffect
-			if err = json.Unmarshal(e.Payload, &body); err != nil {
+			if err = unmarshalRetainedFixture(e.Payload, &body); err != nil {
 				t.Fatal(err)
 			}
 			if e.DeadlineMS != original.DeadlineMS || e.Status != state.EffectDispatching ||
@@ -217,18 +216,18 @@ func TestCommandPolicyMaximumEncodingKeepsSixteenForkCompletionCapacity(t *testi
 	flow.Listener = "a"
 	policy := &statePolicyAdmission{Command: "open", Term: "term", Decision: &pb.CommandAdmission{
 		DirectoryEpoch: "directory", ExpiresAtMs: 1000000, SelectedFlow: flow}}
-	encoded, err := json.Marshal(policy)
+	encoded, err := marshalRetainedFixture(policy)
 	if err != nil {
 		t.Fatal(err)
 	}
 	remaining := statePolicyAdmissionBytes - len(encoded) + 1
 	flow.Listener = strings.Repeat("\x01", remaining/6) + strings.Repeat("a", remaining%6)
-	encoded, err = json.Marshal(policy)
+	encoded, err = marshalRetainedFixture(policy)
 	if err != nil || len(encoded) != statePolicyAdmissionBytes || !policy.valid() {
 		t.Fatalf("maximum encoded policy fixture invalid: %d %v", len(encoded), err)
 	}
 	var decoded statePolicyAdmission
-	if err = json.Unmarshal(encoded, &decoded); err != nil {
+	if err = unmarshalRetainedFixture(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	testStateDerivedCapacityAdmitsMandatorySixteenForkCompletion(t, &decoded)
@@ -249,7 +248,7 @@ func TestCommandPolicyFirstReservationChecksOwnerAndDeliveryAgain(t *testing.T) 
 			var write *pb.FlowWrite
 			for _, e := range record.Payload.Effects {
 				var b stateEngineEffect
-				if e.Kind == "deliver" && json.Unmarshal(e.Payload, &b) == nil && b.Authorization.AuthorityClass == pb.EffectAuthorization_APPLICATION {
+				if e.Kind == "deliver" && unmarshalRetainedFixture(e.Payload, &b) == nil && b.Authorization.AuthorityClass == pb.EffectAuthorization_APPLICATION {
 					write = &pb.FlowWrite{Flow: b.Permit.Flow, Effect: b.Authorization.Effect, Permit: b.Permit}
 				}
 			}
@@ -327,7 +326,7 @@ func TestCommandPolicyNetworkDigestKeepsOriginalSelectionAcrossWorkers(t *testin
 				if e.Kind == "credential" {
 					credential = e
 					var body stateEngineEffect
-					if json.Unmarshal(e.Payload, &body) != nil || json.Unmarshal(body.Wire, &retained) != nil {
+					if unmarshalRetainedFixture(e.Payload, &body) != nil || unmarshalRetainedFixture(body.Wire, &retained) != nil {
 						t.Fatal("derived challenge corrupt")
 					}
 				}

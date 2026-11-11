@@ -3,7 +3,6 @@ package engine
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"net"
 	"strings"
 	"testing"
@@ -168,7 +167,7 @@ func TestStateNativeProcessRejectionCannotReplayOrReplaceAdmittedTransaction(t *
 				t.Fatal("successful native transaction missing")
 			}
 			origin, final := retained.Native.Origin.Clone(), retained.Native.LastResponse.Clone()
-			dialogs, _ := json.Marshal(original.Dialogs)
+			dialogs, _ := marshalRetainedFixture(original.Dialogs)
 			h.mu.Lock()
 			h.routeRequest = func(controller *processController, envelope *pb.Envelope) bool {
 				in := envelope.GetIngress()
@@ -250,7 +249,7 @@ func TestStateNativeProcessRejectionCannotReplayOrReplaceAdmittedTransaction(t *
 						t.Fatal("rejection changed admitted context/flow/transaction count")
 					}
 					tx := current.Transactions[key]
-					currentDialogs, _ := json.Marshal(current.Dialogs)
+					currentDialogs, _ := marshalRetainedFixture(current.Dialogs)
 					if tx == nil || !proto.Equal(tx.Flow, flow) || !bytes.Equal(tx.Native.Origin.Wire, origin.Wire) ||
 						tx.Native.LastResponse == nil || !bytes.Equal(tx.Native.LastResponse.Wire, final.Wire) || !bytes.Equal(currentDialogs, dialogs) {
 						t.Fatal("rejection overwrote retained response, origin, dialog or return flow")

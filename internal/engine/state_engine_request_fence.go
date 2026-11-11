@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -20,7 +19,8 @@ const stateRequestFlowProofLimit = stateTransactionEmissions
 const stateRequestProofBytes = 1600
 
 // This exact type is embedded in the retained transaction and measured alone
-// for consumable completion headroom. No protocol aggregate is copied to size it.
+// for consumable completion headroom, with a conservative bound for enclosing
+// binary length-prefix growth. No protocol aggregate is copied to size it.
 type stateRequestDisposition struct {
 	AdmittedFlowProofs []string `json:"admittedFlowProofs,omitempty"`
 	DispositionUntilMS int64    `json:"dispositionUntilMs,omitempty"`
@@ -55,14 +55,11 @@ func (d stateRequestDisposition) encodedBytes() (int, error) {
 	if len(d.AdmittedFlowProofs) == 0 && d.DispositionUntilMS == 0 {
 		return 0, nil
 	}
-	encoded, err := json.Marshal(d)
-	if err != nil {
-		return 0, err
-	}
-	actual := 0
-	if len(encoded) > 2 {
-		actual = len(encoded) - 2 + 1 // Replace object braces with the embedding comma.
-	}
+	// Reserve the typed field plus conservative length-prefix growth through
+	// transaction, context/maps, group and opaque outer payload framing. The
+	// maximum 64-MiB record bounds each growth to at most four bytes.
+	actual := proto.Size(storageEncodeEngineStateRequestDisposition(d)) + 32
+
 	if actual > stateRequestProofBytes {
 		return 0, state.ErrCorrupt
 	}

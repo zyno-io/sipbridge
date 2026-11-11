@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -341,11 +340,11 @@ func (p *redisReservationFaultProxy) matchCommit(command, reply redisFaultFrame)
 		return empty, receipt, false
 	}
 	argv := args[3+keyCount:]
-	if json.Unmarshal(argv[13].scalar, &receipt) != nil || receipt.OperationID != p.target.operation {
+	if unmarshalRetainedFixture(argv[13].scalar, &receipt) != nil || receipt.OperationID != p.target.operation {
 		return empty, state.Receipt{}, false
 	}
 	var payload state.Payload
-	if json.Unmarshal(argv[11].scalar, &payload) != nil {
+	if unmarshalRetainedFixture(argv[11].scalar, &payload) != nil {
 		return empty, state.Receipt{}, false
 	}
 	selected := false
@@ -354,7 +353,7 @@ func (p *redisReservationFaultProxy) matchCommit(command, reply redisFaultFrame)
 			continue
 		}
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) == nil && len(body.Wire) == 0 {
+		if unmarshalRetainedFixture(effect.Payload, &body) == nil && len(body.Wire) == 0 {
 			selected = true
 		}
 	}

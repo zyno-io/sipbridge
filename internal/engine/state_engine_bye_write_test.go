@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -64,7 +63,7 @@ func publicByeFixture(t *testing.T, backends ...string) (nativeOwnerFixture, *pb
 	record, _ := stateTestLoad(t, f.engine, ref)
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if effect.Kind == "deliver" && json.Unmarshal(effect.Payload, &body) == nil && body.Command == "public-bye" && body.WireMethod == "BYE" {
+		if effect.Kind == "deliver" && unmarshalRetainedFixture(effect.Payload, &body) == nil && body.Command == "public-bye" && body.WireMethod == "BYE" {
 			return f, ref, &pb.FlowWrite{Flow: body.Permit.Flow, Effect: body.Authorization.Effect, Permit: body.Permit}
 		}
 	}
@@ -188,7 +187,7 @@ func TestStatePublicByeWrittenReceiptSurvivesFailedRetransmission(t *testing.T) 
 			index := len(r.payload.Effects) - 1
 			var body stateEngineEffect
 			effect := r.payload.Effects[index]
-			if err := json.Unmarshal(effect.Payload, &body); err != nil || effect.Kind != "deliver" || body.WireMethod != "BYE" || effect.ID == write.Effect.Id {
+			if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil || effect.Kind != "deliver" || body.WireMethod != "BYE" || effect.ID == write.Effect.Id {
 				t.Fatalf("missing distinct native retransmission: %v", err)
 			}
 			retry := &pb.FlowWrite{Flow: body.Permit.Flow, Effect: body.Authorization.Effect, Permit: body.Permit}
@@ -267,7 +266,7 @@ func TestStateInitialOutOfDialogByeIsNotWrittenDialogProof(t *testing.T) {
 	}
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if effect.Kind != "deliver" || json.Unmarshal(effect.Payload, &body) != nil || body.Command != "initial-bye" {
+		if effect.Kind != "deliver" || unmarshalRetainedFixture(effect.Payload, &body) != nil || body.Command != "initial-bye" {
 			continue
 		}
 		write := &pb.FlowWrite{Flow: body.Permit.Flow, Effect: body.Authorization.Effect, Permit: body.Permit}

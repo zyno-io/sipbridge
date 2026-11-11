@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -48,7 +47,7 @@ func ownerFinalRegistration(t *testing.T) (*StateEngine, *StateEngine, *pb.Conte
 	for _, effect := range record.Payload.Effects {
 		if effect.Kind == "present" {
 			presentation = effect
-			if err := json.Unmarshal(effect.Payload, &body); err != nil {
+			if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -80,8 +79,8 @@ func TestStateOwnerFinalRegistrationStopsProbesWithoutChangingNativeEvidence(t *
 			t.Fatal("final response-only context retained an owner timer")
 		}
 	}
-	nativeBefore, _ := json.Marshal(c.Transactions)
-	physicalBefore, _ := json.Marshal(record.Payload.Effects)
+	nativeBefore, _ := marshalRetainedFixture(c.Transactions)
+	physicalBefore, _ := marshalRetainedFixture(record.Payload.Effects)
 	if err := r.ensureOwnerProbe(c, application); err != nil {
 		t.Fatal(err)
 	}
@@ -91,8 +90,8 @@ func TestStateOwnerFinalRegistrationStopsProbesWithoutChangingNativeEvidence(t *
 	if err := r.appendOwnerTimers(); err != nil || c.OwnerProbeEffect != "" || len(r.payload.Timers) != 0 {
 		t.Fatalf("idle transaction continued probing: %v", err)
 	}
-	nativeAfter, _ := json.Marshal(c.Transactions)
-	physicalAfter, _ := json.Marshal(r.payload.Effects)
+	nativeAfter, _ := marshalRetainedFixture(c.Transactions)
+	physicalAfter, _ := marshalRetainedFixture(r.payload.Effects)
 	if string(nativeBefore) != string(nativeAfter) || string(physicalBefore) != string(physicalAfter) {
 		t.Fatal("owner-probe suppression changed native timers/response or separately retained physical effects")
 	}
@@ -176,7 +175,7 @@ func TestStateOwnerIdleRegistrationRequiresFreshProofAndReplaysCachedResponse(t 
 					t.Fatal("cached response replay invoked business policy")
 				}
 				var body stateEngineEffect
-				if effect.Kind == "wire" && json.Unmarshal(effect.Payload, &body) == nil {
+				if effect.Kind == "wire" && unmarshalRetainedFixture(effect.Payload, &body) == nil {
 					message, err := (portable.Message{Wire: body.Wire, Transport: "udp"}).Parse()
 					if response, ok := message.(*sip.Response); err == nil && ok && response.StatusCode == 200 {
 						cached = body.Authorization.GetAuthorityClass() == pb.EffectAuthorization_RESPONSE

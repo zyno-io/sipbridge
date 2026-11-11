@@ -9,7 +9,7 @@ import (
 	pb "sipbridge/internal/controlpb"
 )
 
-// Native records use ordinary JSON for portable SIP values and protobuf JSON
+// Human-readable diagnostic fixtures use ordinary JSON for portable SIP values and protobuf JSON
 // for oneof-bearing control messages. encoding/json cannot reconstruct a Go
 // protobuf oneof interface, so these fields must retain their schema names.
 // Only the two private retained structs call this helper; their ordinary fields
@@ -176,6 +176,6 @@ func stateValidateRetainedInput(in stateEngineInput) error {
 }
 
 func stateEffectResultID(engine *StateEngine, kind, effect string, input stateEngineInput) string {
-	encoded, _ := json.Marshal(input)
+	encoded, _ := input.MarshalBinary()
 	return engine.id(kind, effect, string(encoded))
 }

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -29,8 +28,8 @@ func TestStateRPCProgressRequiresForwardPersistedEffectState(t *testing.T) {
 		{"already-reserved", "wire", state.Effect{Kind: "deliver", Status: state.EffectDispatching}, false},
 		{"physical-unknown", "wire", state.Effect{Kind: "deliver", Status: state.EffectUnknown}, false},
 		{"expired-permit-to-settle", "wire", state.Effect{Kind: "deliver", Status: state.EffectNotWritten}, true},
-		{"unacknowledged-settlement", "deliver", state.Effect{Kind: "deliver", Status: state.EffectWritten, Payload: []byte(`{}`)}, false},
-		{"acknowledged-settlement", "deliver", state.Effect{Kind: "deliver", Status: state.EffectWritten, Payload: []byte(`{"settled":true}`)}, true},
+		{"unacknowledged-settlement", "deliver", state.Effect{Kind: "deliver", Status: state.EffectWritten, Payload: mustRetainedEffect(t, stateEngineEffect{})}, false},
+		{"acknowledged-settlement", "deliver", state.Effect{Kind: "deliver", Status: state.EffectWritten, Payload: mustRetainedEffect(t, stateEngineEffect{Settled: true})}, true},
 		{"terminal-policy", "adopt", state.Effect{Kind: "adopt", Status: state.EffectNotWritten}, true},
 	} {
 		t.Run(sample.name, func(t *testing.T) {
@@ -79,7 +78,7 @@ func TestStateRPCRefusalWaitsForDurableRecoveryThenProgresses(t *testing.T) {
 			}
 			initial := payload.Effects[0]
 			var initialBody stateEngineEffect
-			if json.Unmarshal(initial.Payload, &initialBody) != nil || initial.Kind != "wire" {
+			if unmarshalRetainedFixture(initial.Payload, &initialBody) != nil || initial.Kind != "wire" {
 				t.Fatal("fixture effect mismatch")
 			}
 			var allow atomic.Bool
@@ -154,7 +153,7 @@ func TestStateRPCRefusalWaitsForDurableRecoveryThenProgresses(t *testing.T) {
 				t.Fatal("refusal changed identity/deadline or lost its future durable recovery timer")
 			}
 			var retainedBody stateEngineEffect
-			if json.Unmarshal(retained.Payload, &retainedBody) != nil || !proto.Equal(retainedBody.Authorization, initialBody.Authorization) {
+			if unmarshalRetainedFixture(retained.Payload, &retainedBody) != nil || !proto.Equal(retainedBody.Authorization, initialBody.Authorization) {
 				t.Fatal("refusal changed effect authorization")
 			}
 			// Execute the original durable timer, without changing its generation,

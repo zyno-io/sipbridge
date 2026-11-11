@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 
 	"google.golang.org/protobuf/proto"
@@ -61,7 +60,7 @@ func (e *StateEngine) inspectContext(ctx context.Context, application *pb.Proces
 	uncertain := false
 	if record.Pending != nil {
 		var pending stateEngineInput
-		if err := json.Unmarshal(record.Pending.Payload, &pending); err != nil {
+		if err := pending.UnmarshalBinary(record.Pending.Payload); err != nil {
 			return nil, state.ErrCorrupt
 		}
 		// Sequence discovery reads committed state. A pending internal effect or

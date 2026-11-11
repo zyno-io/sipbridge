@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -72,7 +71,7 @@ func TestStateSubscriptionSameFlowRefreshPublishesMutationFence(t *testing.T) {
 			for _, effect := range record.Payload.Effects {
 				if effect.Kind == "adopt" {
 					var body stateEngineEffect
-					if err := json.Unmarshal(effect.Payload, &body); err != nil {
+					if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 						t.Fatal(err)
 					}
 					adoption, proposal = effect, body.Envelope.GetFlowAdoption()

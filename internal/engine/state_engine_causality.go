@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"time"
 
@@ -193,7 +192,7 @@ func (r *stateReduction) releaseACKCleanup(c *stateContext, ack stateEngineEffec
 	byTransaction := make(map[string][]int)
 	for index, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil {
+		if body.UnmarshalBinary(effect.Payload) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Context == c.Snapshot.Context.Id && body.Dialog == ack.Dialog && body.AfterACK == hash {
@@ -229,7 +228,7 @@ func (r *stateReduction) releaseACKCleanup(c *stateContext, ack stateEngineEffec
 		for _, index := range indices {
 			effect := r.payload.Effects[index]
 			var body stateEngineEffect
-			if body.UnmarshalJSON(effect.Payload) != nil {
+			if body.UnmarshalBinary(effect.Payload) != nil {
 				return state.ErrCorrupt
 			}
 			switch {
@@ -297,7 +296,7 @@ func (r *stateReduction) contextRetirementProven(id string, c *stateContext) boo
 	}
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil {
+		if body.UnmarshalBinary(effect.Payload) != nil {
 			return false
 		}
 		if body.Context == id && effect.Kind == "deliver" && !body.Settled {
@@ -339,10 +338,8 @@ func (r *stateReduction) coldTrustedHistory(id string, c *stateContext) bool {
 		if effect.Status != state.EffectUnknown || effect.DeadlineMS+120000 > r.now || !stateTrustedRelayEffect(effect) {
 			continue
 		}
-		var identity struct {
-			Context string `json:"context"`
-		}
-		if json.Unmarshal(effect.Payload, &identity) != nil {
+		var identity stateEngineEffect
+		if identity.UnmarshalBinary(effect.Payload) != nil {
 			return false
 		}
 		if identity.Context == id {
@@ -356,7 +353,7 @@ func (r *stateReduction) coldTrustedHistory(id string, c *stateContext) bool {
 	found := false
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil {
+		if body.UnmarshalBinary(effect.Payload) != nil {
 			return false
 		}
 		if body.Context != id {
@@ -384,7 +381,7 @@ func (r *stateReduction) coldNativeHistory(id string, c *stateContext) bool {
 	found := false
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil {
+		if body.UnmarshalBinary(effect.Payload) != nil {
 			return false
 		}
 		if body.Context != id {

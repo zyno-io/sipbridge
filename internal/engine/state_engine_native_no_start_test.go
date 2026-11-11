@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -61,7 +60,7 @@ func nativeUnreservedRegisterResponse(t *testing.T) (nativeOwnerFixture, *pb.Con
 	record, _ = stateTestLoad(t, f.engine, ref)
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if err = json.Unmarshal(effect.Payload, &body); err != nil {
+		if err = unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		if effect.Kind == "deliver" && body.Native && body.WireMethod == "REGISTER" && body.WireStatus == 401 {
@@ -96,7 +95,7 @@ func TestLegacyHistoricalExpiredUnreservedResponseResumeAdmitsLaterRegister(t *t
 		t.Fatal(err)
 	}
 	input := stateEngineInput{Kind: "locate", Context: ref, Operation: "admitted-before-response-expiry"}
-	encoded, err := json.Marshal(input)
+	encoded, err := marshalRetainedFixture(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +150,7 @@ func TestLegacyHistoricalExpiredUnreservedResponseResumeAdmitsLaterRegister(t *t
 			continue
 		}
 		var body stateEngineEffect
-		if err = json.Unmarshal(effect.Payload, &body); err != nil {
+		if err = unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		found = true
@@ -221,7 +220,7 @@ func TestNativeExpiredReservedResponsePreservesDispatchingAndUnknown(t *testing.
 					continue
 				}
 				var retained stateEngineEffect
-				if err = json.Unmarshal(effect.Payload, &retained); err != nil {
+				if err = unmarshalRetainedFixture(effect.Payload, &retained); err != nil {
 					t.Fatal(err)
 				}
 				if effect.Status != status || effect.AttemptID != body.Authorization.Effect.AttemptId || effect.DeadlineMS != original.DeadlineMS ||
@@ -251,7 +250,7 @@ func TestNativeExpiredUnreservedResponseRejectsMalformedAttempt(t *testing.T) {
 					continue
 				}
 				var body stateEngineEffect
-				if err := json.Unmarshal(effect.Payload, &body); err != nil {
+				if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 					t.Fatal(err)
 				}
 				if missing {
@@ -259,7 +258,7 @@ func TestNativeExpiredUnreservedResponseRejectsMalformedAttempt(t *testing.T) {
 				} else {
 					body.Authorization.Effect.AttemptId = "invalid/attempt"
 				}
-				effect.Payload, _ = json.Marshal(body)
+				effect.Payload, _ = marshalRetainedFixture(body)
 				next.Effects[index] = effect
 			}
 			r := &stateReduction{engine: f.engine, record: record, group: group, payload: next, now: original.DeadlineMS}

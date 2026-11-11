@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	pb "sipbridge/internal/controlpb"
@@ -31,7 +30,7 @@ func TestNativePhysicalCompletionNeedsNoControllerSettlement(t *testing.T) {
 			var body stateEngineEffect
 			for _, effect := range record.Payload.Effects {
 				var candidate stateEngineEffect
-				if err := json.Unmarshal(effect.Payload, &candidate); err != nil {
+				if err := unmarshalRetainedFixture(effect.Payload, &candidate); err != nil {
 					t.Fatal(err)
 				}
 				if effect.Kind == "deliver" && candidate.Native && effect.Status == state.EffectAuthorized {
@@ -79,7 +78,7 @@ func TestNativePhysicalCompletionNeedsNoControllerSettlement(t *testing.T) {
 				}
 				found = true
 				var current stateEngineEffect
-				if err := json.Unmarshal(effect.Payload, &current); err != nil {
+				if err := unmarshalRetainedFixture(effect.Payload, &current); err != nil {
 					t.Fatal(err)
 				}
 				if effect.DeadlineMS != selected.DeadlineMS {

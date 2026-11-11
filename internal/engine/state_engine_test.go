@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -239,7 +238,7 @@ func TestStateEngineCommittedResponseFlowAndTerminalWriteEvidence(t *testing.T) 
 	for _, effect := range record.Payload.Effects {
 		if effect.Kind == "wire" {
 			selected = effect
-			if err = json.Unmarshal(effect.Payload, &body); err != nil {
+			if err = unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -363,7 +362,7 @@ func TestStateEngineReconnectPublicationDefersPresentation(t *testing.T) {
 	var body stateEngineEffect
 	for _, effect := range record.Payload.Effects {
 		var candidate stateEngineEffect
-		if err = json.Unmarshal(effect.Payload, &candidate); err != nil {
+		if err = unmarshalRetainedFixture(effect.Payload, &candidate); err != nil {
 			t.Fatal(err)
 		}
 		if effect.Kind == "adopt" {
@@ -390,7 +389,7 @@ func TestStateEngineReconnectPublicationDefersPresentation(t *testing.T) {
 	found := false
 	for _, effect := range record.Payload.Effects {
 		var candidate stateEngineEffect
-		if json.Unmarshal(effect.Payload, &candidate) == nil && effect.Kind == "present" && candidate.Transaction == body.Transaction {
+		if unmarshalRetainedFixture(effect.Payload, &candidate) == nil && effect.Kind == "present" && candidate.Transaction == body.Transaction {
 			found = true
 		}
 	}
@@ -464,7 +463,7 @@ func TestStateEngineSubscriptionPolicyAndPublicationFenceLease(t *testing.T) {
 	for _, effect := range record.Payload.Effects {
 		if effect.Kind == "adopt" {
 			adoption = effect
-			if err = json.Unmarshal(effect.Payload, &body); err != nil {
+			if err = unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -512,7 +511,7 @@ func TestStateEngineRecoveredExpiredFreshCommandCannotEmit(t *testing.T) {
 	}
 	record, _ := stateTestLoad(t, a, ref)
 	input := stateEngineInput{Kind: "command", Context: ref, Application: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}, Operation: "expired-open", Command: &pb.Command{Context: ref, Sequence: 1, Action: &pb.Command_OpenUac{OpenUac: &pb.OpenUac{Uri: "sip:phone@example.test", Transport: "tls"}}}}
-	encoded, err := json.Marshal(input)
+	encoded, err := marshalRetainedFixture(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +521,7 @@ func TestStateEngineRecoveredExpiredFreshCommandCannotEmit(t *testing.T) {
 		t.Fatal(err)
 	}
 	var result pb.OperationResult
-	if err = json.Unmarshal(outcome, &result); err != nil {
+	if err = unmarshalRetainedFixture(outcome, &result); err != nil {
 		t.Fatal(err)
 	}
 	if result.Certainty != pb.OperationResult_NOT_ACCEPTED || len(next.Effects) != 0 || next.ActiveTransactions != 0 {
@@ -562,7 +561,7 @@ func TestStateEngineOldDuplicateACKCannotDisplaceAdoptedFlow(t *testing.T) {
 	for _, effect := range record.Payload.Effects {
 		if effect.Kind == "adopt" {
 			adoption = effect
-			if err = json.Unmarshal(effect.Payload, &body); err != nil {
+			if err = unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 				t.Fatal(err)
 			}
 		}

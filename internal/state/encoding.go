@@ -91,15 +91,9 @@ func (value Payload) MarshalJSON() ([]byte, error) {
 	}{plain: plain(value), ProtocolState: encodeValue(value.ProtocolState)})
 }
 
-// The custom encoder already compacts and HTML-escapes its output, but nested
-// reducer values can exceed the depth limit only after embedding. Retain whole-
-// document validation and the outer marshal's original error wrapping on failure.
+// Retained records use only the binary codec; JSON methods above are diagnostic.
 func marshalCommitPayload(value Payload) ([]byte, error) {
-	data, err := value.MarshalJSON()
-	if err != nil || !json.Valid(data) {
-		return json.Marshal(value)
-	}
-	return data, nil
+	return value.MarshalBinary()
 }
 
 // UnmarshalJSON validates the complete input before replacing the receiver.

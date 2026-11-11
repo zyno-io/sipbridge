@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
@@ -66,7 +65,7 @@ func (r *stateReduction) digestChallenge(c *stateContext, tx *stateTransaction, 
 		Origin: tx.Native.Origin, Challenge: message, Credential: proto.Clone(c.Credential).(*pb.CredentialRef),
 		Cnonce: identity[:32], Count: int(attempt), Branch: sip.RFC3261BranchMagicCookie + identity[32:], Attempt: attempt,
 	}
-	encoded, err := json.Marshal(challenge)
+	encoded, err := challenge.MarshalBinary()
 	if err != nil {
 		return false, err
 	}
@@ -81,7 +80,7 @@ func (r *stateReduction) digestChallenge(c *stateContext, tx *stateTransaction, 
 // repeat on another worker without permitting a SIP write before native commit.
 func (e *StateEngine) dispatchCredential(ctx context.Context, ref state.Ref, effect state.Effect, body stateEngineEffect, release func()) {
 	var challenge stateDigestChallenge
-	if json.Unmarshal(body.Wire, &challenge) != nil || body.Envelope.GetCredentialLookup() == nil || challenge.Credential == nil {
+	if challenge.UnmarshalBinary(body.Wire) != nil || body.Envelope.GetCredentialLookup() == nil || challenge.Credential == nil {
 		return
 	}
 	// This pure lookup has no executor authority. Including an executor in its
@@ -160,7 +159,7 @@ func (r *stateReduction) digestResult() error {
 	}
 	c := r.group.Contexts[body.Context]
 	var challenge stateDigestChallenge
-	if c == nil || json.Unmarshal(body.Wire, &challenge) != nil || !proto.Equal(c.Credential, challenge.Credential) ||
+	if c == nil || challenge.UnmarshalBinary(body.Wire) != nil || !proto.Equal(c.Credential, challenge.Credential) ||
 		!proto.Equal(body.Envelope.GetCredentialLookup().GetCredential(), challenge.Credential) ||
 		!stateSameContext(body.Envelope.GetCredentialLookup().GetContext(), c.Snapshot.Context) {
 		return errors.New("digest credential scope mismatch")
@@ -192,7 +191,7 @@ func (r *stateReduction) digestResult() error {
 	if r.in.Failure != "" || r.now >= effect.DeadlineMS {
 		effect.Status = state.EffectNotWritten
 		challenge.ResultHash = hash
-		body.Wire, _ = json.Marshal(challenge)
+		body.Wire, _ = challenge.MarshalBinary()
 		r.setEffect(index, effect, body)
 		c.Result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Error: "SIP setup authentication unavailable", Request: mustObserve(tx.Native.Origin.Wire, true), Response: mustObserve(challenge.Challenge.Wire, false)}
 		c.Snapshot.Ended = true
@@ -227,7 +226,7 @@ func (r *stateReduction) digestResult() error {
 	}
 	effect.Status = state.EffectWritten
 	challenge.ResultHash = hash
-	body.Wire, _ = json.Marshal(challenge)
+	body.Wire, _ = challenge.MarshalBinary()
 	r.setEffect(index, effect, body)
 	r.touch(c)
 	r.index(c, retry, true)

@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -165,7 +164,7 @@ func preflightMutate(t *testing.T, f nativeOwnerFixture, ref *pb.ContextRef, cha
 			return record.Payload, nil, err
 		}
 		change(decoded.Contexts[ref.Id])
-		data, err := json.Marshal(decoded)
+		data, err := marshalRetainedFixture(decoded)
 		payload := record.Payload
 		payload.ProtocolState = data
 		return payload, nil, err
@@ -200,8 +199,8 @@ func TestStateControlPreflightDoesNotCacheReceiptOrCSeq(t *testing.T) {
 	if replay.Error != "" || after.Revision != before.Revision || !bytes.Equal(after.Payload.ProtocolState, before.Payload.ProtocolState) {
 		t.Fatal("replayed invocation changed SIP state or consumed another CSeq")
 	}
-	beforeJSON, _ := json.Marshal(before.Receipts)
-	afterJSON, _ := json.Marshal(after.Receipts)
+	beforeJSON, _ := marshalRetainedFixture(before.Receipts)
+	afterJSON, _ := marshalRetainedFixture(after.Receipts)
 	if !bytes.Equal(beforeJSON, afterJSON) {
 		t.Fatal("replay regenerated an original receipt or admission deadline")
 	}
@@ -211,7 +210,7 @@ func TestStateControlPreflightPreservesDifferentPendingInput(t *testing.T) {
 	f, ref, first := preflightFixture(t, "REGISTER")
 	group, _ := f.engine.group(ref)
 	first.Operation = "different-pending"
-	data, _ := json.Marshal(first)
+	data, _ := marshalRetainedFixture(first)
 	sum := sha256.Sum256(data)
 	deadline := time.Now().Add(2 * time.Second).UnixMilli()
 	begun, err := f.engine.store.(*state.Store).Begin(context.Background(), group, "crashed-preflight-worker", state.Input{ID: first.Operation, Kind: first.Kind,

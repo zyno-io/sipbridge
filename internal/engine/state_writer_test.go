@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -55,7 +54,7 @@ func (w *failingNativeReservation) Reserve(ctx context.Context, command *pb.Flow
 			return nil, err
 		}
 		input := stateEngineInput{Kind: "reserve", Context: command.Effect.Context, Executor: w.engine.cfg.Process, Write: command, Effect: command.Effect.Id}
-		data, err := json.Marshal(input)
+		data, err := marshalRetainedFixture(input)
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +114,7 @@ func nativeStateWriterFixture(t *testing.T) (*StateEngine, *Ingress, *pb.FlowWri
 			continue
 		}
 		var body stateEngineEffect
-		if err := json.Unmarshal(effect.Payload, &body); err != nil {
+		if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		permit := &pb.SendPermit{Authorization: body.Authorization, Flow: initial.Flow, DirectoryEpoch: "directory", OrderingProof: "proof"}

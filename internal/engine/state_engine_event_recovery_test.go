@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -44,7 +43,7 @@ func delayedFailureEventFixture(t *testing.T, engine *StateEngine, record state.
 	ack := false
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) != nil {
+		if unmarshalRetainedFixture(effect.Payload, &body) != nil {
 			t.Fatal("invalid native effect")
 		}
 		if effect.Kind == "wire" {
@@ -193,12 +192,12 @@ func TestStateEventRPCCannotOutliveOriginalRecoveryWindow(t *testing.T) {
 			r, c, event := delayedFailureEventFixture(t, engine, begun.Step.Record, 121250*time.Millisecond)
 			if status == state.EffectUnknown {
 				var body stateEngineEffect
-				if err := json.Unmarshal(event.Payload, &body); err != nil {
+				if err := unmarshalRetainedFixture(event.Payload, &body); err != nil {
 					t.Fatal(err)
 				}
 				body.Executor = proto.Clone(engine.cfg.Process).(*pb.ProcessRef)
 				event.Status, event.AttemptID = status, "previous-rpc"
-				event.Payload, _ = json.Marshal(body)
+				event.Payload, _ = marshalRetainedFixture(body)
 				r.payload.Effects[0] = event
 			}
 			payload, err := r.finish()

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"encoding/json"
 	"strconv"
 	"testing"
 
@@ -20,7 +19,7 @@ func completeLatestResponse(t *testing.T, r *stateReduction, outcome pb.Delivery
 			continue
 		}
 		var body stateEngineEffect
-		if err := json.Unmarshal(effect.Payload, &body); err != nil {
+		if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		write := causalPermit(r, index, effect, body)
@@ -74,7 +73,7 @@ func TestStateSubscriptionPublicationRefusalRemainsFailureAfterResponseWrite(t *
 			index := len(r.payload.Effects) - 1
 			effect := r.payload.Effects[index]
 			var body stateEngineEffect
-			if err := json.Unmarshal(effect.Payload, &body); err != nil || effect.Kind != "adopt" {
+			if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil || effect.Kind != "adopt" {
 				t.Fatalf("refresh did not wait for publication: %s %v", effect.Kind, err)
 			}
 			r.in = stateEngineInput{Reply: &pb.Envelope{Payload: &pb.Envelope_FlowAdoptionResult{FlowAdoptionResult: &pb.FlowAdoptionResult{Error: "receipt superseded"}}}}

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -18,7 +17,7 @@ func stateCountEvents(t *testing.T, r *stateReduction, kind pb.DialogEvent_Kind)
 	n := 0
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if err := json.Unmarshal(effect.Payload, &body); err != nil {
+		if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		if event := body.Envelope.GetDialogEvent(); event != nil && event.Kind == kind {
@@ -78,7 +77,7 @@ func TestStateInitialInviteTimeoutReportsFailureAndRetainsLateCleanup(t *testing
 			}
 			bye := r.payload.Effects[len(r.payload.Effects)-1]
 			var body stateEngineEffect
-			if err := json.Unmarshal(bye.Payload, &body); err != nil || body.AfterACK == "" {
+			if err := unmarshalRetainedFixture(bye.Payload, &body); err != nil || body.AfterACK == "" {
 				t.Fatal("late cleanup lost ACK-written prerequisite")
 			}
 		})

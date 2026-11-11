@@ -93,7 +93,7 @@ type stateTransaction struct {
 func decodeStateGroup(record state.Record) (stateGroup, error) {
 	g := stateGroup{Version: 1, Contexts: make(map[string]*stateContext), Selectors: make(map[string]string)}
 	if len(record.Payload.ProtocolState) > 0 {
-		if json.Unmarshal(record.Payload.ProtocolState, &g) != nil || g.Version != 1 || g.Contexts == nil || g.Selectors == nil {
+		if g.UnmarshalBinary(record.Payload.ProtocolState) != nil || g.Version != 1 || g.Contexts == nil || g.Selectors == nil {
 			return g, state.ErrCorrupt
 		}
 	}
@@ -177,7 +177,7 @@ type stateReduction struct {
 
 func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) (state.Payload, []byte, error) {
 	var in stateEngineInput
-	if in.UnmarshalJSON(input.Payload) != nil {
+	if in.UnmarshalBinary(input.Payload) != nil {
 		return record.Payload, nil, state.ErrCorrupt
 	}
 	if e.usesCAS() && record.Pending == nil && input.Proof && input.Kind == "timer" && in.Kind == "timer" {
@@ -427,7 +427,7 @@ func (r *stateReduction) addEffect(kind string, c *stateContext, body stateEngin
 		body.Envelope.CorrelationId = id
 		body.Envelope.RemainingBudgetMs = uint32(min(2000, deadline-r.now))
 	}
-	data, _ := json.Marshal(body)
+	data, _ := body.MarshalBinary()
 	r.payload.Effects = append(r.payload.Effects, state.Effect{ID: id, Kind: kind, Status: state.EffectPending, DeadlineMS: deadline, Payload: data})
 }
 func (r *stateReduction) event(c *stateContext, kind pb.DialogEvent_Kind, message *pb.SipMessage, operation string, failure ...string) {
@@ -980,7 +980,7 @@ func (r *stateReduction) sendOnFlow(c *stateContext, tx *stateTransaction, m por
 		tx.FinalResponse.RetryAtMS = 0
 	}
 	body.Envelope = &pb.Envelope{CorrelationId: id, RemainingBudgetMs: 2000, Payload: &pb.Envelope_Egress{Egress: &pb.EgressRequest{Snapshot: snapshot, Message: message, ReturnFlow: flow, Authorization: auth}}}
-	data, _ := json.Marshal(body)
+	data, _ := body.MarshalBinary()
 	r.payload.Effects = append(r.payload.Effects, state.Effect{ID: id, Kind: "wire", Status: state.EffectPending, DeadlineMS: sendDeadline, Payload: data, ApplicationLease: leaseGuard})
 	return nil
 }
@@ -1142,7 +1142,7 @@ func (r *stateReduction) command() error {
 				continue
 			}
 			var body stateEngineEffect
-			if body.UnmarshalJSON(effect.Payload) == nil && body.Transaction == tx.Native.Key && body.Context == c.Snapshot.Context.Id {
+			if body.UnmarshalBinary(effect.Payload) == nil && body.Transaction == tx.Native.Key && body.Context == c.Snapshot.Context.Id {
 				effect.Status = state.EffectWritten
 				if effect.AttemptID == "" {
 					effect.AttemptID = "consumed-" + r.engine.id(effect.ID)[:32]
@@ -1440,7 +1440,7 @@ func (r *stateReduction) finish() (state.Payload, error) {
 		}
 		if (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten || effect.Status == state.EffectCancelled) && effect.DeadlineMS+120000 <= r.now {
 			var body stateEngineEffect
-			if err := body.UnmarshalJSON(effect.Payload); err != nil {
+			if err := body.UnmarshalBinary(effect.Payload); err != nil {
 				return state.Payload{}, err
 			}
 			if effect.Kind != "deliver" || body.Settled {
@@ -1449,12 +1449,12 @@ func (r *stateReduction) finish() (state.Payload, error) {
 		}
 		if (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten || effect.Status == state.EffectCancelled) && effect.Kind != "credential" && effect.Kind != "wire" {
 			var body stateEngineEffect
-			if err := body.UnmarshalJSON(effect.Payload); err != nil {
+			if err := body.UnmarshalBinary(effect.Payload); err != nil {
 				return state.Payload{}, err
 			}
 			body.Wire = nil
 			body.Envelope = nil
-			effect.Payload, _ = json.Marshal(body)
+			effect.Payload, _ = body.MarshalBinary()
 		}
 		filtered = append(filtered, effect)
 	}
@@ -1490,7 +1490,7 @@ func (r *stateReduction) finish() (state.Payload, error) {
 	if err := r.refreshSelectors(); err != nil {
 		return state.Payload{}, err
 	}
-	data, err := json.Marshal(r.group)
+	data, err := r.group.MarshalBinary()
 	if err != nil {
 		return state.Payload{}, err
 	}
@@ -1515,7 +1515,7 @@ func (r *stateReduction) projectDispatchWorkers() error {
 			continue
 		}
 		var body stateEngineEffect
-		if err := body.UnmarshalJSON(effect.Payload); err != nil {
+		if err := body.UnmarshalBinary(effect.Payload); err != nil {
 			return err
 		}
 		if body.Native && !body.Settled && body.Permit.GetFlow().GetIngress() != nil {

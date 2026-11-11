@@ -21,6 +21,27 @@ after successful HelloAck write and lease acquisition. Failed handshake never pu
 a usable peer. Different active epoch cannot supersede the current session. This
 transport fencing is distinct from current service SIP-owner lease authority.
 
+## Offline completion projection
+
+`sipbridge-state-inspect --fixture-completion-projection` accepts one bounded raw
+binary `data` value and emits `sipbridge.fixture.completion.v1` JSON for disposable
+service qualification. It uses this repository's strict payload/protocol/effect
+adapters, with no Redis connection, lease observation, state mutation or clock
+sampling. Consumers copy the executable and storage receipt from the same pinned
+image and verify the complete public/private receipts; they do not implement a
+private storage decoder. The JSON is an inspection projection, never import data.
+
+This explicit fixture mode exposes logical/context/process identities, native
+lease and lifecycle timestamps, exact opaque completion scopes, flow references,
+transaction/dialog/timer state and pending event kinds/operation identities.
+Message proofs contain method/status, Call-ID/CSeq/tags and SHA-256 of the complete
+original wire and From/To header values. URI targets/routes and registration tickets
+are represented by hashes. Raw SIP, headers, bodies, SDP, credentials, effect permits,
+command policies and recovery handles are excluded. Snapshot SDP is removed before
+serialization; the default inspector still exposes only redacted counts/classes.
+Use fixture mode only for isolated synthetic records and keep identifying output
+private. Neither projection is authority to send, settle, adopt or retire anything.
+
 ## Independent stdio/native-wire executable
 
 `cmd/sipbridge-fixture` reads bounded JSON from its parent; it is not service mode.

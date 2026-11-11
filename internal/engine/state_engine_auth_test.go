@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -59,7 +58,7 @@ func digestFixture(t *testing.T, status int, methods ...sip.RequestMethod) (*sta
 		if effect.Kind == "credential" {
 			var body stateEngineEffect
 			var saved stateDigestChallenge
-			if json.Unmarshal(effect.Payload, &body) != nil || json.Unmarshal(body.Wire, &saved) != nil {
+			if unmarshalRetainedFixture(effect.Payload, &body) != nil || unmarshalRetainedFixture(body.Wire, &saved) != nil {
 				t.Fatal("challenge metadata not retained")
 			}
 			return r, c, tx, effect, saved
@@ -144,11 +143,11 @@ func TestStateDigestRetryRetainsOnlyDerivedNativeIdentity(t *testing.T) {
 			if err := r.digestResult(); err != nil || len(c.Transactions) != 2 {
 				t.Fatalf("derived completion replay reran native start: %v", err)
 			}
-			encoded, err := json.Marshal(r.group)
+			encoded, err := marshalRetainedFixture(r.group)
 			if err != nil || bytes.Contains(encoded, []byte("fixture-only-secret")) {
 				t.Fatal("plaintext credential entered native state")
 			}
-			pending, _ := json.Marshal(r.in)
+			pending, _ := marshalRetainedFixture(r.in)
 			if bytes.Contains(pending, []byte("fixture-only-secret")) || bytes.Contains(pending, []byte("credentialResult")) {
 				t.Fatal("plaintext credential entered pending input")
 			}
@@ -338,7 +337,7 @@ func testStateDigestCrossReplicaRedisCommitAndReplay(t *testing.T, cas bool) {
 		if effect.Kind == "credential" {
 			selected = effect
 			var body stateEngineEffect
-			if json.Unmarshal(effect.Payload, &body) != nil || json.Unmarshal(body.Wire, &saved) != nil {
+			if unmarshalRetainedFixture(effect.Payload, &body) != nil || unmarshalRetainedFixture(body.Wire, &saved) != nil {
 				t.Fatal("retained challenge corrupt")
 			}
 		}
@@ -396,7 +395,7 @@ func testStateDigestCrossReplicaRedisCommitAndReplay(t *testing.T, cas bool) {
 	if cas && (replayed.Pending != nil || replayed.Proof != nil) {
 		t.Fatal("CAS retained a generic pure computation record")
 	}
-	encoded, _ := json.Marshal(after)
+	encoded, _ := marshalRetainedFixture(after)
 	if bytes.Contains(encoded, []byte("fixture-only-secret")) || bytes.Contains(encoded, []byte("credentialResult")) {
 		t.Fatal("plaintext credential retained in Redis")
 	}

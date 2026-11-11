@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -59,7 +58,7 @@ func TestNativeAdmissionReservationIsSingleUseAndRetirementStable(t *testing.T) 
 	if r.group.Contexts[ref.Id] != nil || len(r.payload.Effects) != 0 {
 		t.Fatal("native retirement still requires a Controller cleanup RPC")
 	}
-	data, err := json.Marshal(r.group)
+	data, err := marshalRetainedFixture(r.group)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +129,11 @@ func TestNativeAdmissionQuotaAndPendingCreator(t *testing.T) {
 	if len(group.Allocations) != stateAdmissionLimit {
 		t.Fatal("quota refusal damaged existing reservations")
 	}
-	input := state.Input{ID: "pending-creator", Kind: "ingest", Fingerprint: "pending-creator", Payload: []byte(`{"kind":"ingest"}`), DeadlineMS: time.Now().Add(time.Second).UnixMilli(), ReceiptUntilMS: time.Now().Add(time.Minute).UnixMilli()}
+	pending, err := (stateEngineInput{Kind: "ingest"}).MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := state.Input{ID: "pending-creator", Kind: "ingest", Fingerprint: "pending-creator", Payload: pending, DeadlineMS: time.Now().Add(time.Second).UnixMilli(), ReceiptUntilMS: time.Now().Add(time.Minute).UnixMilli()}
 	if _, err := f.engine.store.(*state.Store).Begin(context.Background(), record.Ref, "paused-creator", input); err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +150,7 @@ func TestNativeRetirementPreservesPhysicalUnknown(t *testing.T) {
 	c := group.Contexts[ref.Id]
 	c.Transactions, c.Dialogs = nil, nil
 	c.Snapshot.Ended, c.OwnerLost, c.RetireMS = true, true, time.Now().Add(-time.Second).UnixMilli()
-	body, err := json.Marshal(stateEngineEffect{Context: ref.Id})
+	body, err := marshalRetainedFixture(stateEngineEffect{Context: ref.Id})
 	if err != nil {
 		t.Fatal(err)
 	}

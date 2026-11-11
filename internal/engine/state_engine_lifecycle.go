@@ -74,7 +74,7 @@ func (r *stateReduction) lifecycleTimer() (bool, error) {
 			effect.Status = state.EffectCancelled
 			if effect.Kind == "deliver" {
 				var body stateEngineEffect
-				if err := body.UnmarshalJSON(effect.Payload); err != nil {
+				if err := body.UnmarshalBinary(effect.Payload); err != nil {
 					return true, err
 				}
 				effect.Status = state.EffectNotWritten
@@ -82,7 +82,7 @@ func (r *stateReduction) lifecycleTimer() (bool, error) {
 			}
 			r.payload.Effects[index] = effect
 			var body stateEngineEffect
-			if err := body.UnmarshalJSON(effect.Payload); err != nil {
+			if err := body.UnmarshalBinary(effect.Payload); err != nil {
 				return true, err
 			}
 			c := r.group.Contexts[body.Context]
@@ -164,7 +164,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 				continue
 			}
 			var body stateEngineEffect
-			if body.UnmarshalJSON(effect.Payload) == nil && body.Context == id {
+			if body.UnmarshalBinary(effect.Payload) == nil && body.Context == id {
 				setupPending = true
 				break
 			}
@@ -191,7 +191,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 				filtered := r.payload.Effects[:0]
 				for _, effect := range r.payload.Effects {
 					var body stateEngineEffect
-					if err := body.UnmarshalJSON(effect.Payload); err != nil {
+					if err := body.UnmarshalBinary(effect.Payload); err != nil {
 						return err
 					}
 					if body.Context != id {
@@ -235,7 +235,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 		}
 		if len(coldNative) > 0 && stateHistoricalDelivery(effect) {
 			var body stateEngineEffect
-			if err := body.UnmarshalJSON(effect.Payload); err != nil {
+			if err := body.UnmarshalBinary(effect.Payload); err != nil {
 				return err
 			}
 			if coldNative[body.Context] {
@@ -245,7 +245,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 		knownUnsettled := false
 		if effect.Kind == "deliver" && (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten) {
 			var body stateEngineEffect
-			if err := body.UnmarshalJSON(effect.Payload); err != nil {
+			if err := body.UnmarshalBinary(effect.Payload); err != nil {
 				return err
 			}
 			knownUnsettled = !body.Settled
@@ -486,7 +486,7 @@ func (e *StateEngine) scheduleGroupIn(parent context.Context, ref state.Ref) {
 func (r *stateReduction) cancelUnstartedEffects(c *stateContext) error {
 	for index, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if err := body.UnmarshalJSON(effect.Payload); err != nil {
+		if err := body.UnmarshalBinary(effect.Payload); err != nil {
 			return err
 		}
 		if body.Context != c.Snapshot.Context.Id {
@@ -532,7 +532,7 @@ func stateHistoricalAuthorization(effect state.Effect) bool {
 		return false
 	}
 	var body stateEngineEffect
-	return body.UnmarshalJSON(effect.Payload) == nil && body.Cancelled
+	return body.UnmarshalBinary(effect.Payload) == nil && body.Cancelled
 }
 
 const stateRetiredMarkerLimit = 128

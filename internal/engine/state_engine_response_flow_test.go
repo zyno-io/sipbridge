@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/emiago/sipgo/sip"
@@ -44,7 +43,7 @@ func stateWireBody(t *testing.T, record state.Record, method, remote string) sta
 	t.Helper()
 	for index := len(record.Payload.Effects) - 1; index >= 0; index-- {
 		var body stateEngineEffect
-		if json.Unmarshal(record.Payload.Effects[index].Payload, &body) != nil || len(body.Wire) == 0 {
+		if unmarshalRetainedFixture(record.Payload.Effects[index].Payload, &body) != nil || len(body.Wire) == 0 {
 			continue
 		}
 		parsed, err := sip.ParseMessage(body.Wire)

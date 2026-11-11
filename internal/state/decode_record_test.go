@@ -20,7 +20,11 @@ func retainedDecodeFixture(t testing.TB) (*Store, Ref, retainedRecordJSON) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return s, ref, retainedRecordJSON{inc: "incarnation", revision: "1", data: "{}", receipts: "[]", callID: ref.CallID}
+	empty, err := (Payload{}).MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, ref, retainedRecordJSON{inc: "incarnation", revision: "1", data: string(empty), receipts: "[]", callID: ref.CallID}
 }
 
 func decodeRetainedRecord(s *Store, ref Ref, fields retainedRecordJSON) (Record, error) {
@@ -120,28 +124,38 @@ func TestRetainedPayloadDirectDecodeMatchesOuterUnmarshal(t *testing.T) {
 		t.Run(sample.name, func(t *testing.T) {
 			s, ref, fields := retainedDecodeFixture(t)
 			fields.data = sample.data
-			want, wantErr := decodeRecordWithOuterScan(s, ref, fields)
 			got, gotErr := decodeRetainedRecord(s, ref, fields)
-			if (wantErr == nil) != sample.valid || (gotErr == nil) != sample.valid || !reflect.DeepEqual(want, got) {
-				t.Fatalf("direct decoder differs: valid=%t outer=%v direct=%v", sample.valid, wantErr, gotErr)
+			if !errors.Is(gotErr, ErrCorrupt) || !reflect.DeepEqual(got, Record{}) {
+				t.Fatal("legacy JSON was accepted", gotErr)
 			}
-			if !sample.valid && (!errors.Is(gotErr, ErrCorrupt) || !reflect.DeepEqual(got, Record{})) {
-				t.Fatal("malformed state exposed a partial record or lost corruption classification", gotErr)
+			var payload Payload
+			if err := json.Unmarshal([]byte(sample.data), &payload); err != nil {
+				return
 			}
+			binary, err := payload.MarshalBinary()
+			if err != nil {
+				return
+			}
+			fields.data = string(binary)
+			got, gotErr = decodeRetainedRecord(s, ref, fields)
+			expected := s.validatePayloadStructure(payload) == nil && s.validatePayloadSize(payload, len(binary)) == nil
+			if (gotErr == nil) != expected {
+				t.Fatalf("binary structure acceptance differs: %v", gotErr)
+			}
+
 		})
 	}
 	for name, payload := range payloadValidationCases() {
 		t.Run("encoded-"+name, func(t *testing.T) {
 			s, ref, fields := retainedDecodeFixture(t)
-			encoded, err := json.Marshal(payload)
+			encoded, err := payload.MarshalBinary()
 			if err != nil {
 				t.Fatal(err)
 			}
 			fields.data = string(encoded)
-			want, wantErr := decodeRecordWithOuterScan(s, ref, fields)
 			got, gotErr := decodeRetainedRecord(s, ref, fields)
-			if wantErr != nil || gotErr != nil || !reflect.DeepEqual(want, got) || !bytes.Equal(got.Payload.ProtocolState, payload.ProtocolState) {
-				t.Fatalf("structured/opaque custom values changed: outer=%v direct=%v", wantErr, gotErr)
+			if gotErr != nil || !bytes.Equal(got.Payload.ProtocolState, payload.ProtocolState) {
+				t.Fatalf("structured/opaque custom values changed: %v", gotErr)
 			}
 		})
 	}
@@ -163,10 +177,9 @@ func TestRetainedDirectDecodePreservesOtherRecordChecks(t *testing.T) {
 			case "proof":
 				fields.proof = "{"
 			}
-			want, wantErr := decodeRecordWithOuterScan(s, ref, fields)
 			got, gotErr := decodeRetainedRecord(s, ref, fields)
-			if !errors.Is(wantErr, ErrCorrupt) || !errors.Is(gotErr, ErrCorrupt) || !reflect.DeepEqual(want, got) {
-				t.Fatalf("auxiliary corruption check changed: outer=%v direct=%v", wantErr, gotErr)
+			if !errors.Is(gotErr, ErrCorrupt) || !reflect.DeepEqual(got, Record{}) {
+				t.Fatalf("auxiliary corruption check changed: %v", gotErr)
 			}
 		})
 	}
@@ -180,11 +193,11 @@ func FuzzRetainedPayloadDecodeEquivalence(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		s, ref, fields := retainedDecodeFixture(t)
 		fields.data = string(data)
-		want, wantErr := decodeRecordWithOuterScan(s, ref, fields)
 		got, gotErr := decodeRetainedRecord(s, ref, fields)
-		if (wantErr == nil) != (gotErr == nil) || !reflect.DeepEqual(want, got) {
-			t.Fatalf("direct decoder differs: outer=%v direct=%v", wantErr, gotErr)
+		if gotErr != nil && !reflect.DeepEqual(got, Record{}) {
+			t.Fatal("partial corrupt record exposed")
 		}
+
 		if gotErr != nil && !errors.Is(gotErr, ErrCorrupt) {
 			t.Fatal("retained corruption changed its error class", gotErr)
 		}

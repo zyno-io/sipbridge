@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -37,7 +36,7 @@ func pressureUntilReservedBoundary(t *testing.T, r *stateReduction) {
 	if count < 1 {
 		t.Fatalf("profile has no pressure headroom: %+v effects%d", budget, len(r.payload.Effects))
 	}
-	encoded, _ := json.Marshal(stateEngineEffect{Context: "pressure"})
+	encoded, _ := marshalRetainedFixture(stateEngineEffect{Context: "pressure"})
 	for n := 0; n < count; n++ {
 		r.payload.Effects = append(r.payload.Effects, state.Effect{ID: fmt.Sprintf("pressure-%d", n), Kind: "deliver", Status: state.EffectUnknown, AttemptID: "attempt", DeadlineMS: r.now + 1000000, Payload: encoded})
 	}
@@ -89,13 +88,13 @@ func testStateDerivedCapacityAdmitsMandatorySixteenForkCompletion(t *testing.T, 
 	}
 	freshRef := engine.contextRef(r.record.Ref, "fresh")
 	input := stateEngineInput{Kind: "ingest", Context: freshRef, Application: c.Snapshot.Application, Ingest: &pb.OwnerIngest{Context: freshRef, Application: c.Snapshot.Application, Flow: c.Flow, Wire: fresh.Wire}}
-	encoded, _ := json.Marshal(input)
+	encoded, _ := marshalRetainedFixture(input)
 	refused, outcome, err := engine.reduce(originalRecord, state.Input{ID: "fresh", Kind: "ingest", Payload: encoded, DeadlineMS: r.now + 2000, ReceiptUntilMS: r.now + 122000}, r.now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var result pb.OperationResult
-	if err = json.Unmarshal(outcome, &result); err != nil {
+	if err = unmarshalRetainedFixture(outcome, &result); err != nil {
 		t.Fatal(err)
 	}
 	originalRecord.Payload = refused
@@ -254,14 +253,14 @@ func TestStateEndedForkACKsRetainWireBytesAtGroupBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	limits := engine.store.Limits()
-	encoded, _ := json.Marshal(r.payload)
-	history, _ := json.Marshal(r.record.Receipts)
+	encoded, _ := marshalRetainedFixture(r.payload)
+	history, _ := marshalRetainedFixture(r.record.Receipts)
 	marker := base64.StdEncoding.EncodedLen(limits.OutcomeBytes) + 1024
 	padding := limits.GroupBytes - len(encoded) - len(history) - 4096 - 2*marker - r.payload.ReservedCompletionBytes - 2048
 	if padding < stateWireLimit {
 		t.Fatal("fixture has insufficient byte pressure headroom")
 	}
-	pressure, _ := json.Marshal(map[string]string{"context": c.Snapshot.Context.Id, "padding": strings.Repeat("x", padding)})
+	pressure, _ := marshalRetainedFixture(map[string]string{"context": c.Snapshot.Context.Id, "padding": strings.Repeat("x", padding)})
 	r.payload.Effects = append(r.payload.Effects, state.Effect{ID: "byte-pressure", Kind: "deliver", Status: state.EffectUnknown, AttemptID: "attempt", DeadlineMS: r.now + 1000000, Payload: pressure})
 	if _, err := r.finish(); err != nil || !engine.statePayloadFits(r.record, r.payload) {
 		t.Fatalf("reserved ended ACK bytes do not fit near group boundary: %v", err)
@@ -269,7 +268,7 @@ func TestStateEndedForkACKsRetainWireBytesAtGroupBoundary(t *testing.T) {
 	// Fresh policy must be refused at the byte boundary, while the already
 	// reserved branch completion can still materialize its immutable envelope.
 	fresh := stateEngineEffect{Context: c.Snapshot.Context.Id, Wire: []byte(strings.Repeat("x", stateWireLimit))}
-	freshBytes, _ := json.Marshal(fresh)
+	freshBytes, _ := marshalRetainedFixture(fresh)
 	candidate := r.payload
 	candidate.Effects = append(append([]state.Effect(nil), r.payload.Effects...), state.Effect{ID: "fresh", Kind: "wire", Status: state.EffectPending, Payload: freshBytes})
 	if engine.statePayloadFits(r.record, candidate) {
@@ -367,7 +366,7 @@ func TestStateReplayStormHasFiniteACKAndProgressBudget(t *testing.T) {
 				continue
 			}
 			var body stateEngineEffect
-			if json.Unmarshal(effect.Payload, &body) != nil || body.WireMethod != "ACK" {
+			if unmarshalRetainedFixture(effect.Payload, &body) != nil || body.WireMethod != "ACK" {
 				continue
 			}
 			effect.Kind = "deliver"
@@ -385,7 +384,7 @@ func TestStateReplayStormHasFiniteACKAndProgressBudget(t *testing.T) {
 	attempts := 0
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) == nil && body.WireMethod == "ACK" {
+		if unmarshalRetainedFixture(effect.Payload, &body) == nil && body.WireMethod == "ACK" {
 			attempts++
 		}
 	}

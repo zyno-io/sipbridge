@@ -144,7 +144,7 @@ func stateRelatedResponse(tx *stateTransaction, body stateEngineEffect) bool {
 func (r *stateReduction) expireUnstartedResponse(c *stateContext, tx *stateTransaction) error {
 	for index, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil {
+		if body.UnmarshalBinary(effect.Payload) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key || !stateRelatedResponse(tx, body) || effect.DeadlineMS > r.now {
@@ -212,7 +212,7 @@ func (r *stateReduction) retryServerFinal(c *stateContext, tx *stateTransaction)
 	selected.RetryAtMS = min(r.now+tx.Native.Profile.T1, selected.UntilMS)
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil {
+		if body.UnmarshalBinary(effect.Payload) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key || !stateRelatedResponse(tx, body) {
@@ -259,7 +259,7 @@ func (r *stateReduction) serverFinalRetryLive(c *stateContext, tx *stateTransact
 	}
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil || body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key ||
+		if body.UnmarshalBinary(effect.Payload) != nil || body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key ||
 			!stateSelectedResponseEffect(tx, body) || effect.DeadlineMS <= r.now {
 			continue
 		}
@@ -301,7 +301,7 @@ func (r *stateReduction) finishProvisionalNoStart(c *stateContext, tx *stateTran
 	}
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil {
+		if body.UnmarshalBinary(effect.Payload) != nil {
 			return false
 		}
 		if body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key || !stateRelatedResponse(tx, body) {

@@ -73,7 +73,7 @@ func (r *stateReduction) reserveEmission(c *stateContext, tx *stateTransaction, 
 				continue
 			}
 			var body stateEngineEffect
-			if body.UnmarshalJSON(effect.Payload) == nil && body.Context == c.Snapshot.Context.Id && body.Transaction == tx.Native.Key && bytes.Equal(body.Wire, message.Wire) && proto.Equal(body.Flow, flow) &&
+			if body.UnmarshalBinary(effect.Payload) == nil && body.Context == c.Snapshot.Context.Id && body.Transaction == tx.Native.Key && bytes.Equal(body.Wire, message.Wire) && proto.Equal(body.Flow, flow) &&
 				(!serverResponse || body.Command == tx.Command || uint32(response.StatusCode) != tx.RespondStatus && body.Command == "") {
 				return false, nil
 			}
@@ -106,7 +106,7 @@ func (r *stateReduction) reserveEmission(c *stateContext, tx *stateTransaction, 
 					continue
 				}
 				var body stateEngineEffect
-				if body.UnmarshalJSON(effect.Payload) == nil && body.Context == c.Snapshot.Context.Id && body.Transaction == tx.Native.Key && (effect.Status == state.EffectPending || effect.Status == state.EffectAuthorized || effect.Kind == "wire" && (effect.Status == state.EffectDispatching || effect.Status == state.EffectUnknown)) {
+				if body.UnmarshalBinary(effect.Payload) == nil && body.Context == c.Snapshot.Context.Id && body.Transaction == tx.Native.Key && (effect.Status == state.EffectPending || effect.Status == state.EffectAuthorized || effect.Kind == "wire" && (effect.Status == state.EffectDispatching || effect.Status == state.EffectUnknown)) {
 					final, opaque := stateResponseClass(body)
 					if !serverResponse || opaque || final == (response.StatusCode >= 200) {
 						pending++
@@ -137,7 +137,7 @@ func (r *stateReduction) reclaimEffects() error {
 			continue
 		}
 		var body stateEngineEffect
-		if err := body.UnmarshalJSON(effect.Payload); err != nil {
+		if err := body.UnmarshalBinary(effect.Payload); err != nil {
 			return state.ErrCorrupt
 		}
 		if effect.Kind == "deliver" && !body.Settled {
@@ -226,7 +226,7 @@ func (r *stateReduction) completionBudget() (stateCompletionBudget, error) {
 				continue
 			}
 			var body stateEngineEffect
-			if body.UnmarshalJSON(effect.Payload) != nil {
+			if body.UnmarshalBinary(effect.Payload) != nil {
 				return budget, state.ErrCorrupt
 			}
 			if body.Context == c.Snapshot.Context.Id && (effect.Status == state.EffectPending || effect.Status == state.EffectDispatching || effect.Status == state.EffectUnknown) {
@@ -370,7 +370,7 @@ func (e *StateEngine) statePayloadFits(record state.Record, payload state.Payloa
 	if payload.ActiveTransactions > limits.Transactions || len(payload.Effects) > limits.Effects || len(payload.Timers) > limits.Timers {
 		return false
 	}
-	encoded, err := json.Marshal(payload)
+	encoded, err := payload.MarshalBinary()
 	if err != nil {
 		return false
 	}

@@ -221,7 +221,7 @@ func TestStateReferContactSurvivesCrossExecutorUACTakeover(t *testing.T) {
 	var selected *sip.Response
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil || len(body.Wire) == 0 {
+		if body.UnmarshalBinary(effect.Payload) != nil || len(body.Wire) == 0 {
 			continue
 		}
 		parsed, err := sip.ParseMessage(body.Wire)
@@ -251,7 +251,7 @@ func TestStateReferContactSurvivesCrossExecutorUACTakeover(t *testing.T) {
 	record, _ = stateTestLoad(t, survivor, current.Snapshot.Context)
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil || body.WireMethod != "NOTIFY" {
+		if body.UnmarshalBinary(effect.Payload) != nil || body.WireMethod != "NOTIFY" {
 			continue
 		}
 		parsed, err := sip.ParseMessage(body.Wire)

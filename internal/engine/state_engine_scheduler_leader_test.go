@@ -144,7 +144,7 @@ func startSchedulerTestEngine(t *testing.T, backend state.Backend) (*StateEngine
 	var err error
 	e.runtime, err = execution.NewCAS(s, execution.ReducerFunc(func(record state.Record, input state.Input, now int64) (state.Payload, []byte, error) {
 		var event stateEngineInput
-		if json.Unmarshal(input.Payload, &event) != nil || event.Kind != "timer" {
+		if unmarshalRetainedFixture(input.Payload, &event) != nil || event.Kind != "timer" {
 			return state.Payload{}, nil, errors.New("unexpected scheduler fixture input")
 		}
 		payload := record.Payload

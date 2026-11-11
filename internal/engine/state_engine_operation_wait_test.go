@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -18,7 +17,7 @@ func operationWaitRecord(t *testing.T, operation string, result *pb.OperationRes
 	group := stateGroup{Version: 1, Contexts: map[string]*stateContext{"context": {
 		Snapshot: &pb.ContextSnapshot{Context: &pb.ContextRef{Id: "context"}, Revision: 17}, Operation: operation, Result: result,
 	}}, Selectors: make(map[string]string)}
-	encoded, err := json.Marshal(group)
+	encoded, err := marshalRetainedFixture(group)
 	if err != nil {
 		t.Fatal(err)
 	}

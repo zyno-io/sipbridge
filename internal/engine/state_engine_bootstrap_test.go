@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -54,7 +53,7 @@ func TestStateBootstrapInspectionSurvivesLostCreationReplyWithoutAllocation(t *t
 		t.Fatal("new Controller epoch discovered old creation")
 	}
 	input := stateEngineInput{Kind: "command", Context: ref, Application: application, Operation: "pending"}
-	data, err := json.Marshal(input)
+	data, err := marshalRetainedFixture(input)
 	if err != nil {
 		t.Fatal(err)
 	}

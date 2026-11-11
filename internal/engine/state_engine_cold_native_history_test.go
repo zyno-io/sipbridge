@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -35,7 +34,7 @@ func TestNativeColdPhysicalHistoryStopsLifecyclePollingAndAcceptsExactLateProof(
 				var write *pb.FlowWrite
 				for _, effect := range record.Payload.Effects {
 					var body stateEngineEffect
-					if err := body.UnmarshalJSON(effect.Payload); err != nil {
+					if err := body.UnmarshalBinary(effect.Payload); err != nil {
 						t.Fatal(err)
 					}
 					if effect.Kind == "deliver" && body.Native && effect.Status == state.EffectAuthorized {
@@ -85,7 +84,7 @@ func TestNativeColdPhysicalHistoryStopsLifecyclePollingAndAcceptsExactLateProof(
 					obsolete = state.Timer{ID: r.timerID(ref.Id, "context", "retire", ""), Generation: "1", DueMS: 1, DeadlineMS: 1}
 					payload := record.Payload
 					payload.Effects, payload.Timers, payload.ActiveTransactions = []state.Effect{original}, []state.Timer{obsolete}, 0
-					payload.ProtocolState, err = json.Marshal(group)
+					payload.ProtocolState, err = group.MarshalBinary()
 					return payload, nil, err
 				}), 1)
 				if err != nil {
@@ -147,7 +146,7 @@ func TestNativeColdHistoryKeepsEveryLiveContinuationScheduled(t *testing.T) {
 	c := group.Contexts[ref.Id]
 	c.Snapshot.Ended, c.OwnerLost, c.RetireMS, c.ReplayUntilMS = true, true, 1, 0
 	c.Transactions, c.Dialogs, c.OwnerCleanupAtMS = nil, nil, 0
-	body, err := json.Marshal(stateEngineEffect{Context: ref.Id, Native: true})
+	body, err := marshalRetainedFixture(stateEngineEffect{Context: ref.Id, Native: true})
 	if err != nil {
 		t.Fatal(err)
 	}

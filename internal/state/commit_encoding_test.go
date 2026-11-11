@@ -11,33 +11,32 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
-// Preserve the preceding commit encoder as the byte-for-byte and exact-error
-// oracle, including each nested MarshalerError and SyntaxError in the chain.
+// Opaque reducer bytes are identical after the typed persisted round trip.
 func assertCommitPayloadEncoding(t testing.TB, payload Payload) []byte {
 	t.Helper()
-	want, wantErr := json.Marshal(payload)
-	got, gotErr := marshalCommitPayload(payload)
-	if !reflect.DeepEqual(gotErr, wantErr) || !bytes.Equal(got, want) {
-		t.Fatalf("payload encoding changed: outer=%v direct=%v; outer-bytes=%d direct-bytes=%d", wantErr, gotErr, len(want), len(got))
-	}
-	if gotErr != nil {
-		return nil
-	}
-	if !json.Valid(got) {
-		t.Fatal("commit encoding returned invalid JSON")
-	}
-	var decoded Payload
-	if err := decoded.UnmarshalJSON(got); err != nil {
+	got, err := marshalCommitPayload(payload)
+	if err != nil {
+		if !utf8.ValidString(payload.Effects[0].AttemptID) {
+			return nil
+		}
 		t.Fatal(err)
 	}
-	if !bytes.Equal(decoded.ProtocolState, payload.ProtocolState) || len(decoded.Effects) != len(payload.Effects) {
-		t.Fatal("encoding changed reducer values")
+	var decoded Payload
+	if err := decoded.UnmarshalBinary(got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(decoded.ProtocolState, payload.ProtocolState) || len(decoded.Effects) != len(payload.Effects) ||
+		decoded.ActiveTransactions != payload.ActiveTransactions || decoded.ReservedCompletionBytes != payload.ReservedCompletionBytes ||
+		!reflect.DeepEqual(decoded.Timers, payload.Timers) || decoded.Retention != payload.Retention ||
+		len(decoded.CommitLeaseGuards) != 0 || len(decoded.CommitLeaseFences) != 0 {
+		t.Fatal("binary payload changed retained values")
 	}
 	for i, effect := range payload.Effects {
-		if !bytes.Equal(decoded.Effects[i].Payload, effect.Payload) {
-			t.Fatal("encoding changed an effect's reducer bytes")
+		if !bytes.Equal(decoded.Effects[i].Payload, effect.Payload) || decoded.Effects[i].ID != effect.ID || decoded.Effects[i].Status != effect.Status {
+			t.Fatal("binary effect changed retained values")
 		}
 	}
 	return got
@@ -65,7 +64,7 @@ func commitEncodingCases() map[string]Payload {
 	return cases
 }
 
-func TestCommitPayloadDirectEncodingMatchesOuterMarshal(t *testing.T) {
+func TestCommitPayloadBinaryRoundTrip(t *testing.T) {
 	for name, payload := range commitEncodingCases() {
 		t.Run(name, func(t *testing.T) {
 			assertCommitPayloadEncoding(t, payload)
@@ -73,7 +72,7 @@ func TestCommitPayloadDirectEncodingMatchesOuterMarshal(t *testing.T) {
 	}
 }
 
-func TestCommitPayloadEncodingPreservesEnclosingDepthLimit(t *testing.T) {
+func TestCommitPayloadOpaqueValuesIgnoreJSONDepth(t *testing.T) {
 	for _, sample := range []struct {
 		name     string
 		depth    int
@@ -157,42 +156,22 @@ func TestStateCommitDirectEncodingStoresIdenticalBytes(t *testing.T) {
 	}
 }
 
-func TestStateCommitEncodingDepthRefusalPreservesRecordAndClaim(t *testing.T) {
+func TestStateCommitEncodingRefusalPreservesRecordAndClaim(t *testing.T) {
 	s := testStore(t, nil)
 	readyStore(t, s)
-	for _, sample := range []struct {
-		name   string
-		depth  int
-		effect bool
-	}{
-		{"protocol", 10000, false},
-		{"effect", 9998, true},
-		{"inner-effect", 10000, true},
-	} {
-		t.Run(sample.name, func(t *testing.T) {
-			nested := []byte(strings.Repeat("[", sample.depth) + "0" + strings.Repeat("]", sample.depth))
-			payload := Payload{ProtocolState: nested}
-			if sample.effect {
-				payload = Payload{Effects: []Effect{{ID: "effect", Kind: "wire", Status: EffectPending, DeadlineMS: 1, Payload: nested}}}
-			}
-			_, wantErr := json.Marshal(payload)
-			if wantErr == nil {
-				t.Fatal("baseline must reject excess enclosing depth")
-			}
-			step := begin(t, s, group(t, s, "rejected-depth-"+sample.name), "initial", true)
-			key := s.keys(step.Record.Ref)[0]
-			before, err := s.client.HGetAll(context.Background(), key).Result()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := s.Commit(context.Background(), *step, payload, []byte("must-not-commit")); !reflect.DeepEqual(err, wantErr) {
-				t.Fatalf("depth refusal changed: got=%v want=%v", err, wantErr)
-			}
-			after, err := s.client.HGetAll(context.Background(), key).Result()
-			if err != nil || !reflect.DeepEqual(before, after) {
-				t.Fatalf("refused encoding changed the retained record or claim: %v", err)
-			}
-		})
+	step := begin(t, s, group(t, s, "encoding-refusal"), "initial", true)
+	key := s.keys(step.Record.Ref)[0]
+	before, err := s.client.HGetAll(context.Background(), key).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := Payload{Effects: []Effect{{ID: "effect", Kind: "wire", Status: EffectPending, DeadlineMS: 1, AttemptID: "\xff"}}}
+	if _, err := s.Commit(context.Background(), *step, payload, nil); err == nil {
+		t.Fatal("invalid metadata UTF-8 accepted")
+	}
+	after, err := s.client.HGetAll(context.Background(), key).Result()
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatal("encoding refusal changed state", err)
 	}
 }
 
@@ -239,14 +218,14 @@ func BenchmarkCommitPayloadEncoding(b *testing.B) {
 			b.Fatal(err)
 		}
 		var payload Payload
-		if err := payload.UnmarshalJSON([]byte(capture.Record["data"])); err != nil {
+		if err := payload.UnmarshalBinary([]byte(capture.Record["data"])); err != nil {
 			b.Fatal(err)
 		}
 		encoded := assertCommitPayloadEncoding(b, payload)
 		for _, direct := range []bool{false, true} {
 			profile := "outer-json-scan"
 			if direct {
-				profile = "validated-custom-encoder"
+				profile = "protobuf-v1"
 			}
 			b.Run(fmt.Sprintf("%d-bytes/%s", len(encoded), profile), func(b *testing.B) {
 				b.ReportAllocs()

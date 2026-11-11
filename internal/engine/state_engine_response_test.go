@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/emiago/sipgo/sip"
@@ -33,7 +32,7 @@ func latestFinalEffect(t *testing.T, r *stateReduction) (int, state.Effect, stat
 	for index := len(r.payload.Effects) - 1; index >= 0; index-- {
 		effect := r.payload.Effects[index]
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) == nil && body.WireStatus >= 200 {
+		if unmarshalRetainedFixture(effect.Payload, &body) == nil && body.WireStatus >= 200 {
 			return index, effect, body
 		}
 	}
@@ -45,7 +44,7 @@ func completeResponseEffectAt(t *testing.T, r *stateReduction, index int, outcom
 	t.Helper()
 	effect := r.payload.Effects[index]
 	var body stateEngineEffect
-	if err := json.Unmarshal(effect.Payload, &body); err != nil {
+	if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 		t.Fatal(err)
 	}
 	write := causalPermit(r, index, effect, body)
@@ -121,7 +120,7 @@ func TestStateReliableFinalProvisionalWriteCannotSuppressRecovery(t *testing.T) 
 	completeLatestResponse(t, r, pb.DeliveryResult_WRITTEN)
 	for index, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) == nil {
+		if unmarshalRetainedFixture(effect.Payload, &body) == nil {
 			body.Settled = true
 			r.setEffect(index, effect, body)
 		}
@@ -197,7 +196,7 @@ func TestStateReliableFinalBlockedRetrySurvivesOldUnknownUntilNoStartResolves(t 
 	oldIndex, _, oldBody := latestFinalEffect(t, r)
 	completeResponseEffectAt(t, r, oldIndex, pb.DeliveryResult_UNKNOWN)
 	var oldPhysical stateEngineEffect
-	if err := json.Unmarshal(r.payload.Effects[oldIndex].Payload, &oldPhysical); err != nil {
+	if err := unmarshalRetainedFixture(r.payload.Effects[oldIndex].Payload, &oldPhysical); err != nil {
 		t.Fatal(err)
 	}
 	flowB := proto.Clone(oldBody.Flow).(*pb.FlowRef)
@@ -279,7 +278,7 @@ func TestStateReliableFinalUnknownAndWrittenAnyFlowNeverRetryAutomatically(t *te
 				if legacy {
 					other.WireStatus = 0
 				}
-				data, _ := json.Marshal(other)
+				data, _ := marshalRetainedFixture(other)
 				r.payload.Effects = append(r.payload.Effects, state.Effect{ID: "other-final", Kind: "deliver", Status: status, DeadlineMS: r.now - 1, Payload: data})
 				r.now = tx.FinalResponse.RetryAtMS
 				if err := r.recoverServerResponses(); err != nil || tx.Emissions != 1 {

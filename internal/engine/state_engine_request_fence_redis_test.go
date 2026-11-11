@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -118,11 +117,11 @@ func TestNativeRequestFenceRedisPendingCASArbitratesBothOrders(t *testing.T) {
 			flow := proto.Clone(a.flow).(*pb.FlowRef)
 			flow.Ingress, flow.ConnectionId, flow.SourcePort = b.engine.cfg.Process, "renewal-on-b", 51001
 			_, initial := stateTestLoad(t, a.engine, ref)
-			before, err := json.Marshal(initial.Contexts[ref.Id].Subscription)
+			before, err := marshalRetainedFixture(initial.Contexts[ref.Id].Subscription)
 			if err != nil {
 				t.Fatal(err)
 			}
-			beforeRequests, err := json.Marshal(initial.Contexts[ref.Id].Requests)
+			beforeRequests, err := marshalRetainedFixture(initial.Contexts[ref.Id].Requests)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -218,11 +217,11 @@ func TestNativeRequestFenceRedisPendingCASArbitratesBothOrders(t *testing.T) {
 					t.Fatal("recovered admission lost its exact replacement-flow proof")
 				}
 			} else {
-				requests, err := json.Marshal(c.Requests)
+				requests, err := marshalRetainedFixture(c.Requests)
 				if err != nil {
 					t.Fatal(err)
 				}
-				subscription, err := json.Marshal(c.Subscription)
+				subscription, err := marshalRetainedFixture(c.Subscription)
 				if err != nil || private != 1 || !bytes.Equal(subscription, before) || !bytes.Equal(requests, beforeRequests) || !proto.Equal(c.Flow, a.flow) {
 					t.Fatalf("stale renewal crossed the CAS-committed refusal: private=%d subscription=%+v err=%v", private, c.Subscription, err)
 				}
@@ -257,7 +256,7 @@ func TestNativeRequestFenceRedisRefusedSourceDoesNotCancelAnotherReservation(t *
 		t.Fatalf("valid source could not consume its own surviving reservation: %s", admitted)
 	}
 	_, beforeLate := stateTestLoad(t, a.engine, ref)
-	before, err := json.Marshal(beforeLate.Contexts[ref.Id])
+	before, err := marshalRetainedFixture(beforeLate.Contexts[ref.Id])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +266,7 @@ func TestNativeRequestFenceRedisRefusedSourceDoesNotCancelAnotherReservation(t *
 		t.Fatalf("refused source reentered routing instead of stopping cleanly: %s", late)
 	}
 	_, afterLate := stateTestLoad(t, a.engine, ref)
-	after, err := json.Marshal(afterLate.Contexts[ref.Id])
+	after, err := marshalRetainedFixture(afterLate.Contexts[ref.Id])
 	if err != nil || !bytes.Equal(after, before) || afterLate.Allocations[ref.Id].WireHash != "" {
 		t.Fatal("late refused source changed the valid admitted context or recreated its reservation")
 	}
@@ -348,7 +347,7 @@ func TestNativeRequestFenceRedisOccupiedKeyCollisionPreservesOriginal(t *testing
 	ref := f.admit(t)
 	_, initial := stateTestLoad(t, f.engine, ref)
 	c := initial.Contexts[ref.Id]
-	original, err := json.Marshal(c)
+	original, err := marshalRetainedFixture(c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +369,7 @@ func TestNativeRequestFenceRedisOccupiedKeyCollisionPreservesOriginal(t *testing
 				t.Fatalf("occupied server key was not explicitly refused: %s", result)
 			}
 			_, after := stateTestLoad(t, f.engine, ref)
-			encoded, err := json.Marshal(after.Contexts[ref.Id])
+			encoded, err := marshalRetainedFixture(after.Contexts[ref.Id])
 			if err != nil || !bytes.Equal(encoded, original) {
 				t.Fatalf("collision changed the original transaction, flow, sequence or request index: %v", err)
 			}

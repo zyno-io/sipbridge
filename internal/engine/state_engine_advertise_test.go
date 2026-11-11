@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -74,7 +73,7 @@ func advertiseWire(t *testing.T, r *stateReduction, method sip.RequestMethod, re
 	t.Helper()
 	for i := len(r.payload.Effects) - 1; i >= 0; i-- {
 		var body stateEngineEffect
-		if err := json.Unmarshal(r.payload.Effects[i].Payload, &body); err != nil {
+		if err := unmarshalRetainedFixture(r.payload.Effects[i].Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		if len(body.Wire) == 0 {

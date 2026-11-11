@@ -33,6 +33,7 @@ stages:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 openssl > /dev/null
     - python3 scripts/verify_dependency.py
     - python3 scripts/verify_control_schema.py
+    - python3 scripts/verify_storage_schema.py
 
 lint:
   extends: .go-base

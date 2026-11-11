@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -33,9 +32,13 @@ func (w *lostCASCompletion) Complete(ctx context.Context, write *pb.FlowWrite, r
 	return nil
 }
 
-func casOptionsFixture(t *testing.T) (nativeOwnerFixture, *Ingress, *framingConn) {
+func casOptionsFixture(t *testing.T, backends ...string) (nativeOwnerFixture, *Ingress, *framingConn) {
 	t.Helper()
-	f := newNativeOwnerFixture(t)
+	backend := state.RedisBackend
+	if len(backends) > 0 {
+		backend = backends[0]
+	}
+	f := newNativeOwnerFixtureBackend(t, backend)
 	var err error
 	f.engine.runtime, err = execution.NewCAS(f.engine.store, execution.ReducerFunc(f.engine.reduce), 8)
 	if err != nil {
@@ -76,7 +79,7 @@ func casOptionsResponse(t *testing.T, f nativeOwnerFixture, callID string) *pb.F
 	record, _ := stateTestLoad(t, f.engine, ref)
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if effect.Kind == "deliver" && json.Unmarshal(effect.Payload, &body) == nil && body.Native {
+		if effect.Kind == "deliver" && unmarshalRetainedFixture(effect.Payload, &body) == nil && body.Native {
 			return &pb.FlowWrite{Flow: body.Permit.Flow, Effect: body.Authorization.Effect, Permit: body.Permit}
 		}
 	}
@@ -198,7 +201,7 @@ func TestStateCASDuplicateRPCStartDoesNotChurnRevisionOrResumeLegacyInput(t *tes
 					t.Fatal(err)
 				}
 				in.Context, in.Operation = ref, "legacy-duplicate"
-				payload, err := json.Marshal(in)
+				payload, err := marshalRetainedFixture(in)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -236,7 +239,7 @@ func TestStateCASNegativeEffectChecksMetadataBeforeNativeDecode(t *testing.T) {
 	for _, kind := range []string{"effect-start", "effect-result"} {
 		t.Run(kind, func(t *testing.T) {
 			f, _, _ := casOptionsFixture(t)
-			payload, err := json.Marshal(stateEngineInput{Kind: kind, Effect: "absent"})
+			payload, err := marshalRetainedFixture(stateEngineInput{Kind: kind, Effect: "absent"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -244,7 +247,7 @@ func TestStateCASNegativeEffectChecksMetadataBeforeNativeDecode(t *testing.T) {
 			record := state.Record{Payload: state.Payload{ProtocolState: []byte("invalid-native-payload")}}
 			_, outcome, err := f.engine.reduce(record, input, time.Now().UnixMilli())
 			var result pb.OperationResult
-			if !errors.Is(err, execution.ErrReadOnly) || json.Unmarshal(outcome, &result) != nil ||
+			if !errors.Is(err, execution.ErrReadOnly) || unmarshalRetainedFixture(outcome, &result) != nil ||
 				result.Certainty != pb.OperationResult_NOT_ACCEPTED || result.Snapshot != nil {
 				t.Fatalf("metadata refusal decoded native state or granted permission: %+v, %v", &result, err)
 			}

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"bytes"
-	"encoding/json"
 	"testing"
 
 	"github.com/emiago/sipgo/sip"
@@ -47,7 +46,7 @@ func forkWireEffects(t *testing.T, effects []state.Effect) ([]string, []*pb.Effe
 	var grants []*pb.EffectAuthorization
 	for _, effect := range effects {
 		var body stateEngineEffect
-		if err := json.Unmarshal(effect.Payload, &body); err != nil {
+		if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		if len(body.Wire) == 0 {

@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -185,7 +184,7 @@ func newRedisReservationCall(t *testing.T, engine *StateEngine, name string) *re
 	for _, effect := range record.Payload.Effects {
 		if effect.Kind == "wire" {
 			selected = effect
-			if json.Unmarshal(effect.Payload, &body) != nil {
+			if unmarshalRetainedFixture(effect.Payload, &body) != nil {
 				t.Fatal("reservation-fault authorization body invalid")
 			}
 			break
@@ -209,7 +208,7 @@ func newRedisReservationCall(t *testing.T, engine *StateEngine, name string) *re
 		if effect.ID == selected.ID {
 			call.effect = effect
 			var authorized stateEngineEffect
-			if json.Unmarshal(effect.Payload, &authorized) != nil || effect.Kind != "deliver" || effect.Status != state.EffectAuthorized {
+			if unmarshalRetainedFixture(effect.Payload, &authorized) != nil || effect.Kind != "deliver" || effect.Status != state.EffectAuthorized {
 				t.Fatal("reservation-fault physical effect was not authorized")
 			}
 			call.wire = append([]byte(nil), authorized.Wire...)
@@ -245,7 +244,7 @@ func (c *redisReservationCall) assertIdentity(t *testing.T, direct *StateEngine)
 		if effect.ID == c.command.Effect.Id {
 			selected = effect
 			var body stateEngineEffect
-			if json.Unmarshal(effect.Payload, &body) != nil || effect.DeadlineMS != c.effect.DeadlineMS || !proto.Equal(body.Permit, c.command.Permit) || !proto.Equal(body.Authorization, c.command.Permit.Authorization) || body.WireHash != c.wireHash || effect.AttemptID != c.command.Effect.AttemptId {
+			if unmarshalRetainedFixture(effect.Payload, &body) != nil || effect.DeadlineMS != c.effect.DeadlineMS || !proto.Equal(body.Permit, c.command.Permit) || !proto.Equal(body.Authorization, c.command.Permit.Authorization) || body.WireHash != c.wireHash || effect.AttemptID != c.command.Effect.AttemptId {
 				t.Fatal("reservation recovery changed effect, attempt, permit or original deadline")
 			}
 		}
@@ -356,7 +355,7 @@ func TestCommittedReserveRealRedisReplyLoss(t *testing.T) {
 			}
 			selected := call.assertIdentity(t, b)
 			var body stateEngineEffect
-			if selected.Status != state.EffectDispatching || json.Unmarshal(selected.Payload, &body) != nil || len(body.Wire) != 0 || call.socket.writes.Load() != 0 {
+			if selected.Status != state.EffectDispatching || unmarshalRetainedFixture(selected.Payload, &body) != nil || len(body.Wire) != 0 || call.socket.writes.Load() != 0 {
 				t.Fatal("server reservation did not precede all physical socket activity")
 			}
 			proxy.releaseReplyLoss()

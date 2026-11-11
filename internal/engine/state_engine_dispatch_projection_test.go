@@ -2,7 +2,6 @@ package engine
 
 import (
 	"bytes"
-	"encoding/json"
 	"testing"
 
 	pb "sipbridge/internal/controlpb"
@@ -13,12 +12,12 @@ func TestNativeDispatchProjectionExcludesColdHistoryAndUnstartableNetworkWork(t 
 	e := &StateEngine{cfg: Config{StateIdentityKey: bytes.Repeat([]byte{17}, 32)}}
 	process := &pb.ProcessRef{InstanceId: "physical-ingress", Epoch: "epoch"}
 	native := stateEngineEffect{Native: true, Permit: &pb.SendPermit{Flow: &pb.FlowRef{Ingress: process}}}
-	active, err := json.Marshal(native)
+	active, err := marshalRetainedFixture(native)
 	if err != nil {
 		t.Fatal(err)
 	}
 	native.Settled = true
-	settled, err := json.Marshal(native)
+	settled, err := marshalRetainedFixture(native)
 	if err != nil {
 		t.Fatal(err)
 	}

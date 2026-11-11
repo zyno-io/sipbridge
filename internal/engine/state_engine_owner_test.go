@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math"
 	"strconv"
@@ -48,10 +47,10 @@ func TestStateOwnerLossFencesEpochAndRetainsPhysicalUnknown(t *testing.T) {
 	r, c, _ := ownerFixture(t, true)
 	old := proto.Clone(c.Snapshot.Application).(*pb.ProcessRef)
 	for _, kind := range []string{"present", "event", "adopt", "credential"} {
-		body, _ := json.Marshal(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: old})
+		body, _ := marshalRetainedFixture(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: old})
 		r.payload.Effects = append(r.payload.Effects, state.Effect{ID: "unknown-" + kind, Kind: kind, Status: state.EffectUnknown, AttemptID: "attempt", DeadlineMS: 1, Payload: body})
 	}
-	physical, _ := json.Marshal(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: old, Authorization: &pb.EffectAuthorization{AuthorityClass: pb.EffectAuthorization_APPLICATION}})
+	physical, _ := marshalRetainedFixture(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: old, Authorization: &pb.EffectAuthorization{AuthorityClass: pb.EffectAuthorization_APPLICATION}})
 	r.payload.Effects = append(r.payload.Effects, state.Effect{ID: "physical", Kind: "deliver", Status: state.EffectUnknown, AttemptID: "attempt", DeadlineMS: 1, Payload: physical})
 	r.in = ownerStatusInput(t, r, c, old, false)
 	if err := r.ownerProbeResult(); err != nil {
@@ -272,7 +271,7 @@ func TestStateOwnerCleanupHasFixedBoundAndPureCredentialExpiry(t *testing.T) {
 		t.Fatal("unsendable cleanup leaked confirmed protocol state forever")
 	}
 	r, c, _ = ownerFixture(t, false)
-	body, _ := json.Marshal(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: c.Snapshot.Application})
+	body, _ := marshalRetainedFixture(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: c.Snapshot.Application})
 	r.payload.Effects = []state.Effect{{ID: "credential", Kind: "credential", Status: state.EffectDispatching, AttemptID: "compute", DeadlineMS: 1, Payload: body}}
 	r.now = 130000
 	if err := r.expireOwnerComputations(); err != nil || !c.Snapshot.Ended || c.OwnerLost || c.Result.Error == "" || r.payload.Effects[0].Status != state.EffectCancelled {
@@ -465,7 +464,7 @@ func TestStateOwnerOpenComputationAndTerminalNotificationHaveFixedWindows(t *tes
 	for _, outcome := range []string{"unknown", "error", "pending-expiry"} {
 		t.Run(outcome, func(t *testing.T) {
 			r, c := ownerUnboundSetupFixture(t)
-			body, _ := json.Marshal(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: c.Snapshot.Application, Executor: r.engine.cfg.Process, Command: c.Operation})
+			body, _ := marshalRetainedFixture(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: c.Snapshot.Application, Executor: r.engine.cfg.Process, Command: c.Operation})
 			r.payload.Effects = []state.Effect{{ID: "open", Kind: "open", Status: state.EffectDispatching, AttemptID: "transport-compute", DeadlineMS: 1000, Payload: body}}
 			switch outcome {
 			case "unknown":
@@ -537,7 +536,7 @@ func TestStateOwnerTerminalNotificationNeverExpiresActiveOrPhysicalWork(t *testi
 				if protected == "authorization-unknown" {
 					kind = "wire"
 				}
-				body, _ := json.Marshal(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: c.Snapshot.Application})
+				body, _ := marshalRetainedFixture(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: c.Snapshot.Application})
 				r.payload.Effects = append(r.payload.Effects, state.Effect{ID: "protected", Kind: kind, Status: state.EffectUnknown, AttemptID: "physical", DeadlineMS: 1, Payload: body})
 			}
 			r.now = event.DeadlineMS + 120000
@@ -582,7 +581,7 @@ func TestStateOwnerEndedContextProbesUntilPolicyResolvedAndDropsPureQuery(t *tes
 
 func TestStateOwnerOpenExpiryPreservesSeparatelyAdmittedPhysicalUnknown(t *testing.T) {
 	r, c := ownerUnboundSetupFixture(t)
-	body, _ := json.Marshal(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: c.Snapshot.Application})
+	body, _ := marshalRetainedFixture(stateEngineEffect{Context: c.Snapshot.Context.Id, Application: c.Snapshot.Application})
 	r.payload.Effects = []state.Effect{{ID: "open", Kind: "open", Status: state.EffectUnknown, AttemptID: "compute", DeadlineMS: 1, Payload: body}, {ID: "physical", Kind: "deliver", Status: state.EffectUnknown, AttemptID: "socket-attempt", DeadlineMS: 1, Payload: body}}
 	r.now = 121001
 	if err := r.expireOwnerComputations(); err != nil || !c.Snapshot.Ended || r.payload.Effects[0].Status != state.EffectCancelled || r.payload.Effects[1].Status != state.EffectUnknown {

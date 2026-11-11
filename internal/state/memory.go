@@ -172,7 +172,7 @@ func (m *MemoryStore) group(ref Ref) (*memoryGroup, error) {
 func copyReceipt(r Receipt) Receipt { r.Outcome = append([]byte(nil), r.Outcome...); return r }
 func (m *MemoryStore) record(g *memoryGroup, now int64, inputIDs []string) (Record, error) {
 	r := Record{Ref: g.ref, Authority: m.authority, Versions: m.cfg.Versions, Revision: g.revision}
-	if err := r.Payload.UnmarshalJSON(g.data); err != nil {
+	if err := r.Payload.UnmarshalBinary(g.data); err != nil {
 		return Record{}, ErrCorrupt
 	}
 	for _, receipt := range g.receipts {
@@ -361,7 +361,7 @@ func (m *MemoryStore) CompareAndSwap(ctx context.Context, update Update, next Pa
 		}
 	}
 	var before Payload
-	if len(g.data) != 0 && before.UnmarshalJSON(g.data) != nil {
+	if len(g.data) != 0 && before.UnmarshalBinary(g.data) != nil {
 		return Receipt{}, ErrCorrupt
 	}
 	changes, err := m.planLeases(before.ApplicationLeaseIDs, next.ApplicationLeaseIDs, next.CommitLeaseFences, now)
@@ -508,7 +508,7 @@ func (m *MemoryStore) Retire(ctx context.Context, ref Ref) error {
 		return ErrNotReady
 	}
 	var payload Payload
-	if payload.UnmarshalJSON(g.data) != nil {
+	if payload.UnmarshalBinary(g.data) != nil {
 		return ErrCorrupt
 	}
 	changes, err := m.planLeases(payload.ApplicationLeaseIDs, nil, nil, now)

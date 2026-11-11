@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"testing"
@@ -162,7 +161,7 @@ func TestStateMigratedReplacementPublicationOrdersApplicationWork(t *testing.T) 
 					t.Fatal("publication barrier missing")
 				}
 				var body stateEngineEffect
-				if err := body.UnmarshalJSON(adoption.Payload); err != nil {
+				if err := body.UnmarshalBinary(adoption.Payload); err != nil {
 					t.Fatal(err)
 				}
 				receipt := &pb.ContextDelivery{Flow: flow, NativeRevision: body.Envelope.GetFlowAdoption().NativeRevision, DirectoryEpoch: "directory"}
@@ -394,7 +393,7 @@ func TestStateMigratedSameFlowSubscriptionPublication(t *testing.T) {
 				for _, candidate := range record.Payload.Effects[len(before.Payload.Effects):] {
 					if candidate.Kind == "adopt" {
 						effect = candidate
-						if err := body.UnmarshalJSON(candidate.Payload); err != nil {
+						if err := body.UnmarshalBinary(candidate.Payload); err != nil {
 							t.Fatal(err)
 						}
 					}
@@ -426,7 +425,7 @@ func TestStateMigratedSameFlowSubscriptionPublication(t *testing.T) {
 				found := false
 				for _, candidate := range after.Payload.Effects {
 					var b stateEngineEffect
-					if err := b.UnmarshalJSON(candidate.Payload); err != nil {
+					if err := b.UnmarshalBinary(candidate.Payload); err != nil {
 						t.Fatal(err)
 					}
 					if b.WireMethod == "SUBSCRIBE" && b.WireStatus == status {
@@ -461,7 +460,7 @@ func TestStateMigratedUnsubscribeAdmitsOnlyTerminalNotify(t *testing.T) {
 	count := 0
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if err := body.UnmarshalJSON(effect.Payload); err != nil {
+		if err := body.UnmarshalBinary(effect.Payload); err != nil {
 			t.Fatal(err)
 		}
 		if body.WireMethod == "NOTIFY" {
@@ -498,7 +497,7 @@ func TestStateMigratedRemoteByeHasOneFinalAndOneEndAcrossWriteOutcomes(t *testin
 			finals, ends := 0, 0
 			for _, effect := range record.Payload.Effects[len(before.Payload.Effects):] {
 				var body stateEngineEffect
-				if err := body.UnmarshalJSON(effect.Payload); err != nil {
+				if err := body.UnmarshalBinary(effect.Payload); err != nil {
 					t.Fatal(err)
 				}
 				if body.WireMethod == "BYE" && body.WireStatus >= 200 {
@@ -527,7 +526,7 @@ func TestStateMigratedRemoteByeHasOneFinalAndOneEndAcrossWriteOutcomes(t *testin
 			}
 			for _, effect := range after.Payload.Effects[len(record.Payload.Effects):] {
 				var body stateEngineEffect
-				if err := body.UnmarshalJSON(effect.Payload); err != nil {
+				if err := body.UnmarshalBinary(effect.Payload); err != nil {
 					t.Fatal(err)
 				}
 				if body.WireMethod == "BYE" && body.WireStatus >= 200 || body.Envelope.GetDialogEvent().GetKind() == pb.DialogEvent_ENDED {
@@ -624,7 +623,7 @@ func TestStateMigratedSubscriptionProcessorChallengesBeforePublication(t *testin
 			for _, effect := range record.Payload.Effects {
 				if effect.Kind == "adopt" {
 					var body stateEngineEffect
-					if err := body.UnmarshalJSON(effect.Payload); err != nil {
+					if err := body.UnmarshalBinary(effect.Payload); err != nil {
 						t.Fatal(err)
 					}
 					proposal := body.Envelope.GetFlowAdoption()
@@ -687,10 +686,10 @@ func TestStateMigratedDigestRetryUsesLiveResponseIdentity(t *testing.T) {
 				if effect.Kind == "credential" {
 					credential = effect
 					var body stateEngineEffect
-					if err := body.UnmarshalJSON(effect.Payload); err != nil {
+					if err := body.UnmarshalBinary(effect.Payload); err != nil {
 						t.Fatal(err)
 					}
-					if err := json.Unmarshal(body.Wire, &retained); err != nil {
+					if err := unmarshalRetainedFixture(body.Wire, &retained); err != nil {
 						t.Fatal(err)
 					}
 				}

@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -96,7 +95,7 @@ func (b *stateProcessBarrier) blockedInput(ref state.Ref, id string) bool {
 
 func (b *stateProcessBarrier) matchBegin(step *state.Step) {
 	var input stateEngineInput
-	if json.Unmarshal(step.Input.Payload, &input) != nil || input.Ingest == nil {
+	if unmarshalRetainedFixture(step.Input.Payload, &input) != nil || input.Ingest == nil {
 		return
 	}
 	m, err := sip.ParseMessage(input.Ingest.Wire)
@@ -148,7 +147,7 @@ func (s *stateProcessStore) Begin(ctx context.Context, ref state.Ref, worker str
 	result, err := s.Store.Begin(ctx, ref, worker, input)
 	if errors.Is(err, state.ErrBusy) && input.Kind == "reserve" && s.barrier.firstBusy(input.ID) {
 		var admitted stateEngineInput
-		_ = json.Unmarshal(input.Payload, &admitted)
+		_ = unmarshalRetainedFixture(input.Payload, &admitted)
 		event := stateProcessEvent{Kind: "reserve-busy", Stage: "begin", Group: ref.ID, Token: admitted.Effect}
 		if current, loadErr := s.Store.Load(ctx, ref); loadErr == nil && current.Pending != nil {
 			event.PendingKind, event.PendingID = current.Pending.Kind, current.Pending.ID
@@ -208,7 +207,7 @@ func (s *stateProcessStore) observeDigestCommit(ref state.Ref, input state.Input
 		return
 	}
 	var admitted stateEngineInput
-	if json.Unmarshal(input.Payload, &admitted) == nil {
+	if unmarshalRetainedFixture(input.Payload, &admitted) == nil {
 		// Observe the real commit's immutable deadline without emitting SIP or
 		// credentials. Both drivers use this same metadata-only test barrier.
 		s.barrier.emit(stateProcessEvent{Kind: "digest-commit", ID: admitted.Effect, Stage: "digest-result", Group: ref.ID, DeadlineMS: input.DeadlineMS})
@@ -262,7 +261,7 @@ func (w *stateProcessWriter) waitWrite(ctx context.Context, write *pb.FlowWrite,
 		}
 		for _, effect := range record.Payload.Effects {
 			var body stateEngineEffect
-			if effect.ID != write.Effect.Id || json.Unmarshal(effect.Payload, &body) != nil || body.Authorization == nil || body.Authorization.AuthorityClass != rule.Class || body.WireMethod != rule.Method || ref.CallID != rule.CallID && rule.CallID != "" {
+			if effect.ID != write.Effect.Id || unmarshalRetainedFixture(effect.Payload, &body) != nil || body.Authorization == nil || body.Authorization.AuthorityClass != rule.Class || body.WireMethod != rule.Method || ref.CallID != rule.CallID && rule.CallID != "" {
 				continue
 			}
 			w.barrier.mu.Lock()
@@ -297,7 +296,7 @@ func TestStateProcessHelper(t *testing.T) {
 		return
 	}
 	var cfg stateProcessConfig
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+	if err := unmarshalRetainedFixture([]byte(raw), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -313,7 +312,7 @@ func TestStateProcessHelper(t *testing.T) {
 	var output sync.Mutex
 	emit := func(event stateProcessEvent) {
 		event.AtMS = time.Now().UnixMilli()
-		data, _ := json.Marshal(event)
+		data, _ := marshalRetainedFixture(event)
 		output.Lock()
 		defer output.Unlock()
 		fmt.Println("STATE-PROCESS " + string(data))
@@ -466,7 +465,7 @@ func TestStateProcessHelper(t *testing.T) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		var cmd stateProcessCommand
-		if err := json.Unmarshal(scanner.Bytes(), &cmd); err != nil {
+		if err := unmarshalRetainedFixture(scanner.Bytes(), &cmd); err != nil {
 			t.Fatal(err)
 		}
 		barrier.command(cmd)

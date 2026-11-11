@@ -48,7 +48,7 @@ func (s *Store) begin(ctx context.Context, ref Ref, worker string, input *Input)
 		id = input.ID
 		deadline = input.DeadlineMS
 	}
-	empty, _ := json.Marshal(Payload{})
+	empty, _ := marshalCommitPayload(Payload{})
 	claimID := uuid.NewString()
 	values, err := s.run(ctx, beginScript, ref, []interface{}{uuid.NewString(), claimID, worker, s.cfg.ClaimTTL.Milliseconds(), string(empty), encoded, digest, id, deadline, 0, s.cfg.Limits.GroupBytes, s.cfg.Limits.InputBytes, s.cfg.Limits.Receipts, base64.StdEncoding.EncodedLen(s.cfg.Limits.OutcomeBytes) + 1024}, true, observation)
 	if err != nil {

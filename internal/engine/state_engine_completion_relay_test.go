@@ -2,7 +2,6 @@ package engine
 
 import (
 	"bytes"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -77,7 +76,7 @@ func TestStateCompletionRelayACKSeparatesOriginalOwnerPublicationFromCleanup(t *
 			var adoption state.Effect
 			for _, effect := range r.payload.Effects {
 				var body stateEngineEffect
-				if err := json.Unmarshal(effect.Payload, &body); err != nil {
+				if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 					t.Fatal(err)
 				}
 				if !sameProcess(body.Application, original) {
@@ -93,12 +92,12 @@ func TestStateCompletionRelayACKSeparatesOriginalOwnerPublicationFromCleanup(t *
 					}
 				}
 			}
-			beforeReplay, _ := json.Marshal(c)
+			beforeReplay, _ := marshalRetainedFixture(c)
 			beforeEffects := len(r.payload.Effects)
 			if err := completionRelayIngest(r, c, ack, old, pb.OwnerIngest_EXISTING_FLOW); err != nil {
 				t.Fatal(err)
 			}
-			afterReplay, _ := json.Marshal(c)
+			afterReplay, _ := marshalRetainedFixture(c)
 			if !bytes.Equal(beforeReplay, afterReplay) || len(r.payload.Effects) != beforeEffects {
 				t.Fatal("old-flow ACK replay replaced completion or allocated publication")
 			}
@@ -115,12 +114,12 @@ func TestStateCompletionRelayACKSeparatesOriginalOwnerPublicationFromCleanup(t *
 				if err := r.finishFlowAdoption(index, effect, body, c); err != nil {
 					t.Fatal(err)
 				}
-				published, _ := json.Marshal(c)
+				published, _ := marshalRetainedFixture(c)
 				publishedEffects := len(r.payload.Effects)
 				if err := completionRelayIngest(r, c, ack, old, pb.OwnerIngest_TLS_DIALOG_CONTINUITY); err != nil {
 					t.Fatal(err)
 				}
-				replayed, _ := json.Marshal(c)
+				replayed, _ := marshalRetainedFixture(c)
 				if !bytes.Equal(published, replayed) || len(r.payload.Effects) != publishedEffects {
 					t.Fatal("old-socket ACK rolled back validated original-owner publication")
 				}
@@ -186,7 +185,7 @@ func TestStateCompletionRelayRejectsBusinessAndForeignNativeIdentityWithoutMutat
 			case "principal":
 				c.Snapshot.PrincipalId = "retained"
 			}
-			before, _ := json.Marshal(c)
+			before, _ := marshalRetainedFixture(c)
 			if scenario == "principal" {
 				r.in = stateEngineInput{Application: completionRelayApplication, Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: completionRelayApplication, Flow: flow, Wire: message.Wire, PrincipalId: "foreign"}}
 				if err := r.ingest(); err == nil {
@@ -195,7 +194,7 @@ func TestStateCompletionRelayRejectsBusinessAndForeignNativeIdentityWithoutMutat
 			} else if err := completionRelayIngest(r, c, message, flow, admission); err == nil {
 				t.Fatal("invalid relay accepted")
 			}
-			after, _ := json.Marshal(c)
+			after, _ := marshalRetainedFixture(c)
 			if !bytes.Equal(before, after) || len(r.payload.Effects) != 0 {
 				t.Fatal("invalid relay mutated native state or effects")
 			}
@@ -227,7 +226,7 @@ func TestStateCompletionRelayRemoteBYEAndACKReplayNeverPresentToRelay(t *testing
 	}
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if err := json.Unmarshal(effect.Payload, &body); err != nil {
+		if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		if effect.Kind == "present" || !sameProcess(body.Application, c.Snapshot.Application) {
@@ -279,7 +278,7 @@ func TestStateCompletionRelayCANCELAndNon2xxACKRequireExactRetainedServerTransac
 				case "sequence":
 					message.Wire = []byte(strings.Replace(string(message.Wire), "CSeq: 12 ", "CSeq: 13 ", 1))
 				}
-				before, _ := json.Marshal(c)
+				before, _ := marshalRetainedFixture(c)
 				err = completionRelayIngest(r, c, message, c.Flow, pb.OwnerIngest_EXISTING_FLOW)
 				if foreign == "" {
 					if err != nil {
@@ -287,7 +286,7 @@ func TestStateCompletionRelayCANCELAndNon2xxACKRequireExactRetainedServerTransac
 					}
 					for _, effect := range r.payload.Effects {
 						var body stateEngineEffect
-						if err := json.Unmarshal(effect.Payload, &body); err != nil {
+						if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 							t.Fatal(err)
 						}
 						if !sameProcess(body.Application, c.Snapshot.Application) || effect.Kind == "present" {
@@ -298,7 +297,7 @@ func TestStateCompletionRelayCANCELAndNon2xxACKRequireExactRetainedServerTransac
 					if err == nil {
 						t.Fatal("foreign transaction completion accepted")
 					}
-					after, _ := json.Marshal(c)
+					after, _ := marshalRetainedFixture(c)
 					if !bytes.Equal(before, after) || len(r.payload.Effects) != 0 {
 						t.Fatal("foreign completion mutated retained transaction")
 					}
@@ -327,11 +326,11 @@ func TestStateCompletionRelayResponseRejectsForeignTransactionAndUnadmittedFlow(
 			case "transport":
 				flow.Transport = "tcp"
 			}
-			before, _ := json.Marshal(c)
+			before, _ := marshalRetainedFixture(c)
 			if err := completionRelayIngest(r, c, message, flow, admission); err == nil {
 				t.Fatal("foreign response accepted")
 			}
-			after, _ := json.Marshal(c)
+			after, _ := marshalRetainedFixture(c)
 			if !bytes.Equal(before, after) || len(r.payload.Effects) != 0 {
 				t.Fatal("foreign response mutated retained state")
 			}
@@ -350,7 +349,7 @@ func TestStateCompletionRelayLateForksAcrossRedisWorkersPreserveOriginalOwner(t 
 	for _, effect := range record.Payload.Effects {
 		if effect.Kind == "wire" {
 			initialEffect = effect
-			if err := json.Unmarshal(effect.Payload, &initialBody); err != nil {
+			if err := unmarshalRetainedFixture(effect.Payload, &initialBody); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -448,7 +447,7 @@ func TestStateCompletionRelayCachedFinalReplayPreservesUnknownAndBusinessState(t
 			_, original, _ := latestFinalEffect(t, r)
 			completeLatestResponse(t, r, pb.DeliveryResult_UNKNOWN)
 			beforeSnapshot := proto.Clone(c.Snapshot).(*pb.ContextSnapshot)
-			beforeDialogs, _ := json.Marshal(c.Dialogs)
+			beforeDialogs, _ := marshalRetainedFixture(c.Dialogs)
 			oldFlow := proto.Clone(c.Flow).(*pb.FlowRef)
 			oldDeadline, oldPhase := tx.RetireMS, tx.Native.Phase
 			beforeEffects := len(r.payload.Effects)
@@ -469,7 +468,7 @@ func TestStateCompletionRelayCachedFinalReplayPreservesUnknownAndBusinessState(t
 			if err != nil || retained.Status != state.EffectUnknown {
 				t.Fatal("explicit replay settled old physical uncertainty")
 			}
-			afterDialogs, _ := json.Marshal(c.Dialogs)
+			afterDialogs, _ := marshalRetainedFixture(c.Dialogs)
 			if !proto.Equal(c.Snapshot, beforeSnapshot) || !bytes.Equal(beforeDialogs, afterDialogs) || !proto.Equal(c.Flow, oldFlow) || tx.RetireMS != oldDeadline || tx.Native.Phase != oldPhase {
 				t.Fatal("cached replay changed business, dialog, ordinary route or transaction lifetime")
 			}
@@ -521,12 +520,12 @@ func TestStateCompletionRelayCachedFinalRejectsFreshAlteredAndExcludedRequests(t
 				message.Wire = []byte(strings.Replace(string(message.Wire), ";tag=server", "", 1))
 				tx.Native.Origin = message.Clone()
 			}
-			before, _ := json.Marshal(c)
+			before, _ := marshalRetainedFixture(c)
 			effects := len(r.payload.Effects)
 			if err := completionRelayIngest(r, c, message, flow, admission); err == nil {
 				t.Fatal("request without exact eligible cached final was relayed")
 			}
-			after, _ := json.Marshal(c)
+			after, _ := marshalRetainedFixture(c)
 			if !bytes.Equal(before, after) || len(r.payload.Effects) != effects {
 				t.Fatal("rejected cached-final request mutated native state")
 			}

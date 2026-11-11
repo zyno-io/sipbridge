@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -344,7 +343,7 @@ func TestNativeOwnerEndedGroupOffersSharedTermRecoveryWithoutRevivingCall(t *tes
 	record, group := stateTestLoad(t, a.engine, ended)
 	group.Contexts[ended.Id].Snapshot.Ended = true
 	group.Contexts[ended.Id].RetireMS = time.Now().Add(time.Minute).UnixMilli()
-	encoded, err := json.Marshal(group)
+	encoded, err := marshalRetainedFixture(group)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +408,7 @@ func TestNativeOwnerAdmissionPinsLeaseWithoutControllerProbe(t *testing.T) {
 	record, _ = stateTestLoad(t, f.engine, ref)
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if err := json.Unmarshal(effect.Payload, &body); err != nil {
+		if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		if effect.Kind == "owner" {
@@ -499,7 +498,7 @@ func TestNativeOwnerApplicationDeadlineAndReservationGuard(t *testing.T) {
 	var found bool
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if err := json.Unmarshal(effect.Payload, &body); err != nil {
+		if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		if body.Authorization == nil || body.Authorization.AuthorityClass != pb.EffectAuthorization_APPLICATION {
@@ -655,7 +654,7 @@ func TestNativeOwnerSubscriptionAdoptionPinsOnlyApprovedSuccessor(t *testing.T) 
 			for _, effect := range record.Payload.Effects {
 				if effect.Kind == "adopt" && effect.Status == state.EffectPending {
 					var body stateEngineEffect
-					if err := json.Unmarshal(effect.Payload, &body); err != nil {
+					if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 						t.Fatal(err)
 					}
 					adoption, proposal = effect, body.Envelope.GetFlowAdoption()
@@ -709,7 +708,7 @@ func TestNativeOwnerExpiryPreservesReservedApplicationUnknown(t *testing.T) {
 	var body stateEngineEffect
 	for _, effect := range record.Payload.Effects {
 		var candidate stateEngineEffect
-		if err = json.Unmarshal(effect.Payload, &candidate); err != nil {
+		if err = unmarshalRetainedFixture(effect.Payload, &candidate); err != nil {
 			t.Fatal(err)
 		}
 		if candidate.Authorization != nil && candidate.Authorization.AuthorityClass == pb.EffectAuthorization_APPLICATION {
@@ -746,7 +745,7 @@ func TestNativeOwnerExpiryPreservesReservedApplicationUnknown(t *testing.T) {
 		if effect.ID != selected.ID {
 			continue
 		}
-		if err = json.Unmarshal(effect.Payload, &body); err != nil {
+		if err = unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		if effect.Status != state.EffectUnknown || effect.AttemptID != write.Effect.AttemptId || !proto.Equal(body.Permit, permit) || body.Settled {
@@ -767,7 +766,7 @@ func TestNativeOwnerConsumedRefusalStillHasAtomicCommitFence(t *testing.T) {
 	in := stateEngineInput{Kind: "command", Context: ref, Operation: "invalid-command", Application: f.app, ApplicationLeaseTerm: f.term,
 		Command: &pb.Command{Context: ref, Sequence: 1}}
 	f.admitCommand(t, ref, in.Operation, in.Command)
-	encoded, err := json.Marshal(in)
+	encoded, err := marshalRetainedFixture(in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -783,7 +782,7 @@ func TestNativeOwnerConsumedRefusalStillHasAtomicCommitFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var refusal pb.OperationResult
-	if err = json.Unmarshal(outcome, &refusal); err != nil || refusal.Certainty != pb.OperationResult_NOT_ACCEPTED || len(next.CommitLeaseGuards) != 1 {
+	if err = unmarshalRetainedFixture(outcome, &refusal); err != nil || refusal.Certainty != pb.OperationResult_NOT_ACCEPTED || len(next.CommitLeaseGuards) != 1 {
 		t.Fatalf("consumed command refusal lost its live term fence: %+v guards=%v %v", &refusal, next.CommitLeaseGuards, err)
 	}
 	f.expire(t, f.app, 0)

@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"testing"
@@ -130,7 +129,7 @@ func TestRedisAdmittedRegisterSurvivesExpiredDuplicatePreflight(t *testing.T) {
 	var body stateEngineEffect
 	for _, effect := range record.Payload.Effects {
 		var candidate stateEngineEffect
-		if err = json.Unmarshal(effect.Payload, &candidate); err != nil {
+		if err = unmarshalRetainedFixture(effect.Payload, &candidate); err != nil {
 			t.Fatal(err)
 		}
 		if effect.Kind == "deliver" && candidate.Transaction == transactionID && candidate.WireStatus == 401 {

@@ -21,7 +21,7 @@ func exactPayloadValidation(s *Store, payload Payload) error {
 	if err := s.validatePayloadStructure(payload); err != nil {
 		return err
 	}
-	data, err := json.Marshal(payload)
+	data, err := payload.MarshalBinary()
 	if err != nil {
 		return err
 	}
@@ -32,7 +32,7 @@ func TestRetainedRecordUsesRawEncodedByteBoundary(t *testing.T) {
 	s, ref, fields := retainedDecodeFixture(t)
 	payload := Payload{ProtocolState: bytes.Repeat([]byte{'x'}, 5000), ReservedCompletionBytes: 512,
 		ApplicationLeaseIDs: []string{"owner"}}
-	encoded, err := json.Marshal(payload)
+	encoded, err := payload.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func payloadValidationCases() map[string]Payload {
 	cases["empty-payload"] = Payload{}
 	cases["wide-metadata"] = Payload{ProtocolState: values["structured"],
 		Effects: []Effect{{ID: strings.Repeat("x", 96), Kind: strings.Repeat("y", 96), Status: EffectPending,
-			DeadlineMS: 1<<53 - 1, AttemptID: strings.Repeat("\x00<>&\u2028☃\xff", 2048), Payload: values["html"]}},
+			DeadlineMS: 1<<53 - 1, AttemptID: strings.Repeat("<>&\u2028☃", 2048), Payload: values["html"]}},
 		Timers:    []Timer{{ID: strings.Repeat("t", 96), Generation: "9223372036854775807", DueMS: 1<<53 - 1, DeadlineMS: 1<<53 - 1}},
 		Retention: Retention{Terminal: true, UntilMS: 1<<53 - 1}}
 	return cases
@@ -95,7 +95,7 @@ func TestWriterPayloadCapacityMatchesExactEncoding(t *testing.T) {
 	for name, payload := range payloadValidationCases() {
 		t.Run(name, func(t *testing.T) {
 			s := payloadValidationStore()
-			before, err := json.Marshal(payload)
+			before, err := payload.MarshalBinary()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -107,7 +107,7 @@ func TestWriterPayloadCapacityMatchesExactEncoding(t *testing.T) {
 					t.Fatalf("limit=%d writer capacity result=%v", limit, got)
 				}
 			}
-			after, err := json.Marshal(payload)
+			after, err := payload.MarshalBinary()
 			if err != nil || !bytes.Equal(before, after) {
 				t.Fatal("capacity measurement changed the payload")
 			}
@@ -125,7 +125,7 @@ func errorText(err error) string {
 func TestPayloadCapacityRejectsReserveOverflow(t *testing.T) {
 	s := payloadValidationStore()
 	payload := payloadValidationCases()["structured"]
-	encoded, err := json.Marshal(payload)
+	encoded, err := payload.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestPayloadCapacityRejectsReserveOverflow(t *testing.T) {
 		if err := s.validatePayloadSize(payload, len(encoded)); !errors.Is(err, ErrCapacity) {
 			t.Fatalf("exact accounting admitted oversized reserve: %v", err)
 		}
-		data, err := json.Marshal(payload)
+		data, err := payload.MarshalBinary()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -185,7 +185,7 @@ func TestPayloadCapacityPreservesStructuralRefusals(t *testing.T) {
 			if !errors.Is(got, tc.want) {
 				t.Fatalf("wrong refusal: got=%v want=%v", got, tc.want)
 			}
-			data, err := json.Marshal(payload)
+			data, err := payload.MarshalBinary()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -211,9 +211,9 @@ func FuzzRetainedRecordRawByteBoundary(f *testing.F) {
 		}
 		payload := Payload{ProtocolState: value, ReservedCompletionBytes: 16,
 			Effects: []Effect{{ID: "effect", Kind: "wire", Status: EffectPending, DeadlineMS: 1, AttemptID: attempt, Payload: value}}}
-		data, err := json.Marshal(payload)
+		data, err := payload.MarshalBinary()
 		if err != nil {
-			t.Fatal(err)
+			return
 		}
 		s := payloadValidationStore()
 		ref, err := s.GroupForCallID("fuzz-boundary")
@@ -238,14 +238,14 @@ func FuzzRetainedRecordRawByteBoundary(f *testing.F) {
 	})
 }
 
-func TestStatePayloadSizingPreservesCanonicalAndLegacyRecords(t *testing.T) {
+func TestStatePayloadSizingPreservesBinaryAndRefusesLegacyRecords(t *testing.T) {
 	s := testStore(t, nil)
 	readyStore(t, s)
 	ctx := context.Background()
 	ref := group(t, s, "capacity-encoding")
 	step := begin(t, s, ref, "initial", true)
 	payload := payloadValidationCases()["structured"]
-	encoded, err := json.Marshal(payload)
+	encoded, err := payload.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,11 @@ func TestStatePayloadSizingPreservesCanonicalAndLegacyRecords(t *testing.T) {
 		t.Fatalf("canonical record could not be read: %v", err)
 	}
 	var legacy map[string]json.RawMessage
-	if err := json.Unmarshal(encoded, &legacy); err != nil {
+	diagnostic, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(diagnostic, &legacy); err != nil {
 		t.Fatal(err)
 	}
 	legacy["protocolState"], err = json.Marshal(base64.StdEncoding.EncodeToString(payload.ProtocolState))
@@ -276,8 +280,11 @@ func TestStatePayloadSizingPreservesCanonicalAndLegacyRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	record, err = s.Load(ctx, ref)
-	if err != nil || !bytes.Equal(record.Payload.ProtocolState, payload.ProtocolState) {
-		t.Fatalf("legacy record could not be read: %v", err)
+	if !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("legacy JSON record accepted: %v", err)
+	}
+	if err := s.client.HSet(ctx, s.keys(ref)[0], "data", encoded).Err(); err != nil {
+		t.Fatal(err)
 	}
 	step = begin(t, s, ref, "oversized-reserve", false)
 	tooLarge := payload
@@ -286,11 +293,11 @@ func TestStatePayloadSizingPreservesCanonicalAndLegacyRecords(t *testing.T) {
 		t.Fatalf("commit admitted overflowing reserve: %v", err)
 	}
 	stored, err = s.client.HGet(ctx, s.keys(ref)[0], "data").Result()
-	if err != nil || stored != string(legacyBytes) {
+	if err != nil || stored != string(encoded) {
 		t.Fatalf("refused reserve changed committed bytes: %v", err)
 	}
 	payload.Effects = append(payload.Effects, payload.Effects[0])
-	corrupt, err := json.Marshal(payload)
+	corrupt, err := payload.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}

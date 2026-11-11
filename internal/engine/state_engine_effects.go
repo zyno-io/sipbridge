@@ -2,7 +2,6 @@ package engine
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,7 +25,7 @@ func (r *stateReduction) findEffect(id string) (int, state.Effect, stateEngineEf
 				return 0, effect, stateEngineEffect{}, state.ErrCorrupt
 			}
 			var body stateEngineEffect
-			if body.UnmarshalJSON(effect.Payload) != nil {
+			if body.UnmarshalBinary(effect.Payload) != nil {
 				return 0, effect, body, state.ErrCorrupt
 			}
 			return index, effect, body, nil
@@ -35,7 +34,7 @@ func (r *stateReduction) findEffect(id string) (int, state.Effect, stateEngineEf
 	return 0, state.Effect{}, stateEngineEffect{}, errStateEffectMissing
 }
 func (r *stateReduction) setEffect(index int, effect state.Effect, body stateEngineEffect) {
-	effect.Payload, _ = json.Marshal(body)
+	effect.Payload, _ = body.MarshalBinary()
 	r.payload.Effects[index] = effect
 }
 
@@ -598,7 +597,7 @@ func (r *stateReduction) openUAC() error {
 	// The open intent is retained before any DNS/TCP/TLS side effect. Parent
 	// ingress owns the connection and returns its exact flow before SIP send.
 	request := proto.Clone(open).(*pb.OpenUac)
-	encoded, _ := json.Marshal(request)
+	encoded, _ := stateEncodeNetworkTarget(request)
 	if open.BindingId == "" {
 		until := r.now + 5000
 		if policy != nil {

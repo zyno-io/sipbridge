@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"sync/atomic"
@@ -67,7 +66,7 @@ func TestStateSchedulerCorruptHintClassDoesNotStarveOtherClass(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			payload, err := json.Marshal(stateEngineInput{Kind: "locate"})
+			payload, err := marshalRetainedFixture(stateEngineInput{Kind: "locate"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -183,7 +182,7 @@ func TestStateSchedulerQuiescentGroupDoesNotResumeOrMutate(t *testing.T) {
 }
 
 func TestStateSchedulerEligibilityPreservesHistoricalRecovery(t *testing.T) {
-	body := func(value stateEngineEffect) []byte { encoded, _ := json.Marshal(value); return encoded }
+	body := func(value stateEngineEffect) []byte { encoded, _ := marshalRetainedFixture(value); return encoded }
 	effects := []state.Effect{
 		{ID: "unsupported", Kind: "unsupported", Status: state.EffectPending, DeadlineMS: 300000},
 		{ID: "completed-event", Kind: "event", Status: state.EffectWritten, DeadlineMS: 1},

@@ -55,7 +55,12 @@ inventory or generation change. The configured generation is compatibility ident
 not an operator recovery step or evidence of surviving state.
 
 Workers sharing a namespace must share the service identity key, partition mapping
-and schema/reducer/timer profile. Deployment owns this consistency; readiness cannot
+and schema/reducer/timer profile, private storage encoding and descriptor identity.
+The storage authority HMAC includes the encoding plus both the private storage
+schema SHA-256 and canonical control schema SHA-256 from the verified build receipt.
+The `protobuf-v1` label alone never establishes compatibility. A descriptor change
+fences the preceding binary authority even when logical versions remain 1/1/1;
+source-only changes do not change this descriptor identity. Deployment owns this consistency; readiness cannot
 detect workers mapping one Call-ID to different partitions. Wire authority identifies
 compatible configuration, not proof that data survived an outage. Every existing
 record independently validates namespace, schema, incarnation and revision.
@@ -87,6 +92,51 @@ It never admits application work or creates native state. Unknown or unspecified
 route outcomes remain malformed replies, diagnosed as `invalid-route-outcome`.
 ACK and SIP response refusal exclusions and the original route deadline remain
 unchanged. A controller cannot choose an arbitrary SIP status for UNAVAILABLE.
+
+## Retained binary encoding
+
+The binary profile stores each large retained payload as `protobuf-v1`, with an
+explicit record encoding header and generated storage-only protobuf messages.
+The immutable compatibility profile includes this encoding separately from the
+schema/reducer/timer contract; changing the encoding changes native authority.
+Old JSON records are not decoded, migrated or rewritten by a binary worker.
+A format cutover drains and stops old workers before a fresh namespace is used.
+The public controller schema and JSON control transport are independent.
+
+The payload contains raw protocol-state and effect bytes; the engine owns their
+typed binary codecs. No JSON/base64/hex wrapper belongs around those large values.
+Small Lua-inspected input/receipt/lease envelopes retain their bounded existing
+representation. Record data, revision, scheduling and lease projections still
+commit atomically. Memory uses the same codec and independent snapshot ownership.
+Before generated decoding allocates, records are capped at 64 MiB, recursion at
+32 levels, each repeated/map field at 4,096 entries and the total field count at
+262,144. The `SIPB`, encoding-byte 1 and record-kind header are mandatory.
+Encoded bytes, recursion and collection counts are bounded before allocation;
+unknown fields, duplicate singular/map fields and unsupported encodings fail
+closed before a reducer observes a partially interpreted value. Exact SIP wire,
+integer values, explicit presence, replay identity, UNKNOWN outcomes and reserved
+native completion capacity retain their existing semantics.
+
+Codec telemetry uses only fixed record-kind and encode/decode labels, with
+operation/failure counts, cumulative bytes and elapsed seconds on `/metrics`.
+It never scans Redis or exports application identifiers or retained bytes.
+The offline `sipbridge-state-inspect` command reads a bounded raw `data` value,
+checks the same binary and semantic bounds and emits counts, timer/effect classes
+and retention only. It does not contact Redis, restore state or print SIP wire,
+addresses, credentials, Call-IDs, group/context/effect IDs or recovery tokens.
+Authority/profile/revision are Redis envelope fields, not inferable from raw data;
+operators must inspect them separately through their authorized Redis tooling.
+The explicit [fixture completion projection](fixtures.md#offline-completion-projection)
+adds allowlisted identifying protocol proofs for disposable qualification only;
+it does not change default inspection redaction or provide a state import path.
+
+Generation-only reflection describes the retained Go graph. Checked-in storage
+field numbers are stable; removed fields stay reserved. Runtime conversion is
+typed generated Go, with explicit map/list presence wrappers and nullable map
+values. Storage descriptors/adapters have a separate build receipt; changing
+private storage never regenerates the public control schema. Completion proof
+capacity includes conservative binary length-prefix growth through enclosing
+messages and keeps the existing 1,600-byte per-transaction proof bound.
 
 ## CAS execution and admission
 
@@ -596,6 +646,10 @@ collecting them performs no store reads and includes no context/queue identity.
 Scheduler failures expose fixed stage/error-class counters, including group
 decode and timer-transition failures that would otherwise leave an overdue hint
 unchanged. Raw errors, payloads and SIP identities never become metric labels.
+Runtime gauges/counters expose actual GOMAXPROCS, goroutine count, GC CPU and
+heap allocation/live bytes through Go's runtime metrics API. Sampling does not
+read protocol state or force a GC. Quota/thread tuning remains a separately
+measured deployment choice; codec benchmarks do not establish its CPU benefit.
 A group with no eligible effects allocates no dispatcher/read. Prepared bounded effect
 metadata goes to separate transport workers after dropping aggregate/scheduler admission.
 Overdue timers get bounded processing time, never renewed semantic deadlines; hard
@@ -733,21 +787,28 @@ pre-scan, larger ones validate before potentially expanding marshal. Noncanonica
 malformed candidates retain opaque representation, subject to normal corruption checks.
 Custom marshal/validation failure preserves the outer encoder's rejection/wrapping.
 
-Retained typed input/effect decoding and protobuf JSON shadows validate complete values
-before receiver assignment. Encoders preserve canonical bytes/fingerprints; ordinary
-field duplicates/case variants retain Go typed-JSON semantics, while duplicate protobuf
-fields choose the last complete value with strict protobuf validation. Lexical JSON-tag
-order permits direct ordinary encoding only for the two private concrete input/effect
-structs without valid protobuf shadows (including empty messages). Frozen-byte tests
-protect that compatibility, not a second state representation.
+Retained payload, native group, input, effect, digest and network-target values use
+generated typed protobuf adapters behind a private `SIPB` frame with encoding and
+root-kind bytes. Wire/SDP data are raw protobuf bytes, never hex or base64 wrappers.
+The private field registry preserves field numbers. Exact physical worker targets,
+including the wildcard controller-executor hint, roundtrip with each retained effect.
+Control messages remain canonical JSON. Lua-inspected receipts, pending-input
+envelopes, application guards and bounded dispatch-target/worker projections retain
+their existing small JSON/scalar representation and atomic accounting.
 
-Decoded fields never alias caller buffers, other fields or old receiver values. Owned
-RawMessage buffers transfer once; copy final value if spare capacity exceeds max(4,096,
-length/4), avoiding large duplicate-field retention. Failed decode is atomic; later decode
-cannot overwrite earlier returned buffers. Structured, opaque and base64 representations
-retain their exact decoding rules. Dispatch may select by native identity metadata, but the physical/
-control dispatcher validates the full retained body before I/O. No encoding optimization
-adds a resident cache, skips capacity checks or changes authority.
+The decoder preflights the complete graph before receiver assignment: 64 MiB total,
+depth 32, 4,096 entries per collection and 262,144 total fields. Unknown fields,
+duplicate singular/oneof/map entries, invalid enums and invalid UTF-8 are rejected.
+Typed adapters preserve absent/empty collections and optional values; failed decode
+leaves the receiver unchanged, and decoded values do not alias input or prior values.
+Deterministic encoding preserves operation fingerprints. Runtime private payloads
+have no JSON or preceding-binary fallback; diagnostic JSON helpers are fixture-only.
+Rollout requires matching full public/private receipts and a fresh storage namespace,
+without migration or mixed JSON/binary writers. The offline inspector returns
+bounded redacted counts only and grants no restore or execution permission.
+Dispatch validates the complete retained effect before physical/control I/O. No
+encoding optimization adds a resident cache, skips capacity checks or changes
+native transaction, owner, CAS or exact-write authority.
 
 ## Network advertisement and observability
 

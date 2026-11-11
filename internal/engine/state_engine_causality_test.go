@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/emiago/sipgo/sip"
@@ -18,7 +17,7 @@ func causalEffect(t *testing.T, r *stateReduction, method, remote string) (int, 
 	for index := len(r.payload.Effects) - 1; index >= 0; index-- {
 		effect := r.payload.Effects[index]
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) != nil || len(body.Wire) == 0 {
+		if unmarshalRetainedFixture(effect.Payload, &body) != nil || len(body.Wire) == 0 {
 			continue
 		}
 		parsed, err := sip.ParseMessage(body.Wire)
@@ -361,7 +360,7 @@ func TestStateEarlyCleanupNoStartReplaysAndSettlementStayBounded(t *testing.T) {
 	}
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) == nil && body.Transaction == cleanup.Native.Key {
+		if unmarshalRetainedFixture(effect.Payload, &body) == nil && body.Transaction == cleanup.Native.Key {
 			t.Fatal("settled old cleanup receipts remained or emitted beyond the cap")
 		}
 	}
@@ -378,7 +377,7 @@ func TestStateRetirementRetainsUnknownEffectsAndNativeReplay(t *testing.T) {
 			c.Transactions = make(map[string]*stateTransaction)
 			switch obligation {
 			case "unknown", "dispatching":
-				body, _ := json.Marshal(stateEngineEffect{Context: id})
+				body, _ := marshalRetainedFixture(stateEngineEffect{Context: id})
 				status := state.EffectUnknown
 				if obligation == "dispatching" {
 					status = state.EffectDispatching
@@ -423,7 +422,7 @@ func TestStateScopeGrantRetainedForUASAndNonInvite(t *testing.T) {
 			r.result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}
 			auth := &pb.EffectAuthorization{Effect: &pb.StateEffectRef{Context: c.Snapshot.Context, Id: "effect", AttemptId: "attempt"}}
 			body := stateEngineEffect{Context: c.Snapshot.Context.Id, Transaction: tx.Native.Key, Authorization: auth, Executor: r.engine.cfg.Process}
-			encoded, _ := json.Marshal(body)
+			encoded, _ := marshalRetainedFixture(body)
 			r.payload.Effects = []state.Effect{{ID: "effect", Kind: "wire", Status: state.EffectDispatching, AttemptID: "rpc-attempt", DeadlineMS: r.now + 2000, Payload: encoded}}
 			permit := &pb.SendPermit{Authorization: auth, Flow: c.Flow, CompletionScope: "retained-scope", DirectoryEpoch: "directory", OrderingProof: "proof"}
 			r.in = stateEngineInput{Effect: "effect", Executor: r.engine.cfg.Process, Reply: &pb.Envelope{Payload: &pb.Envelope_SendPermit{SendPermit: permit}}}
@@ -462,7 +461,7 @@ func TestStateCompleteRejectsUnreservedNativeOutcome(t *testing.T) {
 			continue
 		}
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) != nil {
+		if unmarshalRetainedFixture(effect.Payload, &body) != nil {
 			t.Fatal("bad effect")
 		}
 		permit := &pb.SendPermit{Authorization: body.Authorization, Flow: flow, DirectoryEpoch: "directory", OrderingProof: "proof"}

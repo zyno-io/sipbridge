@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -68,7 +67,7 @@ func TestStateCASReservationReadsOnceAndCannotReplayLegacyWireProof(t *testing.T
 	}
 	copy := proto.Clone(write).(*pb.FlowWrite)
 	input := stateEngineInput{Kind: "reserve", Context: write.Effect.Context, Executor: f.engine.cfg.Process, Write: copy, Effect: write.Effect.Id}
-	data, err := json.Marshal(input)
+	data, err := marshalRetainedFixture(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +79,7 @@ func TestStateCASReservationReadsOnceAndCannotReplayLegacyWireProof(t *testing.T
 	if err != nil || started.Step == nil {
 		t.Fatalf("legacy proof fixture failed: %v", err)
 	}
-	outcome, err := json.Marshal(&pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: &pb.SipMessage{Wire: reserved.Wire}})
+	outcome, err := marshalRetainedFixture(&pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: &pb.SipMessage{Wire: reserved.Wire}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +106,7 @@ func TestStateCASPreflightRefusesLegacyPendingWithoutResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	in.Operation = "retained-before-switch"
-	data, err := json.Marshal(in)
+	data, err := marshalRetainedFixture(in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +161,7 @@ func TestStateCASCollectedEffectRefusesLegacyPendingWithoutCommit(t *testing.T) 
 		t.Fatal(err)
 	}
 	in = stateEngineInput{Kind: "effect-result", Context: ref, Effect: "already-collected", Operation: "legacy-callback"}
-	data, err := json.Marshal(in)
+	data, err := marshalRetainedFixture(in)
 	if err != nil {
 		t.Fatal(err)
 	}

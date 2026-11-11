@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sipbridge/internal/storagecodec"
 	"strings"
 	"time"
 )
@@ -27,7 +28,7 @@ func newMetadata(cfg Config) metadata {
 	encoded, _ := json.Marshal(cfg.Versions)
 	s.versions = string(encoded)
 	mac := hmac.New(sha256.New, cfg.NamespaceKey)
-	fmt.Fprintf(mac, "sip-state-profile-v1:%s:%d:%s", s.root, cfg.Partitions, s.versions)
+	fmt.Fprintf(mac, "sip-state-profile-v1:%s:%d:%s:%s", s.root, cfg.Partitions, s.versions, storagecodec.SchemaIdentity())
 	limits, _ := json.Marshal(cfg.Limits)
 	mac.Write(limits)
 	s.profile = hex.EncodeToString(mac.Sum(nil))
@@ -108,9 +109,9 @@ func (s *metadata) decodeRecord(ref Ref, inc, revision, data, receipts, pending,
 		return Record{}, ErrCorrupt
 	}
 	record := Record{Ref: ref, Authority: s.authority, Versions: s.cfg.Versions, Revision: revision}
-	// The custom decoder already validates the complete JSON before assignment.
-	// An outer json.Unmarshal would scan the entire retained aggregate twice.
-	if record.Payload.UnmarshalJSON([]byte(data)) != nil || json.Unmarshal([]byte(receipts), &record.Receipts) != nil {
+	// Decode the bounded binary payload once; small Lua-inspected envelopes
+	// keep their separate JSON representation.
+	if record.Payload.UnmarshalBinary([]byte(data)) != nil || json.Unmarshal([]byte(receipts), &record.Receipts) != nil {
 		return Record{}, ErrCorrupt
 	}
 	if proof != "" {

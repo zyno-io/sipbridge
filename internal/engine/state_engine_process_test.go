@@ -198,7 +198,7 @@ func (h *processHarness) start(name string) *processWorker {
 	h.t.Helper()
 	cfg := h.cfg
 	cfg.Process = &pb.ProcessRef{InstanceId: name, Epoch: uuid.NewString()}
-	data, _ := json.Marshal(cfg)
+	data, _ := marshalRetainedFixture(cfg)
 	command := exec.CommandContext(h.ctx, os.Args[0], "-test.run=^TestStateProcessHelper$", "-test.v")
 	command.Env = append(os.Environ(), "SIPBRIDGE_PROCESS_HELPER="+string(data))
 	input, err := command.StdinPipe()
@@ -227,7 +227,7 @@ func (h *processHarness) start(name string) *processWorker {
 				continue
 			}
 			var event stateProcessEvent
-			if json.Unmarshal([]byte(strings.TrimPrefix(line, "STATE-PROCESS ")), &event) == nil {
+			if unmarshalRetainedFixture([]byte(strings.TrimPrefix(line, "STATE-PROCESS ")), &event) == nil {
 				h.mu.Lock()
 				h.phases = append(h.phases, processPhaseObservation{Worker: w.process.InstanceId, Event: event})
 				h.mu.Unlock()

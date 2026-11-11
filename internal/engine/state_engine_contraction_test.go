@@ -1,9 +1,7 @@
 package engine
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -47,7 +45,7 @@ func TestNativeColdTrustedHistoryStopsPollingWithoutInventingOutcome(t *testing.
 		var retained stateEngineEffect
 		for _, effect := range record.Payload.Effects {
 			if effect.Kind == "deliver" {
-				if err := json.Unmarshal(effect.Payload, &retained); err != nil {
+				if err := unmarshalRetainedFixture(effect.Payload, &retained); err != nil {
 					return record.Payload, nil, err
 				}
 				break
@@ -57,7 +55,7 @@ func TestNativeColdTrustedHistoryStopsPollingWithoutInventingOutcome(t *testing.
 			t.Fatal("fixture has no actual physical authorization")
 		}
 		retained.Native = false
-		body, err := json.Marshal(retained)
+		body, err := marshalRetainedFixture(retained)
 		if err != nil {
 			return record.Payload, nil, err
 		}
@@ -67,7 +65,7 @@ func TestNativeColdTrustedHistoryStopsPollingWithoutInventingOutcome(t *testing.
 		obsolete = state.Timer{ID: r.timerID(ref.Id, "context", "retire", ""), Generation: "1", DueMS: 1, DeadlineMS: 1}
 		payload := record.Payload
 		payload.Effects, payload.Timers, payload.ActiveTransactions = []state.Effect{original}, []state.Timer{obsolete}, 0
-		payload.ProtocolState, err = json.Marshal(group)
+		payload.ProtocolState, err = marshalRetainedFixture(group)
 		return payload, nil, err
 	}), 1)
 	if err != nil {
@@ -125,7 +123,7 @@ func TestNativeColdHistoryRequiresEntireContextToBeQuiescent(t *testing.T) {
 	c := group.Contexts[ref.Id]
 	c.Snapshot.Ended, c.RetireMS, c.ReplayUntilMS = true, 1, 0
 	c.Transactions, c.Dialogs = nil, nil
-	body, _ := json.Marshal(stateEngineEffect{Context: ref.Id})
+	body, _ := marshalRetainedFixture(stateEngineEffect{Context: ref.Id})
 	r := &stateReduction{engine: f.engine, group: group, record: record, now: time.Now().UnixMilli(), payload: state.Payload{Effects: []state.Effect{
 		{ID: "old", Kind: "deliver", Status: state.EffectUnknown, DeadlineMS: 1, Payload: body},
 	}}}
@@ -144,7 +142,9 @@ func TestNativeColdHistoryRequiresEntireContextToBeQuiescent(t *testing.T) {
 		}, func() { c.Dialogs = nil }},
 		{"owner cleanup", func() { c.OwnerCleanupAtMS = 1 }, func() { c.OwnerCleanupAtMS = 0 }},
 		{"pending work", func() { r.payload.Effects[0].Status = state.EffectPending }, func() { r.payload.Effects[0].Status = state.EffectUnknown }},
-		{"native uncertainty", func() { r.payload.Effects[0].Payload = bytes.Replace(body, []byte("{"), []byte(`{"native":true,`), 1) }, func() { r.payload.Effects[0].Payload = body }},
+		{"native uncertainty", func() {
+			r.payload.Effects[0].Payload = mustRetainedEffect(t, stateEngineEffect{Context: ref.Id, Native: true})
+		}, func() { r.payload.Effects[0].Payload = body }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			test.change()

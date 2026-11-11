@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -77,7 +76,7 @@ func TestStateRegisterCallIDReuseOutlivesThirtyTwoRetirements(t *testing.T) {
 			// cannot turn a fixed replay cutoff into a sliding retention lease.
 			retry := r.in
 			retry.Operation = "retransmission"
-			encoded, err := json.Marshal(retry)
+			encoded, err := marshalRetainedFixture(retry)
 			if err != nil {
 				t.Fatal(err)
 			}

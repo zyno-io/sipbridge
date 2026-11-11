@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -102,7 +101,7 @@ func TestStateOverdueNativeTimersResumeAfterLongRedisOutage(t *testing.T) {
 			}
 			for _, effect := range record.Payload.Effects {
 				var body stateEngineEffect
-				if err := json.Unmarshal(effect.Payload, &body); err != nil {
+				if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 					t.Fatal(err)
 				}
 				if effect.Kind == "wire" && body.Authorization != nil && body.Authorization.DeadlineMs > uint64(now.UnixMilli()) {

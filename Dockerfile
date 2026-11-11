@@ -19,6 +19,9 @@ COPY internal ./internal
 RUN --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -trimpath \
     -ldflags="-s -w -X sipbridge/internal/buildinfo.Version=${BUILD_VERSION} -X sipbridge/internal/buildinfo.Revision=${BUILD_REVISION}" \
     -o /sipbridge ./cmd/sipbridge
+RUN --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w -X sipbridge/internal/buildinfo.Version=${BUILD_VERSION} -X sipbridge/internal/buildinfo.Revision=${BUILD_REVISION}" \
+    -o /sipbridge-state-inspect ./cmd/sipbridge-state-inspect
 FROM scratch
 ARG BUILD_VERSION
 ARG BUILD_REVISION
@@ -27,8 +30,10 @@ LABEL org.opencontainers.image.source="https://github.com/zyno-io/sipbridge" \
       org.opencontainers.image.revision="${BUILD_REVISION}"
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /sipbridge /sipbridge
+COPY --from=build /sipbridge-state-inspect /sipbridge-state-inspect
 COPY --from=build /licenses /licenses
 COPY dependencies/control-schema.json /usr/share/sipbridge/control-schema.json
+COPY internal/storagecodec/receipt.json /usr/share/sipbridge/storage-schema.json
 USER 65532:65532
 EXPOSE 5060/udp 5060 5061 8443 8800
 ENTRYPOINT ["/sipbridge"]

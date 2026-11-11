@@ -99,6 +99,26 @@ settings with that selection. Redis settings without explicit Redis selection fa
 startup. Every backend requires the `sip.state.v1` controller capability.
 Backend selection is fixed at startup; there is no automatic fallback or migration.
 
+The private persisted encoding is `protobuf-v1`, independently fenced from the
+public controller contract. Both adapters use it; a JSON-to-binary deployment
+requires drained workers and a fresh namespace. See the normative
+[binary encoding contract](docs/runtime.md#retained-binary-encoding).
+
+```bash
+# Verify private schema/adapter provenance; public contract verification is separate.
+python3 scripts/verify_storage_schema.py
+./bin/sipbridge --state-schema
+
+# Read one authorized raw Redis `data` export offline; output is redacted.
+go run ./cmd/sipbridge-state-inspect --input=/private/retained-data.bin
+```
+
+`/sipbridge-state-inspect` is also included in the image. It contacts no backend
+and provides no restore/import operation. Native codec contributors regenerate
+with `PROTOC=/path/to/protoc-3.21.12 python3 scripts/gen-state-storage.py`, using
+`protoc-gen-go` 1.36.12 on PATH; review the stable field registry and receipt with
+any storage change. Runtime code never uses the generator's reflection.
+
 ## Image publication
 
 `main` publishes `:<commit-sha>` and `:main`. Other branches publish

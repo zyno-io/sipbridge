@@ -33,7 +33,7 @@ func processCredentialEffect(t *testing.T, record state.Record) (state.Effect, s
 		}
 		var body stateEngineEffect
 		var challenge stateDigestChallenge
-		if json.Unmarshal(effect.Payload, &body) != nil || json.Unmarshal(body.Wire, &challenge) != nil {
+		if unmarshalRetainedFixture(effect.Payload, &body) != nil || unmarshalRetainedFixture(body.Wire, &challenge) != nil {
 			t.Fatal("credential effect metadata corrupt")
 		}
 		return effect, body, challenge
@@ -80,7 +80,7 @@ func processAssertNoPlaintextCredential(t *testing.T, data []byte, secret string
 
 func processAssertCredentialRecord(t *testing.T, record state.Record, secret string) {
 	t.Helper()
-	encoded, err := json.Marshal(record)
+	encoded, err := marshalRetainedFixture(record)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	pb "sipbridge/internal/controlpb"
@@ -59,7 +58,7 @@ func TestNativePreWireFailureExpiresNotificationWithLiveOwner(t *testing.T) {
 				t.Fatal("FAILED notification missing")
 			}
 			if authorizationUnknown {
-				body, err := json.Marshal(stateEngineEffect{Context: ref.Id})
+				body, err := marshalRetainedFixture(stateEngineEffect{Context: ref.Id})
 				if err != nil {
 					t.Fatal(err)
 				}

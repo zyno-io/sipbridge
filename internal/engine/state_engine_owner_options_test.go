@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 	"testing"
 	"time"
@@ -61,7 +60,7 @@ func TestNativeOwnerLossEndsUnsendableRetainedOptionsWithoutPhysicalRetry(t *tes
 			c.Requests = map[string]string{tx.RequestID: native.Key}
 			proofs := append([]string(nil), tx.AdmittedFlowProofs...)
 			record.Payload.Effects = nil
-			record.Payload.ProtocolState, err = json.Marshal(group)
+			record.Payload.ProtocolState, err = marshalRetainedFixture(group)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -74,7 +73,7 @@ func TestNativeOwnerLossEndsUnsendableRetainedOptionsWithoutPhysicalRetry(t *tes
 			// or transport implementation is installed in this pure reduction.
 			f.engine.cfg.Process = &pb.ProcessRef{InstanceId: "replacement-worker", Epoch: "new-epoch"}
 			r := &stateReduction{engine: f.engine}
-			input, err := json.Marshal(stateEngineInput{Kind: "timer", Timer: r.timerID(ref.Id, "owner", "probe", ""), Generation: strconv.FormatInt(c.OwnerProbeAtMS, 10)})
+			input, err := marshalRetainedFixture(stateEngineInput{Kind: "timer", Timer: r.timerID(ref.Id, "owner", "probe", ""), Generation: strconv.FormatInt(c.OwnerProbeAtMS, 10)})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -136,7 +135,7 @@ func TestNativeCommandAdmissionInitialAnchorIsStableAndIndependent(t *testing.T)
 	var native bool
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if err := json.Unmarshal(effect.Payload, &body); err != nil {
+		if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		if body.Authorization != nil {

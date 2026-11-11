@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -12,7 +11,7 @@ import (
 )
 
 func TestUnsupportedEffectCannotDispatchOrAcceptResult(t *testing.T) {
-	body, err := json.Marshal(stateEngineEffect{Context: "context", Application: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"},
+	body, err := marshalRetainedFixture(stateEngineEffect{Context: "context", Application: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"},
 		Envelope: &pb.Envelope{Payload: &pb.Envelope_DialogEvent{DialogEvent: &pb.DialogEvent{Kind: pb.DialogEvent_ENDED}}}})
 	if err != nil {
 		t.Fatal(err)

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -119,7 +118,7 @@ func testNativeCompletionIngressRetainsExactFlowAndNativeAuthority(t *testing.T,
 	native := 0
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if json.Unmarshal(effect.Payload, &body) != nil {
+		if unmarshalRetainedFixture(effect.Payload, &body) != nil {
 			t.Fatal("corrupt effect")
 		}
 		if effect.Kind == "wire" && body.Authorization.GetAuthorityClass() != pb.EffectAuthorization_APPLICATION {

@@ -29,7 +29,7 @@ func (r *stateReduction) prepareAutonomousEffects() error {
 			continue
 		}
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil {
+		if body.UnmarshalBinary(effect.Payload) != nil {
 			return state.ErrCorrupt
 		}
 		c := r.group.Contexts[body.Context]

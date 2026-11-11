@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -37,7 +36,7 @@ func receiverIntent(t *testing.T, f nativeOwnerFixture, ref *pb.ContextRef, kind
 			continue
 		}
 		var body stateEngineEffect
-		if err := json.Unmarshal(effect.Payload, &body); err != nil {
+		if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
 			t.Fatal(err)
 		}
 		return effect, body
@@ -205,7 +204,7 @@ func TestNativeReceiverDispatcherStartsOnlyLegacyAndRecordsAcceptance(t *testing
 					}
 					found = true
 					var body stateEngineEffect
-					if err = json.Unmarshal(current.Payload, &body); err != nil {
+					if err = unmarshalRetainedFixture(current.Payload, &body); err != nil {
 						replyErrors <- err
 						return
 					}

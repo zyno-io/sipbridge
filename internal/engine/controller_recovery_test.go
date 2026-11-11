@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -244,7 +243,7 @@ func recoveryUnknownInfo(t *testing.T, f nativeOwnerFixture, ref *pb.ContextRef)
 	record, _ := stateTestLoad(t, f.engine, ref)
 	for _, effect := range record.Payload.Effects {
 		var body stateEngineEffect
-		if effect.Kind != "deliver" || json.Unmarshal(effect.Payload, &body) != nil || body.Command != "unknown-info" {
+		if effect.Kind != "deliver" || unmarshalRetainedFixture(effect.Payload, &body) != nil || body.Command != "unknown-info" {
 			continue
 		}
 		write := &pb.FlowWrite{Flow: body.Permit.Flow, Effect: body.Authorization.Effect, Permit: body.Permit}
@@ -435,7 +434,7 @@ func testControllerReattachThroughControl(t *testing.T, backend string) {
 	for _, effect := range afterUnknown.Payload.Effects {
 		if effect.ID == unknown.ID {
 			var before, after stateEngineEffect
-			if json.Unmarshal(unknown.Payload, &before) != nil || json.Unmarshal(effect.Payload, &after) != nil {
+			if unmarshalRetainedFixture(unknown.Payload, &before) != nil || unmarshalRetainedFixture(effect.Payload, &after) != nil {
 				t.Fatal("physical evidence corrupt")
 			}
 			if effect.Status != state.EffectUnknown || effect.AttemptID != unknown.AttemptID || !bytes.Equal(before.Wire, after.Wire) {

@@ -22,6 +22,10 @@ func TestDispatchIndexesRouteExactWorkerAndFenceStaleAcknowledgement(t *testing.
 			t.Fatal(err)
 		}
 		ref = update.Record.Ref
+		stored, err := s.Load(ctx, ref)
+		if err != nil || len(stored.Payload.Effects) != 1 || stored.Payload.Effects[0].Worker != a {
+			t.Fatal("dispatch index was written but the retained codec lost its exact physical worker", err)
+		}
 		wait, cancel := context.WithTimeout(ctx, time.Second)
 		cursor, err := s.WaitSchedule(wait, before.Cursor)
 		cancel()
@@ -88,6 +92,10 @@ func TestDispatchControllerWorkReachesEveryLiveWorkerIndependently(t *testing.T)
 			t.Fatal(err)
 		}
 		ref = update.Record.Ref
+		stored, err := s.Load(ctx, ref)
+		if err != nil || len(stored.Payload.Effects) != 1 || stored.Payload.Effects[0].Worker != AnyDispatchWorker {
+			t.Fatal("retained codec lost the controller executor wildcard", err)
+		}
 		for _, worker := range []string{a, b} {
 			if hints, err := s.DispatchHints(ctx, worker, 8); err != nil || len(hints) != 1 {
 				t.Fatal("controller work did not reach an eligible worker", worker, hints, err)

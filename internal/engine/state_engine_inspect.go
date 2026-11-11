@@ -29,7 +29,7 @@ func (e *StateEngine) InspectWrite(ctx context.Context, write *pb.FlowWrite) (*p
 			continue
 		}
 		var body stateEngineEffect
-		if body.UnmarshalJSON(effect.Payload) != nil || body.Permit == nil || body.Authorization == nil || !proto.Equal(body.Permit, write.Permit) || !proto.Equal(body.Permit.Flow, write.Flow) || !stateSameContext(body.Authorization.Effect.Context, write.Effect.Context) || body.Authorization.Effect.AttemptId != write.Effect.AttemptId || effect.AttemptID != "" && effect.AttemptID != write.Effect.AttemptId {
+		if body.UnmarshalBinary(effect.Payload) != nil || body.Permit == nil || body.Authorization == nil || !proto.Equal(body.Permit, write.Permit) || !proto.Equal(body.Permit.Flow, write.Flow) || !stateSameContext(body.Authorization.Effect.Context, write.Effect.Context) || body.Authorization.Effect.AttemptId != write.Effect.AttemptId || effect.AttemptID != "" && effect.AttemptID != write.Effect.AttemptId {
 			return nil, errors.New("historical effect authority mismatch")
 		}
 		switch effect.Status {

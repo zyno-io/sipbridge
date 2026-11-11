@@ -15,6 +15,7 @@ its tests use separate namespaces. Do not point failure-injection tests at produ
 | Native dependency pin | `python3 scripts/verify_dependency.py` | Exact consolidated source/tree checksums and provenance; no edit to pinned snapshot. |
 | Standalone protocol contract | `python3 scripts/verify_control_schema.py` | Schema and generated-binding hashes recorded in this repository. |
 | Reproducible protocol generation | `npm ci --prefix tools/protocol`, `python3 scripts/verify_control_schema.py --regenerate`, `npm test --prefix tools/protocol`; pinned compiler tools | Locally owned schema, Go/TypeScript output and shared strict JSON fixtures, without an external checkout. |
+| Private retained codec | `python3 scripts/verify_storage_schema.py`; `PROTOC=/path/to/protoc-3.21.12 python3 scripts/gen-state-storage.py --check` with protoc-gen-go 1.36.12 | Separate storage-only schema, stable field numbers and generated typed adapters; clean temporary-copy reproduction. |
 | Formatting / vet | `test -z "$(gofmt -l cmd internal)"` and `go vet ./...` | This module's formatting/static checks; separate from upstream baseline warnings. |
 | Service, state, control, capture and fixture tests | `SIPBRIDGE_STATE_TEST_REDIS=127.0.0.1:6379 go test -race ./...` | Includes real-client Redis integration, native CAS/lease/command admission, service subprocess/socket tests and explicitly historical reducer fixtures. |
 | Redis/Sentinel restart | Command below; local `redis-server` executable | Tests own all processes they stop; run-ID change, total loss, retained promotion and verified TLS/scoped credentials. |
@@ -58,6 +59,28 @@ Synthetic controllers cannot qualify account mutation, trusted-directory
 policy, media/CDR, handset/carrier behavior, full version skew, shared load or SIP-core
 drain. Redis/Sentinel
 fault tests make no exactly-once or rollback-survival guarantee.
+
+## Binary codec fixture evidence (2026-11-11)
+
+Three local ARM64/M1 Max runs used `BenchmarkRetainedRecordCodec` with synthetic
+REGISTER-shaped groups and eight retained wire effects. The 64-transaction case
+had median encode time 1.334 ms for JSON versus 0.202 ms for protobuf, and decode
+0.968 ms versus 0.209 ms. Encoded bytes were 226,897 versus 158,502. Encode
+allocated about 2.65 MB versus 0.40 MB per operation; decode allocated about
+448 KB versus 446 KB. Small-object counts increased (encode approximately 168 to
+849, decode 464 to 1,168); the one-transaction decode also allocated more bytes.
+These allocation regressions remain explicit profiling/capacity inputs.
+
+```bash
+go test ./internal/engine -run '^$' -bench '^BenchmarkRetainedRecordCodec$' -benchtime=300ms -count=3
+```
+
+This compares complete private codec layers, including wire effects, rather than
+just a protobuf envelope around JSON. The laptop was shared with other work;
+absolute timings are fixture evidence only. This is not deployed CPU reduction,
+a Redis latency measurement, the representative phone/BLF workload, a 50x load
+qualification or a soak result. The standalone integration still initially pins
+its separately qualified schema/image receipt before any binary image promotion.
 
 ## Historical evidence (not current qualification)
 

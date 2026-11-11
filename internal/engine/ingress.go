@@ -399,6 +399,10 @@ func (i *Ingress) routeWithin(ctx context.Context, flow *physicalFlow, message *
 		case pb.RouteResult_ACCEPTED:
 			timing.Outcome = "accepted"
 			return
+		case pb.RouteResult_UNAVAILABLE:
+			timing.Outcome = "route-unavailable"
+			reject(503)
+			return
 		case pb.RouteResult_REJECTED:
 			timing.Outcome = "rejected"
 			reject(int(result.SipStatus))

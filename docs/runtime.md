@@ -79,6 +79,15 @@ without allocating or restarting OpenUac. Before first allocation, only whole-gr
 absence proves bootstrap retirement. Inspection distinguishes retained pending
 UNKNOWN, positively proven absence and unavailable/changed authority.
 
+## Controller route outcomes
+
+A controller RouteResult of UNAVAILABLE is a valid unavailable route and yields
+503 for a reply-eligible SIP request, with diagnostic outcome `route-unavailable`.
+It never admits application work or creates native state. Unknown or unspecified
+route outcomes remain malformed replies, diagnosed as `invalid-route-outcome`.
+ACK and SIP response refusal exclusions and the original route deadline remain
+unchanged. A controller cannot choose an arbitrary SIP status for UNAVAILABLE.
+
 ## CAS execution and admission
 
 The driver performs one validated read, pure Go reduction and atomic CAS. Reads

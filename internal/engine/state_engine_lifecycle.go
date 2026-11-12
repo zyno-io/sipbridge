@@ -308,9 +308,14 @@ func waitStateOperationSignal(ctx context.Context, delay time.Duration, signal <
 func (e *StateEngine) awaitOperationSignal(ctx context.Context, ref state.Ref, contextID, operation string, accepted *pb.OperationResult, respond bool, signal <-chan struct{}, waitBeforeRead bool) (*pb.OperationResult, error) {
 	return e.awaitOperationPolling(ctx, ref, contextID, operation, accepted, respond, stateOperationPolling{
 		observe: func(after string) (*pb.OperationResult, error) {
-			return e.observeLocalOperation(ref, contextID, operation, signal, after)
+			result, err := e.observeLocalOperation(ref, contextID, operation, signal, after)
+			if err == nil && result != nil {
+				e.operationObservationMetrics.local.Add(1)
+			}
+			return result, err
 		},
 		load: func(ctx context.Context, ref state.Ref) (state.Record, error) {
+			e.operationObservationMetrics.store.Add(1)
 			view, _, err := e.store.ReadState(ctx, ref)
 			if err != nil {
 				return state.Record{}, err
@@ -328,10 +333,7 @@ func (e *StateEngine) awaitOperationSignal(ctx context.Context, ref state.Ref, c
 func (e *StateEngine) awaitOperationPolling(ctx context.Context, ref state.Ref, contextID, operation string, accepted *pb.OperationResult, respond bool, polling stateOperationPolling) (*pb.OperationResult, error) {
 	latest := proto.Clone(accepted).(*pb.OperationResult)
 	var observedRevision string
-	delay := 10 * time.Millisecond
-	if polling.waitBeforeRead {
-		delay = 40 * time.Millisecond
-	}
+	delay := 100 * time.Millisecond
 	wait := func(pause time.Duration) bool {
 		if deadline, ok := ctx.Deadline(); ok {
 			remaining := deadline.Sub(polling.now())
@@ -414,7 +416,7 @@ func (e *StateEngine) awaitOperationPolling(ctx context.Context, ref state.Ref, 
 		if !wait(delay) {
 			return expired("SIP response delivery deadline elapsed")
 		}
-		delay = min(delay*2, 40*time.Millisecond)
+		delay = min(delay*2, 250*time.Millisecond)
 	}
 }
 func (r *stateReduction) subscriptionResponse(c *stateContext, tx *stateTransaction, message portable.Message) error {

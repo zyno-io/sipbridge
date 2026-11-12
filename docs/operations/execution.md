@@ -412,8 +412,9 @@ to execute again. Full guarantees and quotas are in [Runtime](../runtime.md).
 
 ```mermaid
 flowchart TD
-  A[Command CAS returns ACCEPTED] --> B[Register context and operation waiter]
-  B --> C[Dispatch committed effects]
+  A[Resolve group and register exact operation waiter] --> B[Command admission and CAS]
+  B -->|ACCEPTED| C[Dispatch committed effects]
+  B -->|Other result or error| K[Unregister and return]
   C --> D[Wait for signal or bounded delay]
   D --> E{Matching local committed outcome?}
   E -->|Yes| F[Materialize public SIP messages and return]
@@ -426,12 +427,16 @@ flowchart TD
 ```
 
 [Waiters](../../internal/engine/state_engine_waiters.go) retain at most one bounded
-outcome per active local command identity, published only after definite CAS and
-fenced by group incarnation/operation/revision. The fresh-commit path initially
-waits up to 40 ms for a signal; fallback polling otherwise starts at 10 ms and
-backs off to 40 ms, paced after each completed read. It checks local observations
+wire-only outcome per active local command identity, published only after
+definite CAS and fenced by group incarnation/operation/revision. Registration
+precedes producer admission so indexed completion cannot outrun it. Identified
+waiters wake only for a matching result, not generic group changes or intermediate
+physical completion. The fresh-commit path initially waits up to 100 ms for an
+exact result; replay reads immediately. Fallback waits back off through 100/200/250
+ms, paced after each completed read. It checks local observations
 before loading Redis. Sibling-worker completion, lost signals and large outcomes
-retain the store-read fallback. Unregistering removes the waiter and its bytes.
+retain the store-read fallback, with remote observations delayed by at most the
+current interval. Unregistering removes the waiter and its result.
 See [operation polling](../../internal/engine/state_engine_lifecycle.go).
 
 MemoryStore retains the encoded protocol Payload and adapter metadata in process,

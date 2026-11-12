@@ -22,13 +22,10 @@ type stateOperationWaiter struct {
 
 // Only admitted control commands register. The existing work limit bounds these
 // transient projections; they never retain the authoritative protocol aggregate.
-func (e *StateEngine) watchOperation(ref state.Ref, identity ...stateOperationIdentity) (<-chan struct{}, func()) {
+func (e *StateEngine) watchOperation(ref state.Ref, identity stateOperationIdentity) (<-chan struct{}, func()) {
 	key := ref.ID + ":" + ref.Incarnation
 	signal := make(chan struct{}, 1)
-	waiter := &stateOperationWaiter{signal: signal}
-	if len(identity) == 1 {
-		waiter.identity = identity[0]
-	}
+	waiter := &stateOperationWaiter{signal: signal, identity: identity}
 	e.lifecycleMu.Lock()
 	if e.waiters == nil {
 		e.waiters = make(map[string]map[<-chan struct{}]*stateOperationWaiter)
@@ -45,18 +42,6 @@ func (e *StateEngine) watchOperation(ref state.Ref, identity ...stateOperationId
 			delete(e.waiters, key)
 		}
 		e.lifecycleMu.Unlock()
-	}
-}
-
-func (e *StateEngine) signalOperation(ref state.Ref) {
-	key := ref.ID + ":" + ref.Incarnation
-	e.lifecycleMu.Lock()
-	defer e.lifecycleMu.Unlock()
-	for _, waiter := range e.waiters[key] {
-		select {
-		case waiter.signal <- struct{}{}:
-		default:
-		}
 	}
 }
 

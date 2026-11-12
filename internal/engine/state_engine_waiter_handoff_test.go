@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"google.golang.org/protobuf/proto"
+
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/execution"
 	"sipbridge/internal/state"
@@ -86,5 +87,26 @@ func TestLocalObservationBuiltOnlyForMatchingWaiterAndBoundedReply(t *testing.T)
 	stop()
 	if len(e.waiters) != 0 {
 		t.Fatal("waiter cleanup retained a local result map")
+	}
+}
+
+func TestDuplicateWaitersOwnTheirResults(t *testing.T) {
+	e := &StateEngine{}
+	ref := state.Ref{ID: "group", Incarnation: "incarnation"}
+	identity := stateOperationIdentity{"context", "operation"}
+	one, stopOne := e.watchOperation(ref, identity)
+	two, stopTwo := e.watchOperation(ref, identity)
+	defer stopOne()
+	defer stopTwo()
+	e.publishLocalObservations(&execution.Committed{Ref: ref, Revision: "2", LocalObservations: []state.LocalObservation{localObservationFixture(t, ref, 200)}})
+	first, err := e.observeLocalOperation(ref, identity.contextID, identity.operation, one, "")
+	if err != nil || first == nil {
+		t.Fatal("first result missing", err)
+	}
+	first.Snapshot.Context.Id = "changed"
+	first.SipStatus = 503
+	second, err := e.observeLocalOperation(ref, identity.contextID, identity.operation, two, "")
+	if err != nil || second.GetSipStatus() != 200 || second.GetSnapshot().GetContext().GetId() != "context" {
+		t.Fatal("duplicate consumer shared a mutable result", err)
 	}
 }

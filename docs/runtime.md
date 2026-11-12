@@ -961,8 +961,12 @@ occurs. Prefix order, receiver ID, application/lease guards remain; event recove
 extends SIP/command/physical authority. Notifications behind predecessors retain this
 same horizon.
 
-Command waits register a bounded local notification before fresh effect dispatch.
-Notifications are coalesced hints. A definite successful local CAS may hand its
+Commands that can wait register their bounded, exact operation waiter before
+producer admission/CAS, after resolving the group and context. Every return path
+unregisters it. An indexed writer can therefore complete immediately after the
+producer commit without beating waiter registration. Generic group-change hints
+do not wake identified command waiters: an intermediate socket completion or
+unrelated ingest is not their result. A definite successful local CAS may hand its
 matching waiter one compact result DTO containing exact message wire and the
 committed snapshot. This transient projection is restricted to the exact group,
 incarnation, context and operation; lower store revisions cannot replace higher
@@ -973,13 +977,21 @@ waiter, and contains no authoritative protocol aggregate. Public message fields
 are reconstructed only when returning it. The optional DTO is capped at 1 MiB;
 larger replies use the store-read fallback. Missing local evidence, sibling-worker
 completion and reconnect retain the validated store-read fallback. Fresh commits
-wait for notification or 40 ms before first read. Replay/nil projections read immediately,
-then back off 10/20/40 ms. Each wait starts after read/decode, avoiding catch-up reads.
+wait for an exact result notification or 100 ms before first read. Replay/nil
+projections read immediately. Subsequent fallback waits back off from 100 to
+200 to at most 250 ms. Exact local results wake immediately at every interval;
+remote or oversized results may wait up to the current fallback interval.
+Each wait starts after read/decode, avoiding catch-up reads.
 In the last 100 ms of original deadline, waits cap at 10 ms and remaining budget.
 No Pub/Sub/background state copy exists; only latest bounded result survives. Cancel/
 completion unregisters. An unstarted OpenUac allocated before sequence admission is
 retired on budget expiry; expired queued commands never advance sequence or retire
 an already active context.
+
+`zt_sipbridge_operation_observations_total` has only the fixed `local` and `store`
+source labels. It counts consumed exact local results and fallback ReadState
+attempts, respectively, not unique commands. Two process-local atomic counters
+retain no identifiers or state and require no extra store observation.
 
 Retirement requires native procedures/replay windows, timers and exact physical
 settlement complete; terminal application bits/time alone are insufficient. Native

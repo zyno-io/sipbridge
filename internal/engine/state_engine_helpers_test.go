@@ -29,7 +29,7 @@ func waitStateOperationPoll(ctx context.Context, delay time.Duration) bool {
 }
 
 func (e *StateEngine) awaitOperation(ctx context.Context, ref state.Ref, contextID, operation string, accepted *pb.OperationResult, respond bool) (*pb.OperationResult, error) {
-	signal, stop := e.watchOperation(ref)
+	signal, stop := e.watchOperation(ref, stateOperationIdentity{contextID, operation})
 	defer stop()
 	return e.awaitOperationSignal(ctx, ref, contextID, operation, accepted, respond, signal, false)
 }

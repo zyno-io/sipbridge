@@ -10,6 +10,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/execution"
 	"sipbridge/internal/state"
 )
 
@@ -38,10 +39,10 @@ func TestStateOperationWaitFreshCommitUsesHintOrInitialIntervalBeforeReading(t *
 			}
 			engine := &StateEngine{cfg: Config{Process: &pb.ProcessRef{InstanceId: "poller", Epoch: "epoch"}}}
 			ref := state.Ref{ID: "group", Incarnation: "incarnation"}
-			signal, stop := engine.watchOperation(ref)
+			signal, stop := engine.watchOperation(ref, stateOperationIdentity{"context", "operation"})
 			defer stop()
 			if mode == "signal-during-dispatch" {
-				engine.signalOperation(ref)
+				engine.publishLocalObservations(&execution.Committed{Ref: ref, Revision: "1", LocalObservations: []state.LocalObservation{localObservationFixture(t, ref, 200)}})
 			}
 			start := now
 			var events []string
@@ -50,7 +51,7 @@ func TestStateOperationWaitFreshCommitUsesHintOrInitialIntervalBeforeReading(t *
 				waitBeforeRead: mode != "replay",
 				wait: func(ctx context.Context, delay time.Duration) bool {
 					events = append(events, "wait")
-					expected := 40 * time.Millisecond
+					expected := 100 * time.Millisecond
 					if mode == "deadline-tail" {
 						expected = 10 * time.Millisecond
 					}
@@ -91,7 +92,7 @@ func TestStateOperationWaitFreshCommitUsesHintOrInitialIntervalBeforeReading(t *
 			}
 			expectedElapsed := time.Duration(0)
 			if mode == "remote-fallback" {
-				expectedElapsed = 40 * time.Millisecond
+				expectedElapsed = 100 * time.Millisecond
 			} else if mode == "deadline-tail" {
 				expectedElapsed = 10 * time.Millisecond
 			}
@@ -138,7 +139,7 @@ func TestStateOperationWaitBackoffReadsFreshStateWithoutCatchUp(t *testing.T) {
 	if err != nil || result.Certainty != pb.OperationResult_COMPLETED || result.Snapshot.Revision != 17 || !proto.Equal(result.Snapshot.Executor, engine.cfg.Process) {
 		t.Fatalf("did not return the newly loaded completed snapshot: %s %v", result, err)
 	}
-	if !reflect.DeepEqual(pauses, []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 40 * time.Millisecond, 40 * time.Millisecond}) {
+	if !reflect.DeepEqual(pauses, []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 250 * time.Millisecond, 250 * time.Millisecond}) {
 		t.Fatalf("unexpected full-read pacing: %s", pauses)
 	}
 	if reads[0] != 0 || accepted.Certainty != pb.OperationResult_ACCEPTED {
@@ -191,7 +192,7 @@ func TestStateOperationWaitDeadlineTailPreservesLatestRefusal(t *testing.T) {
 		},
 		now: func() time.Time { return now },
 	})
-	if err != nil || result.Certainty != pb.OperationResult_UNKNOWN || result.SipStatus != 503 || result.Error != "retained publication refused" || now != deadline || reads != waits || reads != 17 {
+	if err != nil || result.Certainty != pb.OperationResult_UNKNOWN || result.SipStatus != 503 || result.Error != "retained publication refused" || now != deadline || reads != waits || reads != 15 {
 		t.Fatalf("deadline wait changed refusal/uncertainty or repeated reads: %s %v reads=%d waits=%d elapsed=%s", result, err, reads, waits, now.Sub(start))
 	}
 }

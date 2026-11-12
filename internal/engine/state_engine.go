@@ -25,25 +25,26 @@ const stateEffectRecoveryMS = int64(1000)
 // StateEngine retains execution resources only. Every context/transaction value
 // is decoded for one transition, committed, and discarded.
 type StateEngine struct {
-	cfg             Config
-	store           state.Backend
-	control         *control.Server
-	runtime         execution.Driver
-	ctx             context.Context
-	cancel          context.CancelFunc
-	work            chan struct{}
-	ingressWork     chan struct{}
-	background      chan struct{}
-	scheduled       map[string]bool
-	physicalGroups  map[string]bool
-	wg              sync.WaitGroup
-	lifecycleMu     sync.Mutex
-	closed          bool
-	dispatchMu      sync.Mutex
-	dispatching     map[string]bool
-	waiters         map[string]map[<-chan struct{}]*stateOperationWaiter
-	scheduler       schedulerStatistics
-	callbackMetrics callbackStatistics
+	cfg                         Config
+	store                       state.Backend
+	control                     *control.Server
+	runtime                     execution.Driver
+	ctx                         context.Context
+	cancel                      context.CancelFunc
+	work                        chan struct{}
+	ingressWork                 chan struct{}
+	background                  chan struct{}
+	scheduled                   map[string]bool
+	physicalGroups              map[string]bool
+	wg                          sync.WaitGroup
+	lifecycleMu                 sync.Mutex
+	closed                      bool
+	dispatchMu                  sync.Mutex
+	dispatching                 map[string]bool
+	waiters                     map[string]map[<-chan struct{}]*stateOperationWaiter
+	scheduler                   schedulerStatistics
+	callbackMetrics             callbackStatistics
+	operationObservationMetrics operationObservationCounters
 }
 
 type stateEngineInput struct {
@@ -296,9 +297,6 @@ func (e *StateEngine) applyCommitted(ctx context.Context, ref state.Ref, id stri
 		return nil, nil, errors.Join(state.ErrUnknown, state.ErrCorrupt)
 	}
 	e.publishLocalObservations(applied.Committed)
-	if in.Kind == "complete" || in.Kind == "ingest" || in.Kind == "native-ingest" {
-		e.signalOperation(ref)
-	}
 	return result, applied.Committed, nil
 }
 
@@ -636,15 +634,17 @@ func (e *StateEngine) handle(ctx context.Context, peer *control.Peer, envelope *
 			return nil, preflightErr
 		}
 	}
+	var signal <-chan struct{}
+	wait := in.Command != nil && (in.Command.GetRespond() != nil || in.Command.GetDialogRequest() != nil || in.Command.GetOpenUac() != nil && in.Command.GetOpenUac().Method != "" && in.Command.GetOpenUac().Method != "INVITE")
+	if wait {
+		var stop func()
+		signal, stop = e.watchOperation(group, stateOperationIdentity{ref.Id, envelope.CorrelationId})
+		defer stop()
+	}
 	result, committed, err := e.applyCommitted(ctx, group, envelope.CorrelationId, in, deadline, false)
-	if err == nil && in.Command != nil && result.Certainty == pb.OperationResult_ACCEPTED {
-		wait := in.Command.GetRespond() != nil || in.Command.GetDialogRequest() != nil || in.Command.GetOpenUac() != nil && in.Command.GetOpenUac().Method != "" && in.Command.GetOpenUac().Method != "INVITE"
-		if wait {
-			signal, stop := e.watchOperation(group, stateOperationIdentity{ref.Id, envelope.CorrelationId})
-			defer stop()
-			e.dispatchCommitted(group, committed, "", "")
-			return e.awaitOperationSignal(ctx, group, ref.Id, envelope.CorrelationId, result, in.Command.GetRespond() != nil, signal, committed != nil)
-		}
+	if err == nil && wait && result.Certainty == pb.OperationResult_ACCEPTED {
+		e.dispatchCommitted(group, committed, "", "")
+		return e.awaitOperationSignal(ctx, group, ref.Id, envelope.CorrelationId, result, in.Command.GetRespond() != nil, signal, committed != nil)
 	}
 	if err == nil {
 		e.dispatchCommitted(group, committed, "", "")

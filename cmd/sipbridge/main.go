@@ -260,6 +260,8 @@ func run() error {
 			for _, statistic := range stateNative.ExecutionStatistics() {
 				fmt.Fprintf(w, "zt_sipbridge_execution_total{input=%q,event=%q} %d\n", statistic.Kind, statistic.Event, statistic.Count)
 			}
+			localObservations, storeObservations := stateNative.OperationObservationStatistics()
+			fmt.Fprintf(w, "zt_sipbridge_operation_observations_total{source=\"local\"} %d\nzt_sipbridge_operation_observations_total{source=\"store\"} %d\n", localObservations, storeObservations)
 			callbacks, physical := stateNative.CallbackStatistics()
 			for _, statistic := range callbacks {
 				fmt.Fprintf(w, "zt_sipbridge_callback_total{kind=%q,source=%q,event=%q} %d\n", statistic.Kind, statistic.Source, statistic.Event, statistic.Count)

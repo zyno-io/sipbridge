@@ -5,28 +5,32 @@ import (
 	"testing"
 	"time"
 
+	"sipbridge/internal/execution"
 	"sipbridge/internal/state"
 )
 
 func TestStateOperationSignalsCoalesceAndRetireWithoutCrossingIncarnations(t *testing.T) {
 	e := &StateEngine{}
 	ref := state.Ref{ID: "group", Incarnation: "first"}
-	first, stopFirst := e.watchOperation(ref)
-	second, stopSecond := e.watchOperation(ref)
-	other, stopOther := e.watchOperation(state.Ref{ID: ref.ID, Incarnation: "successor"})
+	identity := stateOperationIdentity{"context", "operation"}
+	first, stopFirst := e.watchOperation(ref, identity)
+	second, stopSecond := e.watchOperation(ref, identity)
+	other, stopOther := e.watchOperation(state.Ref{ID: ref.ID, Incarnation: "successor"}, identity)
 	defer stopFirst()
 	defer stopSecond()
 	defer stopOther()
-	e.signalOperation(ref)
-	e.signalOperation(ref)
+	observation := localObservationFixture(t, ref, 200)
+	committed := &execution.Committed{Ref: ref, Revision: "1", LocalObservations: []state.LocalObservation{observation}}
+	e.publishLocalObservations(committed)
+	e.publishLocalObservations(committed)
 	if len(first) != 1 || len(second) != 1 || len(other) != 0 {
-		t.Fatal("notifications crossed incarnations or accumulated unbounded signals")
+		t.Fatal("notifications crossed incarnations or accumulated")
 	}
 	<-first
 	stopFirst()
-	e.signalOperation(ref)
+	e.publishLocalObservations(committed)
 	if len(first) != 0 || len(second) != 1 {
-		t.Fatal("retired command still received notifications")
+		t.Fatal("retired command received notifications")
 	}
 	stopSecond()
 	stopOther()

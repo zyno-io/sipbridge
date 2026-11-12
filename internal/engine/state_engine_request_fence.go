@@ -142,7 +142,7 @@ func (r *stateReduction) protectRequestFence() error {
 
 func (r *stateReduction) transactionRetirable(id, key string, tx *stateTransaction) bool {
 	return (r.requestFence == nil || r.requestFence.context != id || r.requestFence.transaction != key) &&
-		tx.RetireMS > 0 && max(tx.RetireMS, tx.DispositionUntilMS) <= r.now
+		(tx.RetireMS > 0 && max(tx.RetireMS, tx.DispositionUntilMS) <= r.now || r.settledNotifyRetirable(id, tx))
 }
 
 func (r *stateReduction) dispositionFloor() (int64, error) {

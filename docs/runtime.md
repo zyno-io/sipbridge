@@ -958,6 +958,15 @@ stopped timer map. Its emitted timer cancellations retain their original values;
 origin/final/ACK wire and request/physical proof keep their existing lifetimes.
 An active timer in that result is refused. Already terminated records and dialog
 timers are not rewritten by this transition rule.
+A successful reliable subscription NOTIFY client transaction may retire during normal
+reduction before the generic replay tail. This requires its actual terminated phase,
+a matched retained 2xx, positive settled WRITTEN proof transferred from its physical
+effect, no native timer or pending/digest/cleanup/request-disposition obligation, and
+no retained effect for that context. Effect absence alone never proves a write.
+The subscription sequence, accepted flow, current command result and commit markers
+remain authoritative. Unmatched duplicate finals cannot emit a response or restart
+that transaction. Unsettled, uncertain, UDP, unsuccessful, server and INVITE
+transactions retain their existing bounds; no historical repair or polling is added.
 True UNKNOWN stays charged. Terminal compaction can remove duplicate wire/snapshots
 but preserves identity/hash/permit/outcome and causal written-ACK proof. Settled terminal
 physical and receiver-acknowledged nonphysical effects alone free slots. Expired obsolete
@@ -1087,8 +1096,11 @@ Typed adapters preserve absent/empty collections and optional values; failed dec
 leaves the receiver unchanged, and decoded values do not alias input or prior values.
 Deterministic encoding preserves operation fingerprints. Runtime private payloads
 have no JSON or preceding-binary fallback; diagnostic JSON helpers are fixture-only.
-Rollout requires matching full public/private receipts and a fresh storage namespace,
-without migration or mixed JSON/binary writers. The offline inspector returns
+Each image must match its full public/private source receipts. Introducing this
+persisted format requires a fresh storage namespace, without migration or mixed
+JSON/binary writers. Source-only changes with unchanged descriptor identity need
+explicit retained-state and mixed-worker qualification before rolling replacement;
+they do not inherently require a namespace reset. The offline inspector returns
 bounded redacted counts only and grants no restore or execution permission.
 Dispatch validates the complete retained effect before physical/control I/O. No
 encoding optimization adds a resident cache, skips capacity checks or changes

@@ -389,3 +389,34 @@ func (r *stateReduction) endSubscriptionRequests(c *stateContext) error {
 	}
 	return nil
 }
+
+// Positive settled write evidence is transferred by reclaimEffects before the
+// physical effect disappears. A successful reliable NOTIFY has no ACK or cached
+// final-response duty. Keep the subscription/command authority, not its ended
+// client procedure, once every context effect is settled and reclaimed.
+func (r *stateReduction) settledNotifyRetirable(id string, tx *stateTransaction) bool {
+	c := r.group.Contexts[id]
+	if !r.engine.autonomousCompletion() || c == nil || c.Subscription == nil || c.Snapshot.Ended ||
+		tx.Native.Family != portable.NonInviteClient || !tx.Native.Reliable || tx.Native.Phase != portable.Terminated ||
+		!tx.Written || tx.Native.LastResponse == nil || len(tx.Native.Timers) != 0 || tx.Cleanup ||
+		tx.OwnerDeferred || tx.DeferredPresent || tx.PendingResponse != nil || tx.FinalResponse != nil ||
+		tx.DigestEffect != "" || tx.DigestAttempts != 0 || tx.RespondDeadlineMS != 0 || tx.RespondStatus != 0 ||
+		tx.DispositionUntilMS != 0 || len(tx.AdmittedFlowProofs) != 0 {
+		return false
+	}
+	for _, effect := range r.payload.Effects {
+		var body stateEngineEffect
+		if body.unmarshalMetadata(effect.Payload) != nil || body.Context == id {
+			return false
+		}
+	}
+	origin := r.projectionForWire(tx.Native.Origin.Wire)
+	final := r.projectionForWire(tx.Native.LastResponse.Wire)
+	if !origin.portableEligible || !origin.request || origin.identity.Method != sip.NOTIFY ||
+		!final.portableEligible || final.request || final.status < 200 || final.status >= 300 {
+		return false
+	}
+	// Preserve the pinned matcher's complete identity checks. Only a positive
+	// candidate reaches this parse, and successful retirement removes its wire.
+	return portable.MatchResponse(tx.Native.Origin, *tx.Native.LastResponse)
+}

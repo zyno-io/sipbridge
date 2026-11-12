@@ -136,6 +136,7 @@ type wireIdentity struct {
 }
 
 type wireProjection struct {
+	status           int
 	identity         wireIdentity
 	portableEligible bool
 	observedError    error
@@ -157,6 +158,9 @@ func projectWire(wire []byte) *wireProjection {
 	p.observedError = validateObservedMessage(m)
 	request, isRequest := m.(*sip.Request)
 	p.request = isRequest
+	if response, ok := m.(*sip.Response); ok {
+		p.status = response.StatusCode
+	}
 	if m.CallID() != nil && m.From() != nil && m.To() != nil && m.CSeq() != nil && m.Via() != nil {
 		p.identity = projectedWireIdentity(m)
 		// These are the wire-only success conditions of pinned portable.Parse.

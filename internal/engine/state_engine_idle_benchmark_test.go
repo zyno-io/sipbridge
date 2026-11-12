@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 )
 
 type idleProfileFixture struct {
+	Engine    *StateEngine
 	Leases    map[string]state.ApplicationLease
 	Record    state.Record
 	Payload   []byte
@@ -35,6 +37,10 @@ func idleSubscriptionOwnerFixture(t testing.TB, transactions int, backend ...str
 // observe sees real store reads before reduction; it is only used to capture
 // immutable benchmark inputs outside timing, never by the runtime.
 func idleSubscriptionOwnerFixtureObserved(t testing.TB, transactions int, observe func(state.Record, state.Input, int64), backend ...string) idleProfileFixture {
+	return subscriptionHistoryFixtureObserved(t, transactions, false, observe, backend...)
+}
+
+func subscriptionHistoryFixtureObserved(t testing.TB, transactions int, mixed bool, observe func(state.Record, state.Input, int64), backend ...string) idleProfileFixture {
 	t.Helper()
 	selected := state.MemoryBackend
 	if len(backend) > 0 {
@@ -52,13 +58,25 @@ func idleSubscriptionOwnerFixtureObserved(t testing.TB, transactions int, observ
 		}
 	}
 	ref := migrationSubscribe(t, f, 3600)
-	settle := func() {
+	var settle func()
+	settle = func() {
 		t.Helper()
 		record, _ := stateTestLoad(t, f.engine, ref)
 		for _, effect := range record.Payload.Effects {
 			var body stateEngineEffect
 			if err := body.UnmarshalBinary(effect.Payload); err != nil {
 				t.Fatal(err)
+			}
+			if effect.Kind == "adopt" {
+				proposal := body.Envelope.GetFlowAdoption()
+				f.apply(t, ref, "profile-adopt-start-"+effect.ID, stateEngineInput{Kind: "effect-start", Effect: effect.ID})
+				result := f.apply(t, ref, "profile-adopt-result-"+effect.ID, stateEngineInput{Kind: "effect-result", Effect: effect.ID, Executor: f.engine.cfg.Process,
+					Reply: &pb.Envelope{Payload: &pb.Envelope_FlowAdoptionResult{FlowAdoptionResult: &pb.FlowAdoptionResult{Receipt: &pb.ContextDelivery{Flow: proposal.Flow, NativeRevision: proposal.NativeRevision, DirectoryEpoch: "directory", RegistrationTicket: "fixture-ticket"}}}}})
+				if result.Error != "" {
+					t.Fatal(result.Error)
+				}
+				settle()
+				return
 			}
 			if effect.Kind == "present" || effect.Kind == "event" {
 				result := f.apply(t, ref, "profile-ack-"+effect.ID, stateEngineInput{Kind: "effect-result", Effect: effect.ID, Executor: f.engine.cfg.Process,
@@ -87,8 +105,33 @@ func idleSubscriptionOwnerFixtureObserved(t testing.TB, transactions int, observ
 	}
 	settle()
 	for n := 2; n <= transactions; n++ {
+		if mixed && n > 2 {
+			_, g := stateTestLoad(t, f.engine, ref)
+			c := g.Contexts[ref.Id]
+			request := stateTestRequest("SUBSCRIBE", n-1, c.Snapshot.LocalTag, "profile-refresh-"+strconv.Itoa(n))
+			wire := bytes.Replace(request.Wire, []byte("Content-Length:"), []byte("Event: message-summary\r\nExpires: 90\r\nContent-Length:"), 1)
+			result := f.apply(t, ref, "profile-refresh-"+strconv.Itoa(n), stateEngineInput{Kind: "ingest", Application: f.app, ApplicationLeaseTerm: f.term,
+				Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: wire, PrincipalId: "phone", BindingId: "binding"}})
+			if result.Error != "" {
+				t.Fatal(result.Error)
+			}
+			_, g = stateTestLoad(t, f.engine, ref)
+			c = g.Contexts[ref.Id]
+			tx := c.Transactions[c.Subscription.Pending]
+			if tx == nil {
+				t.Fatal("refresh not pending")
+			}
+			result = f.apply(t, ref, "profile-refresh-accept-"+strconv.Itoa(n), stateEngineInput{Kind: "command", Application: f.app, ApplicationLeaseTerm: f.term,
+				Command: &pb.Command{Context: ref, Sequence: c.Snapshot.CommandSequence + 1, Action: &pb.Command_Respond{Respond: &pb.Respond{RequestId: tx.RequestID, Status: 202, Headers: []*pb.Header{{Name: "Expires", Value: "3600"}}}}}})
+			if result.Error != "" {
+				t.Fatal(result.Error)
+			}
+			settle()
+		}
+		_, beforeNotify := stateTestLoad(t, f.engine, ref)
+		sequence := beforeNotify.Contexts[ref.Id].Snapshot.CommandSequence + 1
 		result := f.apply(t, ref, "profile-notify-"+strconv.Itoa(n), stateEngineInput{Kind: "command", Application: f.app, ApplicationLeaseTerm: f.term,
-			Command: &pb.Command{Context: ref, Sequence: uint64(n), Action: &pb.Command_DialogRequest{DialogRequest: &pb.DialogRequest{Method: "NOTIFY", Body: []byte("Messages-Waiting: no\r\n"), Headers: []*pb.Header{{Name: "Event", Value: "message-summary"}, {Name: "Content-Type", Value: "application/simple-message-summary"}, {Name: "Subscription-State", Value: "active;expires=3600"}}}}}})
+			Command: &pb.Command{Context: ref, Sequence: sequence, Action: &pb.Command_DialogRequest{DialogRequest: &pb.DialogRequest{Method: "NOTIFY", Body: []byte("Messages-Waiting: no\r\n"), Headers: []*pb.Header{{Name: "Event", Value: "message-summary"}, {Name: "Content-Type", Value: "application/simple-message-summary"}, {Name: "Subscription-State", Value: "active;expires=3600"}}}}}})
 		if result.Error != "" {
 			t.Fatal(result.Error)
 		}
@@ -130,7 +173,7 @@ func idleSubscriptionOwnerFixtureObserved(t testing.TB, transactions int, observ
 	if err != nil {
 		t.Fatal(err)
 	}
-	capture := idleProfileFixture{Leases: record.ApplicationLeases, Record: record, Payload: payload, Config: f.config, Process: f.engine.cfg.Process, Authority: f.engine.store.Authority(), Now: now,
+	capture := idleProfileFixture{Engine: f.engine, Leases: record.ApplicationLeases, Record: record, Payload: payload, Config: f.config, Process: f.engine.cfg.Process, Authority: f.engine.store.Authority(), Now: now,
 		Input: state.Input{ID: "profile-owner-check", Kind: "owner-check", Fingerprint: "profile-owner-check", Proof: true, Payload: encoded, DeadlineMS: now + 2000, ReceiptUntilMS: now + 122000}}
 	capture.Record.Payload = state.Payload{}
 	return capture

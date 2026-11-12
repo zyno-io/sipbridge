@@ -28,9 +28,19 @@ var subscriptionPhaseOutcome []byte
 // No Redis I/O, receipt JSON, CAS, network I/O or setup is timed. This measures
 // operation-local allocation, not live traffic or retained per-dialog memory.
 func BenchmarkSubscriptionHistoryReduction(b *testing.B) {
-	const history = 16
+	benchmarkSubscriptionHistoryReduction(b, 16, false)
+}
+
+// Five successful SUBSCRIBE procedures and five NOTIFY procedures model the
+// observed mixed live history. Each timed phase includes owned record decoding;
+// setup and Redis I/O remain excluded, as in the original phase benchmark.
+func BenchmarkMixedSubscriptionHistoryReduction(b *testing.B) {
+	benchmarkSubscriptionHistoryReduction(b, 6, true)
+}
+
+func benchmarkSubscriptionHistoryReduction(b *testing.B, history int, mixed bool) {
 	captures := make(map[string]subscriptionPhaseCapture)
-	fixture := idleSubscriptionOwnerFixtureObserved(b, history, func(record state.Record, input state.Input, now int64) {
+	fixture := subscriptionHistoryFixtureObserved(b, history, mixed, func(record state.Record, input state.Input, now int64) {
 		switch input.Kind {
 		case "command", "reserve", "complete", "ingest":
 		default:
@@ -77,8 +87,8 @@ func BenchmarkSubscriptionHistoryReduction(b *testing.B) {
 			for _, c := range group.Contexts {
 				transactions += len(c.Transactions)
 			}
-			if transactions < history-1 {
-				b.Fatal("capture lacks completed NOTIFY history", transactions)
+			if transactions == 0 {
+				b.Fatal("capture lacks subscription transaction")
 			}
 			checked, outcome, err := e.reduce(record, capture.input, capture.now)
 			if err != nil {

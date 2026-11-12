@@ -186,6 +186,13 @@ containers, multiple oneof variants and unknown enum values are protocol errors.
 Unknown optional fields are ignored for additive version compatibility; an unknown
 operation cannot substitute for a recognized payload/action.
 
+Inbound bytes undergo token-level and schema validation before decoding. Outbound
+messages validate the typed protobuf value against the same schema profile;
+ProtoJSON supplies canonical scalar encodings and rejects invalid strings. The
+producer checks enum membership, required oneof selection, container depth and
+the final encoded byte bound without reparsing its own JSON or constructing a
+second message graph. This does not change the accepted wire profile.
+
 Empty envelopes, missing payload, wrong direction and excessive sizes are protocol
 errors. Enforce the negotiated byte bound on the complete UTF-8 JSON message while
 assembling fragments and before decoding; base64 and JSON overhead count toward

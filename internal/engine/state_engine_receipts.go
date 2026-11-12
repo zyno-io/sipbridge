@@ -31,3 +31,17 @@ func unmarshalStateReceiptResult(data []byte, result *pb.OperationResult) error 
 	}
 	return nil
 }
+
+// A discarded result remains a positive commit marker. It might represent an
+// acceptance or a refusal; neither the current context nor an empty payload can
+// recreate the historical outcome or authorize another execution.
+func projectStateReceiptResult(receipt state.Receipt, result *pb.OperationResult) error {
+	if receipt.OutcomeDiscarded {
+		if len(receipt.Outcome) != 0 {
+			return state.ErrCorrupt
+		}
+		*result = pb.OperationResult{Certainty: pb.OperationResult_UNKNOWN, Error: "operation committed; result retention elapsed"}
+		return nil
+	}
+	return unmarshalStateReceiptResult(receipt.Outcome, result)
+}

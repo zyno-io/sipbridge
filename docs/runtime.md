@@ -216,7 +216,7 @@ Scheduler reload still discovers independently committed effects.
 A reducer error restores original protocol value/effects before recording refusal.
 A rejected new command deliberately consumes its sequence; rejected dialog ingest
 cannot consume remote CSeq. No pure CAS input is persisted. Death before commit loses
-only computation. External operations retain bounded receipts and current-command
+only computation. External operations retain bounded commit markers and current-command
 fingerprint/result; legacy equal-sequence replay without proof is refused. External
 cleanup has a reserved bounded proof slot. Internal effects/timers use exact retained
 identity, generation and status rather than generic receipt history. Uncertain
@@ -682,7 +682,7 @@ adapter retains only that operation's canonical encoded input, digest and compac
 field/payload binding until CAS completes. Commit verifies that the supplied input
 still matches the binding, then reuses the same canonical envelope and digest.
 It does not repeat whole-envelope JSON/base64 encoding for validation and commit.
-The fingerprint and retained receipt representation remain unchanged; mutating
+The operation fingerprint remains unchanged; mutating
 any admitted identity, deadline, lease ID or payload still refuses the CAS.
 
 The context's cached command result retains its outcome and exact request/response
@@ -694,13 +694,34 @@ does not parse these messages. Persisted operation receipts and lifecycle event
 snapshots retain their original independent meaning; this compaction does not
 rewrite historical outcome evidence.
 
-Operation receipts retain their original frozen snapshot and exact outcome, but
+Until their original result cutoff, operation receipts retain their original frozen snapshot and exact outcome, but
 store request/response wire without duplicate parsed SIP fields. Result delivery
 reconstructs those fields from the retained wire; it never substitutes a newer
 context snapshot for a historical receipt. Physical reservation results remain
 wire-only internal values, including their empty-response status sentinel.
-Receipt retention and exact replay admission are unchanged. Compatible workers
-must all support this projection before compact receipts are written.
+Native input envelopes set the result cutoff to the original immutable input
+admission deadline, including any earlier policy expiry. This governs generic
+receipt replay, not an already-running command's wait for native completion or
+observation of its current command result. At or after that cutoff, receipt
+read/replay/inspection returns an explicit
+discarded-outcome marker, independently of whether the committed transition
+accepted or refused the operation. The caller receives UNKNOWN without a snapshot;
+it cannot interpret that marker as absent, not admitted, not written, or retry
+permission. Identity, fingerprint, input digest, revision and receipt expiry remain
+until the existing marker-retention cutoff. A new retry budget cannot restore an
+old result or renew its original cutoff. No current snapshot is substituted for
+discarded historical evidence.
+
+Successful commits lazily discard expired outcome payloads before capacity
+accounting; read suppression performs no Redis mutation. There is no new cleanup
+timer, key, mutex or background scan. Quiet groups can retain encoded expired
+outcomes until their next successful commit or ordinary retirement, without
+returning them as live results. Generic store callers may omit the optional result
+cutoff to retain their outcome until receipt expiry; native callers set it for
+every input. A deliberately empty outcome and a discarded outcome are distinct.
+Compatible workers must all support discarded-outcome markers before writing them.
+This replaces historical RPC-result reconciliation after its request deadline;
+native transaction/disposition windows and physical UNKNOWN proofs do not shrink.
 Definite fresh CAS success may return one transient typed result DTO, bounded to
 1 MiB, to avoid decoding its own receipt and reparsing already projected messages.
 The execution driver copies that DTO before returning it. Neither backend stores
@@ -975,7 +996,8 @@ without implying SIP acceptance or physical delivery.
 | Completion reserve | All future transaction/fork emissions, timers, immutable proofs, 64-KiB worst-case wires and maximum inheritable admission wrapper |
 | Arbitration proof reserve | 1,600 bytes minus already encoded proof/floor metadata per retained server transaction, plus 1,600 per derived future procedure |
 | Owner term / renewal / recovery | 30 s / at most every 2 s / fixed 5 s episode |
-| External receipt reconciliation | 120 s; internal native identities/status remain replay authority |
+| External operation results | Until original operation deadline; later retained markers return UNKNOWN |
+| External commit markers | 120 s reconciliation tail; internal native identities/status remain replay authority |
 | Business command / ordinary RPC / physical delivery | 40 s with negotiated command budget / 2 s / 2 s |
 | Initial network open | 5 s within original semantic expiry |
 | UDP admitted active + queued | 128; original 2-s route window includes queueing |

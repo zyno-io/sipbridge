@@ -107,6 +107,16 @@ func (s *metadata) decodeRecord(ref Ref, inc, revision, data, receipts, pending,
 			return Record{}, ErrCorrupt
 		}
 	}
+	for _, receipt := range record.Receipts {
+		if err := validateReceiptResult(receipt); err != nil {
+			return Record{}, err
+		}
+	}
+	if record.Proof != nil {
+		if err := validateReceiptResult(*record.Proof); err != nil {
+			return Record{}, err
+		}
+	}
 	if pending != "" {
 		record.Pending = &Input{}
 		if json.Unmarshal([]byte(pending), record.Pending) != nil {

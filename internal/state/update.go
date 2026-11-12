@@ -91,6 +91,7 @@ func (s *Store) ReadUpdate(ctx context.Context, ref Ref, input Input) (UpdateRes
 	if err != nil || !decimal(counter) {
 		return UpdateResult{}, ErrCorrupt
 	}
+	projectReceiptResults(&record, now)
 	sequence, sequenceErr := strconv.ParseUint(counter, 10, 63)
 	revision, revisionErr := strconv.ParseUint(record.Revision, 10, 63)
 	if sequenceErr != nil || revisionErr != nil || sequence < revision {

@@ -8,7 +8,7 @@ local started=redis.call('TIME')
 local started_ms=tonumber(started[1])*1000+math.floor(tonumber(started[2])/1000)
 local observed_low=started_ms; local observed_high=started_ms
 local function execute()
-` + commonLua + applicationLeaseRecordLua + applicationExpiryLua + applicationLeaseGuardLua + applicationContextIndexLua + dispatchIndexLua + body + `
+` + commonLua + receiptResultLua + applicationLeaseRecordLua + applicationExpiryLua + applicationLeaseGuardLua + applicationContextIndexLua + dispatchIndexLua + body + `
 end
 local result=execute()
 local finished=redis.call('TIME')
@@ -155,18 +155,20 @@ end
 local proof=redis.call('HGET',KEYS[1],'proof') or ''
 if proof~='' then
  local r=cjson.decode(proof)
+ if not receiptResultValid(r) then return fail('CORRUPT') end
  if tonumber(r.expiresMs)>now and r.operationId==ARGV[14] then
   if r.inputDigest~=ARGV[13] then return fail('CONFLICT') end
-  return {'RECEIPT',proof}
+  return {'RECEIPT',cjson.encode(receiptResultAt(r,now))}
  end
 end
 local live=0
 for _,r in ipairs(cjson.decode(receipts)) do
+ if not receiptResultValid(r) then return fail('CORRUPT') end
  if tonumber(r.expiresMs)>now then
   live=live+1
   if r.operationId==ARGV[14] then
    if r.inputDigest~=ARGV[13] then return fail('CONFLICT') end
-   return {'RECEIPT',cjson.encode(r)}
+   return {'RECEIPT',cjson.encode(receiptResultAt(r,now))}
   end
  end
 end
@@ -235,8 +237,10 @@ end
 
 const commitResultLua = `
 local receipt=cjson.decode(ARGV[14])
+if not receiptResultValid(receipt) then return fail('CORRUPT') end
 if receipt.operationId~=oldPending.id or receipt.inputDigest~=ARGV[11] or receipt.fingerprint~=oldPending.fingerprint or
- receipt.revision~=ARGV[8] or tonumber(receipt.expiresMs)~=oldPending.receiptUntilMs then return fail('CONFLICT') end
+ receipt.revision~=ARGV[8] or tonumber(receipt.expiresMs)~=oldPending.receiptUntilMs or receipt.outcomeDiscarded or
+ tonumber(receipt.resultUntilMs or '0')~=tonumber(oldPending.resultUntilMs or '0') then return fail('CONFLICT') end
 local leaseError=applicationLeaseGuards(ARGV[22],now)
 if leaseError then
  if not isCAS and leaseError=='STALE' then
@@ -262,12 +266,18 @@ if timerOwner=='' then timerOwner=ARGV[#ARGV-5] end
 local timerProblem=timerScheduleProblem(timerOwner); if timerProblem then return fail(timerProblem) end
 local retained={}
 for _,r in ipairs(cjson.decode(redis.call('HGET',KEYS[1],'receipts') or '[]')) do
- if tonumber(r.expiresMs)>now then table.insert(retained,r) end
+ if not receiptResultValid(r) then return fail('CORRUPT') end
+ if tonumber(r.expiresMs)>now then table.insert(retained,receiptResultAt(r,now)) end
 end
 local proof=redis.call('HGET',KEYS[1],'proof') or ''
+if proof~='' then
+ local previous=cjson.decode(proof)
+ if not receiptResultValid(previous) then return fail('CORRUPT') end
+ proof=cjson.encode(receiptResultAt(previous,now))
+end
 if oldPending.proof then
- if keepProof then proof=ARGV[14] end
-elseif tonumber(receipt.expiresMs)>now then table.insert(retained,receipt) end
+ if keepProof then proof=cjson.encode(receiptResultAt(receipt,now)) end
+elseif tonumber(receipt.expiresMs)>now then table.insert(retained,receiptResultAt(receipt,now)) end
 if #retained>tonumber(ARGV[20]) then return fail('CAPACITY') end
 local encodedReceipts=cjson.encode(retained)
 if #retained==0 then encodedReceipts='[]' end

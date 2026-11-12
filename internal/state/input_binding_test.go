@@ -37,6 +37,7 @@ func TestPreparedInputBindingCoversEveryInputField(t *testing.T) {
 		"Payload":        func(in *Input) { in.Payload[0] ^= 1 },
 		"DeadlineMS":     func(in *Input) { in.DeadlineMS++ },
 		"ReceiptUntilMS": func(in *Input) { in.ReceiptUntilMS++ },
+		"ResultUntilMS":  func(in *Input) { in.ResultUntilMS = in.DeadlineMS },
 		"Create":         func(in *Input) { in.Create = !in.Create },
 		"ApplicationLeaseIDs": func(in *Input) {
 			in.ApplicationLeaseIDs[0], in.ApplicationLeaseIDs[1] = in.ApplicationLeaseIDs[1], in.ApplicationLeaseIDs[0]

@@ -101,13 +101,16 @@ type Ref struct {
 type Input struct {
 	// Proof uses reserved cleanup capacity instead of ordinary replay capacity.
 	// Legacy internal inputs replace one marker; CAS retains it only for external cleanup commands.
-	Proof               bool     `json:"proof,omitempty"`
-	ID                  string   `json:"id"`
-	Kind                string   `json:"kind"`
-	Fingerprint         string   `json:"fingerprint"`
-	Payload             []byte   `json:"payload,omitempty"`
-	DeadlineMS          int64    `json:"deadlineMs"`
-	ReceiptUntilMS      int64    `json:"receiptUntilMs"`
+	Proof          bool   `json:"proof,omitempty"`
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Fingerprint    string `json:"fingerprint"`
+	Payload        []byte `json:"payload,omitempty"`
+	DeadlineMS     int64  `json:"deadlineMs"`
+	ReceiptUntilMS int64  `json:"receiptUntilMs"`
+	// Zero retains the result for the commit marker's lifetime. A nonzero
+	// cutoff bounds only result replay, not proof that the operation committed.
+	ResultUntilMS       int64    `json:"resultUntilMs,omitempty"`
 	Create              bool     `json:"create,omitempty"`
 	ApplicationLeaseIDs []string `json:"applicationLeaseIds,omitempty"`
 }
@@ -186,12 +189,14 @@ type LocalObservation struct {
 }
 
 type Receipt struct {
-	OperationID string `json:"operationId"`
-	Fingerprint string `json:"fingerprint"`
-	InputDigest string `json:"inputDigest"`
-	Revision    string `json:"revision"`
-	ExpiresMS   int64  `json:"expiresMs,string"`
-	Outcome     []byte `json:"outcome,omitempty"`
+	OperationID      string `json:"operationId"`
+	Fingerprint      string `json:"fingerprint"`
+	InputDigest      string `json:"inputDigest"`
+	Revision         string `json:"revision"`
+	ExpiresMS        int64  `json:"expiresMs,string"`
+	Outcome          []byte `json:"outcome,omitempty"`
+	ResultUntilMS    int64  `json:"resultUntilMs,string,omitempty"`
+	OutcomeDiscarded bool   `json:"outcomeDiscarded,omitempty"`
 }
 
 type Record struct {

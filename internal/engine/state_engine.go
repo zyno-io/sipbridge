@@ -201,6 +201,9 @@ func (e *StateEngine) applyCommitted(ctx context.Context, ref state.Ref, id stri
 		input.Proof = true
 		input.ReceiptUntilMS = input.DeadlineMS
 	}
+	if e.autonomousCompletion() {
+		input.ResultUntilMS = input.DeadlineMS
+	}
 	// Control remaining-budget values are relative. A retry inspects the original
 	// immutable admission rather than regenerating its absolute receipt window.
 	if !e.usesCAS() {
@@ -212,7 +215,7 @@ func (e *StateEngine) applyCommitted(ctx context.Context, ref state.Ref, id stri
 			for _, prior := range receipts {
 				if prior.OperationID == id && prior.Fingerprint == input.Fingerprint && prior.ExpiresMS > time.Now().UnixMilli() {
 					var result pb.OperationResult
-					if unmarshalStateReceiptResult(prior.Outcome, &result) != nil {
+					if projectStateReceiptResult(prior, &result) != nil {
 						return nil, nil, state.ErrCorrupt
 					}
 					return &result, nil, nil
@@ -285,7 +288,7 @@ func (e *StateEngine) applyCommitted(ctx context.Context, ref state.Ref, id stri
 			resultErr = stateMaterializeResultMessages(result)
 		}
 	} else {
-		resultErr = unmarshalStateReceiptResult(receipt.Outcome, result)
+		resultErr = projectStateReceiptResult(receipt, result)
 	}
 	if resultErr != nil {
 		return nil, nil, errors.Join(state.ErrUnknown, state.ErrCorrupt)

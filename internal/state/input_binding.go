@@ -20,13 +20,13 @@ type preparedInput struct {
 }
 
 type inputHeader struct {
-	proof, create              bool
-	id, kind, fingerprint      string
-	deadlineMS, receiptUntilMS int64
+	proof, create                             bool
+	id, kind, fingerprint                     string
+	deadlineMS, receiptUntilMS, resultUntilMS int64
 }
 
 func inputHeaders(input Input) inputHeader {
-	return inputHeader{input.Proof, input.Create, input.ID, input.Kind, input.Fingerprint, input.DeadlineMS, input.ReceiptUntilMS}
+	return inputHeader{input.Proof, input.Create, input.ID, input.Kind, input.Fingerprint, input.DeadlineMS, input.ReceiptUntilMS, input.ResultUntilMS}
 }
 
 func ownedInput(input Input) Input {
@@ -41,7 +41,8 @@ func validateInputFields(input Input) error {
 	}
 	if !referencePattern.MatchString(input.ID) || !referencePattern.MatchString(input.Kind) || !validText(input.Fingerprint, 256) ||
 		input.DeadlineMS <= 0 || input.DeadlineMS > 1<<53-1 || input.ReceiptUntilMS < input.DeadlineMS ||
-		input.ReceiptUntilMS > 1<<53-1 || input.ReceiptUntilMS-input.DeadlineMS > int64(10*time.Minute/time.Millisecond) {
+		input.ReceiptUntilMS > 1<<53-1 || input.ReceiptUntilMS-input.DeadlineMS > int64(10*time.Minute/time.Millisecond) ||
+		input.ResultUntilMS < 0 || input.ResultUntilMS > input.ReceiptUntilMS {
 		return errors.New("invalid SIP input identity/deadline")
 	}
 	return nil

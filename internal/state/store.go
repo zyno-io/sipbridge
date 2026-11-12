@@ -436,6 +436,7 @@ func (s *Store) read(ctx context.Context, ref Ref) (Record, int64, error) {
 	if err != nil {
 		return Record{}, 0, err
 	}
+	projectReceiptResults(&record, now)
 	leases, err := textAt(values, 9)
 	if err == nil {
 		var inputIDs []string
@@ -538,7 +539,7 @@ func (s *Store) commit(ctx context.Context, step Step, next Payload, outcome []b
 	if err != nil || digest != step.Claim.InputDigest {
 		return Receipt{}, ErrConflict
 	}
-	receipt := Receipt{OperationID: step.Input.ID, Fingerprint: step.Input.Fingerprint, InputDigest: digest, Revision: step.Claim.Token, ExpiresMS: step.Input.ReceiptUntilMS, Outcome: append([]byte(nil), outcome...)}
+	receipt := Receipt{OperationID: step.Input.ID, Fingerprint: step.Input.Fingerprint, InputDigest: digest, Revision: step.Claim.Token, ExpiresMS: step.Input.ReceiptUntilMS, ResultUntilMS: step.Input.ResultUntilMS, Outcome: append([]byte(nil), outcome...)}
 	encoded, _ := json.Marshal(receipt)
 	var ready, due, retire int64
 	for _, effect := range next.Effects {

@@ -63,6 +63,9 @@ func (s *Store) begin(ctx context.Context, ref Ref, worker string, input *Input)
 		if err != nil || json.Unmarshal([]byte(data), &receipt) != nil {
 			return BeginResult{}, ErrCorrupt
 		}
+		if err := validateReceiptResult(receipt); err != nil {
+			return BeginResult{}, err
+		}
 		return BeginResult{Receipt: &receipt}, nil
 	}
 	if len(values) != 13 || values[0] != "STEP" {
@@ -83,6 +86,7 @@ func (s *Store) begin(ctx context.Context, ref Ref, worker string, input *Input)
 	if err != nil {
 		return BeginResult{}, err
 	}
+	projectReceiptResults(&record, now)
 	if record.Pending == nil {
 		return BeginResult{}, ErrCorrupt
 	}

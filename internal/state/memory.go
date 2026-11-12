@@ -198,10 +198,16 @@ func (m *MemoryStore) record(g *memoryGroup, now int64, inputIDs []string) (Reco
 		return Record{}, err
 	}
 	for _, receipt := range g.receipts {
-		r.Receipts = append(r.Receipts, copyReceipt(receipt))
+		if err := validateReceiptResult(receipt); err != nil {
+			return Record{}, err
+		}
+		r.Receipts = append(r.Receipts, copyReceipt(receiptResultAt(receipt, now)))
 	}
 	if g.proof != nil {
-		proof := copyReceipt(*g.proof)
+		if err := validateReceiptResult(*g.proof); err != nil {
+			return Record{}, err
+		}
+		proof := copyReceipt(receiptResultAt(*g.proof, now))
 		r.Proof = &proof
 	}
 	r.ApplicationLeases = make(map[string]ApplicationLease)
@@ -243,7 +249,7 @@ func retainedReceipt(r Record, id, fingerprint string, now int64) (*Receipt, err
 			if receipt.Fingerprint != fingerprint {
 				return nil, ErrConflict
 			}
-			result := copyReceipt(receipt)
+			result := copyReceipt(receiptResultAt(receipt, now))
 			return &result, nil
 		}
 	}
@@ -356,7 +362,7 @@ func (m *MemoryStore) CompareAndSwap(ctx context.Context, update Update, next Pa
 		return Receipt{}, ErrCapacity
 	}
 	receipt := Receipt{OperationID: update.Input.ID, Fingerprint: update.Input.Fingerprint, InputDigest: token.input.digest,
-		Revision: strconv.FormatUint(revision+1, 10), ExpiresMS: update.Input.ReceiptUntilMS, Outcome: append([]byte(nil), outcome...)}
+		Revision: strconv.FormatUint(revision+1, 10), ExpiresMS: update.Input.ReceiptUntilMS, ResultUntilMS: update.Input.ResultUntilMS, Outcome: append([]byte(nil), outcome...)}
 	now, err := m.lock(ctx)
 	if err != nil {
 		return Receipt{}, err
@@ -399,18 +405,28 @@ func (m *MemoryStore) CompareAndSwap(ctx context.Context, update Update, next Pa
 	}
 	var receipts []Receipt
 	for _, r := range g.receipts {
+		if err := validateReceiptResult(r); err != nil {
+			return Receipt{}, err
+		}
 		if r.ExpiresMS > now {
-			receipts = append(receipts, r)
+			receipts = append(receipts, receiptResultAt(r, now))
 		}
 	}
 	proof := g.proof
+	if proof != nil {
+		if err := validateReceiptResult(*proof); err != nil {
+			return Receipt{}, err
+		}
+		compact := receiptResultAt(*proof, now)
+		proof = &compact
+	}
 	if update.Input.Proof {
 		if update.Input.Kind == "command" {
-			saved := receipt
+			saved := receiptResultAt(receipt, now)
 			proof = &saved
 		}
 	} else if receipt.ExpiresMS > now {
-		receipts = append(receipts, receipt)
+		receipts = append(receipts, receiptResultAt(receipt, now))
 	}
 	if len(receipts) > m.cfg.Limits.Receipts {
 		return Receipt{}, ErrCapacity

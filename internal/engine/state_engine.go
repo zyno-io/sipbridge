@@ -454,6 +454,16 @@ func (e *StateEngine) Reject(ctx context.Context, flow *pb.FlowRef, message *pb.
 			if message.Method == "ACK" {
 				return nil
 			} // Never allocate in response to an unknown ACK.
+			observed, parseErr := Observe(message.Wire, false)
+			if parseErr != nil {
+				return parseErr
+			}
+			to, from := observed.Addresses["to"].GetValues(), observed.Addresses["from"].GetValues()
+			if observed.Status == 0 && len(to) > 0 && len(from) > 0 && to[0].GetParams()["tag"] != "" && from[0].GetParams()["tag"] != "" {
+				// Positive absence of a tagged context is a 481 even without a
+				// ready controller. It cannot create a private refusal group.
+				return state.ErrNotFound
+			}
 			possibleRecovery = true
 			_, loadErr = e.apply(ctx, group, uuid.NewString(), stateEngineInput{Kind: "locate"}, time.Now().Add(2*time.Second), true)
 			if loadErr == nil {

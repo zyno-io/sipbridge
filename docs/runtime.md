@@ -873,7 +873,11 @@ cannot distinguish overload from blackhole. Preliminary read failure cannot excl
 concurrent/earlier acceptance: the requested 503/Retry-After can conflict with its final
 when arbitration is impossible. It uses exact current flow, deterministic fallback To
 tag and no dialog/allocation/business mutation. Uncertain rejection commits cannot
-produce another alternate final. Known absent dialogs get normal 481.
+produce another alternate final. Known absent dialogs get normal 481. If a validated
+native refusal read proves the Call-ID group absent, a request with both From and To tags
+is refused without allocating a group or private transaction, including when no
+controller peer is ready. An unknown ACK remains unanswered. Existing groups still
+use normal CAS refusal arbitration; unavailable or uncertain reads are not absence.
 
 Normal refusal is a bounded private native context binding full flow, exact bytes and
 status, with no selectors. It cannot replace admitted return flow, dialog, cached final

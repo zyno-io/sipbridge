@@ -6,7 +6,7 @@
     "cmd/sipbridge-state-inspect/main.go": "468a7fe16aca768608faa61e73b8bf5dd095a54c3e989841523a19306ec0224a",
     "dependencies/sipgo.sha256": "01a67df9f2b29cffe4812237004b6f5de1cec1484a9ef58742eaba203dcddab5",
     "internal/engine/ingress.go": "3e52a89fc63b04b5340141fa7ac4aecde43a08f08d2f888b2d62d6f9531930f4",
-    "internal/engine/state_engine.go": "724176beb8dc1d0cb3896d1a6845324f315529142c5319c069fe8a385fd5e8f2",
+    "internal/engine/state_engine.go": "2b0fda7e1e5972c08dae090964fe5f0f810af4038c315bb39ec864f7be3e146e",
     "internal/engine/state_engine_admission.go": "5d2c0e410fc2507747da9619e906ad2dad4f34008a9c9808074739cf08bb8dd9",
     "internal/engine/state_engine_auth.go": "1ed057c1bc7ba3457f504c3da40cba1981bf6e14467400aec84b72ab7f7ac1a6",
     "internal/engine/state_engine_binary.go": "82adce0c43df42099b9acf46589bd640788ffdc41692cc16e72209d99987be68",

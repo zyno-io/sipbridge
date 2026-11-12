@@ -233,6 +233,9 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 			return record.Payload, outcome, execution.ErrReadOnly
 		}
 	}
+	if payload, outcome, ok := e.reserveMetadata(record, input, in, now); ok {
+		return payload, outcome, nil
+	}
 	g, err := decodeStateGroup(record)
 	if err != nil {
 		return record.Payload, nil, err

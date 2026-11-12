@@ -170,6 +170,28 @@ incarnation, revision/counter, capacity and current owner-term guards. Unexpecte
 legacy Pending fails closed without overwrite or Resume. Retained comparison-counter
 and pending-field readers do not enable the historical claimed driver.
 
+A native CAS reservation may update only physical-effect metadata when its exact
+input is a proof, no pending input or retained timer is due, and every context has
+a fresh, live, unsealed observation of its unchanged owner term and attachment
+generation. Complete binary/schema and group semantic decoding still runs. The
+existing selected-effect wire, authorization, permit, context, attempt, flow,
+policy, owner, ACK dependency and deadline checks remain authoritative; reservation
+changes only AUTHORIZED to DISPATCHING and removes that effect's duplicate wire
+and envelope. Protocol bytes, selector indexes, timer deadlines, application
+indexes and the conservative completion reservation remain unchanged. CAS still
+validates the whole payload, capacity and selected owner guards. Transient result,
+drain and dispatch projections belong only to this operation. Refusals, known
+outcomes, uncertain evidence and ineligible records use normal reduction.
+
+This reservation path defers opportunistic pruning, selector reconstruction,
+completion-budget recomputation and unrelated effect compaction to normal protocol
+or timer inputs; it does not extend their retained deadlines. Unrelated retained
+SIP wire is parsed when consumed by protocol, lookup, timer or budget work, rather
+than reparsed merely to reserve another transaction's already-authorized write.
+Malformed selected write evidence still refuses reservation, and UNKNOWN never
+authorizes a repeat physical attempt. There is no resident protocol cache or new
+storage format.
+
 CAS contention retries retain the original input/request deadline and five-ms pause;
 there is no renewed budget or arbitrary low retry ceiling. A fixed 1,024 local
 stripe set serializes the same partition/group before the global execution slot.

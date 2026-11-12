@@ -29,12 +29,28 @@ type idleProfileFixture struct {
 // The minimum is SUBSCRIBE plus its initial NOTIFY; that next transition also
 // collects the preceding response's settled physical intent.
 func idleSubscriptionOwnerFixture(t testing.TB, transactions int, backend ...string) idleProfileFixture {
+	return idleSubscriptionOwnerFixtureObserved(t, transactions, nil, backend...)
+}
+
+// observe sees real store reads before reduction; it is only used to capture
+// immutable benchmark inputs outside timing, never by the runtime.
+func idleSubscriptionOwnerFixtureObserved(t testing.TB, transactions int, observe func(state.Record, state.Input, int64), backend ...string) idleProfileFixture {
 	t.Helper()
 	selected := state.MemoryBackend
 	if len(backend) > 0 {
 		selected = backend[0]
 	}
 	f := newNativeOwnerFixtureBackend(t, selected)
+	if observe != nil {
+		var err error
+		f.engine.runtime, err = execution.NewCAS(f.engine.store, execution.ReducerFunc(func(record state.Record, input state.Input, now int64) (state.Payload, []byte, error) {
+			observe(record, input, now)
+			return f.engine.reduce(record, input, now)
+		}), 8)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	ref := migrationSubscribe(t, f, 3600)
 	settle := func() {
 		t.Helper()

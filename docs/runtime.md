@@ -140,6 +140,16 @@ The explicit [fixture completion projection](fixtures.md#offline-completion-proj
 adds allowlisted identifying protocol proofs for disposable qualification only;
 it does not change default inspection redaction or provide a state import path.
 
+A generated direct group reader consumes the existing `EngineStateGroup` protobuf
+frame after the same complete strict preflight. It constructs independently owned
+runtime values without first allocating a storage protobuf aggregate, and delegates
+embedded public protobuf messages to their standard decoder. Semantic context and
+transaction-policy checks still precede publication. The preceding generated
+protobuf decoder and adapter remain the test parity oracle.
+The reader preserves field numbers, presence wrappers, nullable map entries,
+exact byte ownership and rejection bounds; it introduces no alternate format,
+retained cache, fallback, migration or historical-data repair.
+
 Generation-only reflection describes the retained Go graph. Checked-in storage
 field numbers are stable; removed fields stay reserved. Runtime conversion is
 typed generated Go, with explicit map/list presence wrappers and nullable map
@@ -846,9 +856,16 @@ do not extend SIP deadlines or promise uninterrupted retransmissions.
 Hints grant no authority; each selected group reloads current state and timer generation.
 Selector rebuilding uses the same parsed-wire identity and transaction-key rules
 as full message observation without constructing controller header, address or
-digest projections. One reduction may memoize these derived selectors by exact
-wire bytes and direction, bounded to 256 entries and 1 MiB of retained key bytes.
-The memo contains no parsed mutable SIP object or authorization, is discarded at
+digest projections. One reduction may memoize a validated scalar identity and
+direction-specific derived selectors under one owned exact-wire key, bounded to
+256 entries and 1 MiB of retained key bytes. Completion budgeting reuses the
+CSeq method/number, To tag and Via branch/sent-by projection instead of parsing
+each retained transaction again. Selector validation and portable-message
+validation remain distinct: the latter's transport and identity requirements
+are checked before reuse, with the pinned parser as the fallback for ineligible
+records. Neither terminated transactions nor their completion obligations are
+excluded from budgeting. The memo contains no parsed mutable SIP object or
+authorization, is discarded at
 the operation boundary, and is cleared before a failed transition restores its
 original aggregate. It never bypasses a fresh store read, native validation or
 CAS fencing. Exhausting the memo budget falls back to ordinary reconstruction.
@@ -914,6 +931,11 @@ an already active context.
 Retirement requires native procedures/replay windows, timers and exact physical
 settlement complete; terminal application bits/time alone are insufficient. Native
 settlement is local SIP-state work.
+A transaction that actually enters the portable terminated phase discards its
+stopped timer map. Its emitted timer cancellations retain their original values;
+origin/final/ACK wire and request/physical proof keep their existing lifetimes.
+An active timer in that result is refused. Already terminated records and dialog
+timers are not rewritten by this transition rule.
 True UNKNOWN stays charged. Terminal compaction can remove duplicate wire/snapshots
 but preserves identity/hash/permit/outcome and causal written-ACK proof. Settled terminal
 physical and receiver-acknowledged nonphysical effects alone free slots. Expired obsolete

@@ -183,13 +183,13 @@ func (r *stateReduction) completionBudget() (stateCompletionBudget, error) {
 					return budget, err
 				}
 			}
-			parsed, err := tx.Native.Origin.Parse()
+			parsed, err := r.portableIdentity(tx.Native.Origin)
 			if err != nil {
 				return budget, err
 			}
 			if tx.Native.Phase != portable.Terminated {
 				budget.Transactions++
-				if parsed.CSeq().MethodName != sip.BYE && parsed.CSeq().MethodName != sip.CANCEL {
+				if parsed.Method != sip.BYE && parsed.Method != sip.CANCEL {
 					budget.Regular++
 				}
 				if tx.Native.Family == portable.InviteClient || tx.Native.Family == portable.NonInviteClient {
@@ -200,14 +200,14 @@ func (r *stateReduction) completionBudget() (stateCompletionBudget, error) {
 				sends += max(0, stateTransactionEmissions-int(tx.Emissions))
 				wireProcedures++
 			}
-			if tx.Native.Family == portable.InviteClient && tag(parsed.To().Params) == "" {
+			if tx.Native.Family == portable.InviteClient && parsed.ToTag == "" {
 				initial = true
 			}
-			if tx.Cleanup && parsed.CSeq().MethodName == sip.BYE {
+			if tx.Cleanup && parsed.Method == sip.BYE {
 				cleanup++
 			}
-			branch := parsed.Via().Params.GetOr("branch", "") + "/" + fmt.Sprint(parsed.CSeq().SeqNo) + "/" + parsed.Via().SentBy()
-			if parsed.CSeq().MethodName == sip.CANCEL {
+			branch := parsed.ViaBranch + "/" + fmt.Sprint(parsed.Sequence) + "/" + parsed.SentBy
+			if parsed.Method == sip.CANCEL {
 				cancels++
 				cancelKeys[branch] = true
 			}
@@ -235,7 +235,7 @@ func (r *stateReduction) completionBudget() (stateCompletionBudget, error) {
 				if effect.Kind == "open" {
 					opening = true
 				}
-				if origin, err := c.Origin.Parse(); err == nil && origin.CSeq().MethodName == sip.INVITE {
+				if origin, err := r.portableIdentity(c.Origin); err == nil && origin.Method == sip.INVITE {
 					initial = true
 				}
 			}
@@ -249,7 +249,7 @@ func (r *stateReduction) completionBudget() (stateCompletionBudget, error) {
 			futureTX += retries
 			futureRegular += retries
 		}
-		origin, err := c.Origin.Parse()
+		origin, err := r.portableIdentity(c.Origin)
 		if err != nil {
 			return budget, err
 		}
@@ -267,7 +267,7 @@ func (r *stateReduction) completionBudget() (stateCompletionBudget, error) {
 				progress += remaining
 				progressBytes += remaining * (base64.StdEncoding.EncodedLen(stateWireLimit+len(c.Snapshot.LocalSdp)) + stateProofMetadataBytes)
 			}
-		} else if origin.CSeq().MethodName == sip.INVITE && c.Snapshot.Kind == pb.ContextSnapshot_UAS && c.Dialog == "" && !c.Snapshot.Ended {
+		} else if origin.Method == sip.INVITE && c.Snapshot.Kind == pb.ContextSnapshot_UAS && c.Dialog == "" && !c.Snapshot.Ended {
 			futureDialogs++
 			futureTX++
 		}
@@ -282,8 +282,8 @@ func (r *stateReduction) completionBudget() (stateCompletionBudget, error) {
 				owesACK := initial
 				for _, tx := range c.Transactions {
 					if tx.Native.Family == portable.InviteClient {
-						parsed, _ := tx.Native.Origin.Parse()
-						if parsed.CSeq().SeqNo == dialog.LocalInvite.Sequence && (tag(parsed.To().Params) == "" || tag(parsed.To().Params) == dialog.RemoteTag) {
+						parsed, _ := r.portableIdentity(tx.Native.Origin)
+						if parsed.Sequence == dialog.LocalInvite.Sequence && (parsed.ToTag == "" || parsed.ToTag == dialog.RemoteTag) {
 							owesACK = true
 							break
 						}
@@ -303,7 +303,7 @@ func (r *stateReduction) completionBudget() (stateCompletionBudget, error) {
 		}
 		otherRPC += 8
 		local, remote := len(c.Snapshot.LocalSdp), len(c.Snapshot.RemoteSdp)
-		if origin.CSeq().MethodName == sip.INVITE {
+		if origin.Method == sip.INVITE {
 			remote = max(remote, stateWireLimit)
 			if c.Snapshot.Kind == pb.ContextSnapshot_UAS {
 				local = max(local, stateWireLimit)

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -125,34 +126,119 @@ func observeSelectors(wire []byte, outbound bool) ([]string, error) {
 	return observedMessageSelectors(m, outbound), nil
 }
 
+// Only immutable scalars survive the parse. Portable validation and observed
+// selector validation intentionally have different acceptance rules.
+type wireIdentity struct {
+	Method            sip.RequestMethod
+	Sequence          uint32
+	ToTag             string
+	ViaBranch, SentBy string
+}
+
+type wireProjection struct {
+	identity         wireIdentity
+	portableEligible bool
+	observedError    error
+	request          bool
+	clientKey        string
+	serverKey        string
+	dialogSelector   string
+	selectors        [2][]string
+	projected        [2]bool
+}
+
+func projectWire(wire []byte) *wireProjection {
+	p := new(wireProjection)
+	m, err := sip.ParseMessage(wire)
+	if err != nil {
+		p.observedError = err
+		return p
+	}
+	p.observedError = validateObservedMessage(m)
+	request, isRequest := m.(*sip.Request)
+	p.request = isRequest
+	if m.CallID() != nil && m.From() != nil && m.To() != nil && m.CSeq() != nil && m.Via() != nil {
+		p.identity = projectedWireIdentity(m)
+		// These are the wire-only success conditions of pinned portable.Parse.
+		// Transport is checked on each use; failures go through that parser so
+		// its validation order and exact errors remain authoritative.
+		p.portableEligible = m.CSeq().SeqNo <= math.MaxInt32 && m.CallID().Value() != "" && (!isRequest || request.Method == m.CSeq().MethodName)
+	}
+	if p.observedError == nil {
+		p.clientKey, _ = sip.ClientTxKeyMake(m)
+		p.serverKey, _ = observedServerTxKey(m)
+		p.dialogSelector = observedDialogSelector(m)
+	}
+	return p
+}
+
+func projectedWireIdentity(m sip.Message) wireIdentity {
+	return wireIdentity{Method: m.CSeq().MethodName, Sequence: m.CSeq().SeqNo, ToTag: tag(m.To().Params), ViaBranch: m.Via().Params.GetOr("branch", ""), SentBy: m.Via().SentBy()}
+}
+
+func (p *wireProjection) directionSelectors(outbound bool) ([]string, error) {
+	if p.observedError != nil {
+		return nil, p.observedError
+	}
+	index := 0
+	if outbound {
+		index = 1
+	}
+	if !p.projected[index] {
+		key, prefix := p.clientKey, "ctx:"
+		if p.request != outbound {
+			key, prefix = p.serverKey, "stx:"
+		}
+		if key != "" {
+			p.selectors[index] = append(p.selectors[index], opaque(prefix, key))
+		}
+		if p.dialogSelector != "" {
+			p.selectors[index] = append(p.selectors[index], p.dialogSelector)
+		}
+		p.projected[index] = true
+	}
+	return p.selectors[index], nil
+}
+
+func observedServerTxKey(m sip.Message) (string, error) {
+	var keyMessage sip.Message = m
+	if m.CSeq().MethodName == sip.CANCEL {
+		if request, ok := m.(*sip.Request); ok {
+			c := request.Clone()
+			c.CSeq().MethodName = sip.INVITE
+			keyMessage = c
+		} else {
+			c := m.(*sip.Response).Clone()
+			c.CSeq().MethodName = sip.INVITE
+			keyMessage = c
+		}
+	}
+	return sip.ServerTxKeyMake(keyMessage)
+}
+
+func observedDialogSelector(m sip.Message) string {
+	from, to := tag(m.From().Params), tag(m.To().Params)
+	if from == "" || to == "" {
+		return ""
+	}
+	tags := []string{from, to}
+	sort.Strings(tags)
+	return opaque("dlg:", m.CallID().Value(), tags[0], tags[1])
+}
+
 func observedMessageSelectors(m sip.Message, outbound bool) []string {
 	var selectors []string
-	request, isRequest := m.(*sip.Request)
+	_, isRequest := m.(*sip.Request)
 
 	if isRequest != outbound {
-		var keyMessage sip.Message = m
-		if m.CSeq().MethodName == sip.CANCEL {
-			if isRequest {
-				c := request.Clone()
-				c.CSeq().MethodName = sip.INVITE
-				keyMessage = c
-			} else {
-				c := m.(*sip.Response).Clone()
-				c.CSeq().MethodName = sip.INVITE
-				keyMessage = c
-			}
-		}
-		if key, err := sip.ServerTxKeyMake(keyMessage); err == nil {
+		if key, err := observedServerTxKey(m); err == nil {
 			selectors = append(selectors, opaque("stx:", key))
 		}
 	} else if key, err := sip.ClientTxKeyMake(m); err == nil {
 		selectors = append(selectors, opaque("ctx:", key))
 	}
-	from, to := tag(m.From().Params), tag(m.To().Params)
-	if from != "" && to != "" {
-		tags := []string{from, to}
-		sort.Strings(tags)
-		selectors = append(selectors, opaque("dlg:", m.CallID().Value(), tags[0], tags[1]))
+	if dialog := observedDialogSelector(m); dialog != "" {
+		selectors = append(selectors, dialog)
 	}
 	return selectors
 }

@@ -77,11 +77,10 @@ func stateMaterializeResultMessages(result *pb.OperationResult) error {
 }
 
 func (value *stateGroup) UnmarshalBinary(data []byte) error {
-	decoded := new(storagepb.EngineStateGroup)
-	if err := storagecodec.Unmarshal(data, storagecodec.Group, decoded); err != nil {
+	next, err := readStateGroupDirect(data)
+	if err != nil {
 		return state.ErrCorrupt
 	}
-	next := storageDecodeEngineStateGroup(decoded)
 	for _, context := range next.Contexts {
 		if context == nil {
 			return state.ErrCorrupt

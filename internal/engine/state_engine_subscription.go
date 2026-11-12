@@ -376,6 +376,9 @@ func (r *stateReduction) endSubscriptionRequests(c *stateContext) error {
 		if err != nil {
 			return err
 		}
+		if err := endTransactionTimers(tx.Native.Phase, &next); err != nil {
+			return err
+		}
 		for _, effect := range effects {
 			if effect.Kind != portable.Ended && effect.Kind != portable.CancelTimer {
 				return state.ErrCorrupt

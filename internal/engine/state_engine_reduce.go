@@ -173,7 +173,7 @@ type stateReduction struct {
 	requestFence      *stateRequestFence
 	finishedBudget    stateCompletionBudget // Pure result of the latest successful finish, never retained.
 	policy            *statePolicyAdmission // Current command selection; never a second authoritative aggregate.
-	selectorMemo      map[stateSelectorKey][]string
+	selectorMemo      map[string]*wireProjection
 	selectorMemoBytes int
 }
 
@@ -760,6 +760,16 @@ func (r *stateReduction) cancelIncoming(c *stateContext, tx *stateTransaction, m
 	if err != nil {
 		return err
 	}
+	if err := endTransactionTimers(tx.Native.Phase, &invite); err != nil {
+		return err
+	}
+	cancelPhase := portable.Idle
+	if prior != nil {
+		cancelPhase = prior.Phase
+	}
+	if err := endTransactionTimers(cancelPhase, &cancel); err != nil {
+		return err
+	}
 	if cancelTX == nil {
 		cancelTX = &stateTransaction{Flow: tx.Flow, RequestID: "r-" + r.engine.id("request", key)[:48]}
 	}
@@ -796,6 +806,9 @@ func (r *stateReduction) cancelIncoming(c *stateContext, tx *stateTransaction, m
 func (r *stateReduction) stepTransaction(c *stateContext, tx *stateTransaction, input portable.Input) error {
 	next, effects, err := portable.StepTransaction(tx.Native, input)
 	if err != nil {
+		return err
+	}
+	if err := endTransactionTimers(tx.Native.Phase, &next); err != nil {
 		return err
 	}
 	tx.Native = next

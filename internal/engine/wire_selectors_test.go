@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/emiago/sipgo/sip/portable"
 )
 
 type selectorWireCase struct {
@@ -81,16 +83,18 @@ func TestSelectorProjectionPreservesObservedWire(t *testing.T) {
 			}
 			observed, fullErr := Observe(sample.wire, sample.outbound)
 			selectors, err := observeSelectors(sample.wire, sample.outbound)
+			r := new(stateReduction)
+			memoized, memoErr := r.selectorsForWire(sample.wire, sample.outbound)
 			if expected.Error != "" {
-				if err == nil || fullErr == nil || err.Error() != expected.Error || fullErr.Error() != expected.Error {
-					t.Fatal("wire refusal changed", err, fullErr)
+				if err == nil || fullErr == nil || memoErr == nil || err.Error() != expected.Error || fullErr.Error() != expected.Error || memoErr.Error() != expected.Error {
+					t.Fatal("wire refusal changed", err, fullErr, memoErr)
 				}
 				return
 			}
-			if err != nil || fullErr != nil {
-				t.Fatal(err, fullErr)
+			if err != nil || fullErr != nil || memoErr != nil {
+				t.Fatal(err, fullErr, memoErr)
 			}
-			if !reflect.DeepEqual(selectors, expected.Selectors) {
+			if !reflect.DeepEqual(selectors, expected.Selectors) || !reflect.DeepEqual(memoized, expected.Selectors) {
 				t.Fatal("selector identity changed")
 			}
 			encoded, err := json.Marshal(observed)
@@ -100,6 +104,50 @@ func TestSelectorProjectionPreservesObservedWire(t *testing.T) {
 			sum := sha256.Sum256(encoded)
 			if hex.EncodeToString(sum[:]) != expected.ProjectionSHA256 {
 				t.Fatal("public message projection changed")
+			}
+		})
+	}
+}
+
+func TestWireProjectionPreservesPortableValidation(t *testing.T) {
+	cases := selectorWireCases()
+	valid := cases[0].wire
+	for name, wire := range map[string][]byte{
+		"malformed":       []byte("not SIP"),
+		"large-cseq":      bytes.ReplaceAll(valid, []byte("CSeq: 7 INVITE"), []byte("CSeq: 2147483648 INVITE")),
+		"method-mismatch": bytes.ReplaceAll(valid, []byte("CSeq: 7 INVITE"), []byte("CSeq: 7 BYE")),
+		"empty-call-id":   bytes.ReplaceAll(valid, []byte("selector@example.test"), nil),
+		"missing-branch":  bytes.ReplaceAll(valid, []byte(";branch=z9hG4bK-selector"), nil),
+	} {
+		cases = append(cases, selectorWireCase{name: name, wire: wire})
+	}
+	for _, sample := range cases {
+		t.Run(sample.name, func(t *testing.T) {
+			for _, transport := range []string{"udp", "tcp", "tls", "", "TLS", "ws"} {
+				message := portable.Message{Wire: sample.wire, Transport: transport, Source: "192.0.2.1:1234", Destination: "192.0.2.2:5061"}
+				parsed, expectedErr := message.Parse()
+				for _, selectorsFirst := range []bool{false, true} {
+					r := new(stateReduction)
+					if selectorsFirst {
+						_, _ = r.selectorsForWire(sample.wire, sample.outbound)
+					}
+					for n := 0; n < 2; n++ {
+						identity, err := r.portableIdentity(message)
+						if expectedErr != nil {
+							if err == nil || err.Error() != expectedErr.Error() {
+								t.Fatal("portable refusal changed", transport, selectorsFirst, expectedErr, err)
+							}
+						} else if err != nil || identity.Method != parsed.CSeq().MethodName || identity.Sequence != parsed.CSeq().SeqNo || identity.ToTag != tag(parsed.To().Params) || identity.ViaBranch != parsed.Via().Params.GetOr("branch", "") || identity.SentBy != parsed.Via().SentBy() {
+							t.Fatal("portable identity changed", transport, selectorsFirst, err)
+						}
+					}
+					// The wire-only cache must not authorize a changed transport.
+					message.Transport = "unsupported"
+					if _, err := r.portableIdentity(message); err == nil {
+						t.Fatal("cached wire bypassed transport validation")
+					}
+					message.Transport = transport
+				}
 			}
 		})
 	}
@@ -116,14 +164,22 @@ func TestSelectorMemoOwnsKeysAndSeparatesDirection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reflect.DeepEqual(first, other) || len(r.selectorMemo) != 2 {
+	if reflect.DeepEqual(first, other) || len(r.selectorMemo) != 1 {
 		t.Fatal("direction aliased")
 	}
+	identity, err := r.portableIdentity(portable.Message{Wire: sample.wire, Transport: "tls"})
+	if err != nil || len(r.selectorMemo) != 1 || r.selectorMemoBytes != len(sample.wire) {
+		t.Fatal("portable identity did not share the bounded wire key", err)
+	}
 	original := bytes.Clone(sample.wire)
-	sample.wire[0] = 'X'
+	clear(sample.wire)
 	again, err := r.selectorsForWire(original, false)
-	if err != nil || !reflect.DeepEqual(first, again) || len(r.selectorMemo) != 2 {
+	if err != nil || !reflect.DeepEqual(first, again) || len(r.selectorMemo) != 1 {
 		t.Fatal("memo key aliases mutable input")
+	}
+	got, err := r.portableIdentity(portable.Message{Wire: original, Transport: "tls"})
+	if err != nil || got != identity {
+		t.Fatal("scalar identity aliases mutable input", err)
 	}
 	r.clearSelectorMemo()
 	if r.selectorMemo != nil || r.selectorMemoBytes != 0 {
@@ -142,9 +198,9 @@ func TestSelectorMemoBudgetFallsBackWithoutChangingKeys(t *testing.T) {
 			r := new(stateReduction)
 			switch budget {
 			case "entries":
-				r.selectorMemo = make(map[stateSelectorKey][]string)
+				r.selectorMemo = make(map[string]*wireProjection)
 				for n := 0; n < stateSelectorMemoEntries; n++ {
-					r.selectorMemo[stateSelectorKey{wire: fmt.Sprint(n)}] = nil
+					r.selectorMemo[fmt.Sprint(n)] = new(wireProjection)
 				}
 			case "bytes":
 				r.selectorMemoBytes = stateSelectorMemoBytes
@@ -157,6 +213,12 @@ func TestSelectorMemoBudgetFallsBackWithoutChangingKeys(t *testing.T) {
 				got, err := r.selectorsForWire(sample.wire, false)
 				if err != nil || !reflect.DeepEqual(got, expected) {
 					t.Fatal("budget changed selector semantics", err)
+				}
+				message := portable.Message{Wire: sample.wire, Transport: "tls"}
+				identity, err := r.portableIdentity(message)
+				parsed, parseErr := message.Parse()
+				if err != nil || parseErr != nil || identity != projectedWireIdentity(parsed) {
+					t.Fatal("budget changed portable identity", err, parseErr)
 				}
 			}
 			if len(r.selectorMemo) != size || r.selectorMemoBytes != retained {

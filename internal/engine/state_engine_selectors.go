@@ -12,29 +12,37 @@ const (
 	stateSelectorMemoBytes   = 1 << 20
 )
 
-type stateSelectorKey struct {
-	wire     string
-	outbound bool
-}
-
 // The exact immutable key owns its bytes. Values are read-only derived hints,
 // never parsed message objects or permission to perform an external operation.
-func (r *stateReduction) selectorsForWire(wire []byte, outbound bool) ([]string, error) {
-	if selectors, found := r.selectorMemo[stateSelectorKey{wire: string(wire), outbound: outbound}]; found {
-		return selectors, nil
+func (r *stateReduction) projectionForWire(wire []byte) *wireProjection {
+	if projection, found := r.selectorMemo[string(wire)]; found {
+		return projection
 	}
-	selectors, err := observeSelectors(wire, outbound)
-	if err != nil {
-		return nil, err
-	}
+	projection := projectWire(wire)
 	if len(r.selectorMemo) < stateSelectorMemoEntries && len(wire) <= stateSelectorMemoBytes-r.selectorMemoBytes {
 		if r.selectorMemo == nil {
-			r.selectorMemo = make(map[stateSelectorKey][]string)
+			r.selectorMemo = make(map[string]*wireProjection)
 		}
-		r.selectorMemo[stateSelectorKey{wire: string(wire), outbound: outbound}] = selectors
+		r.selectorMemo[string(wire)] = projection
 		r.selectorMemoBytes += len(wire)
 	}
-	return selectors, nil
+	return projection
+}
+
+func (r *stateReduction) selectorsForWire(wire []byte, outbound bool) ([]string, error) {
+	return r.projectionForWire(wire).directionSelectors(outbound)
+}
+
+func (r *stateReduction) portableIdentity(message portable.Message) (wireIdentity, error) {
+	projection := r.projectionForWire(message.Wire)
+	if projection.portableEligible && (message.Transport == "udp" || message.Transport == "tcp" || message.Transport == "tls") {
+		return projection.identity, nil
+	}
+	parsed, err := message.Parse()
+	if err != nil {
+		return wireIdentity{}, err
+	}
+	return projectedWireIdentity(parsed), nil
 }
 
 func (r *stateReduction) clearSelectorMemo() {

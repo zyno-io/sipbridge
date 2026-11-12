@@ -6,6 +6,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"time"
+
+	pb "sipbridge/internal/controlpb"
 )
 
 var (
@@ -165,6 +167,17 @@ type Payload struct {
 	// LocalObservations are operation-local result projections, never persisted
 	// by either store. Only definite commit success may publish them to waiters.
 	LocalObservations []LocalObservation `json:"-"`
+	// LocalDrain is a transient exact-write observation, never stored or replayed.
+	LocalDrain *LocalDrainObservation `json:"-"`
+	// LocalResult is a bounded transient return DTO for definite fresh CAS only.
+	// It contains no native aggregate and is never persisted or replayed.
+	LocalResult *pb.OperationResult `json:"-"`
+}
+
+type LocalDrainObservation struct {
+	Transaction, ACK                      [32]byte
+	Status                                uint16
+	Request, Invite, Ack, Cancel, Initial bool
 }
 
 type LocalObservation struct {

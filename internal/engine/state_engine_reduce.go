@@ -387,13 +387,12 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 		}
 	}
 	stateRefreshResultSnapshot(r.group, r.result, e.cfg.Process)
-	if r.result.Snapshot.GetContext() != nil {
-		if err := stateMaterializeResultMessages(r.result); err != nil {
-			return record.Payload, nil, err
-		}
+	outcome, err := marshalStateReceiptResult(r.result)
+	data.LocalResult = nil
+	if err == nil && proto.Size(r.result) <= 1<<20 {
+		data.LocalResult = r.result
 	}
-	outcome, _ := json.Marshal(r.result)
-	return data, outcome, nil
+	return data, outcome, err
 }
 
 func (r *stateReduction) context() (*stateContext, error) {
@@ -1423,6 +1422,9 @@ func (r *stateReduction) timer() error {
 }
 
 func (r *stateReduction) finish() (state.Payload, error) {
+	if err := r.expireAbandonedSetupTransactions(); err != nil {
+		return state.Payload{}, err
+	}
 	active := 0
 	r.payload.Timers = nil
 	for id, c := range r.group.Contexts {

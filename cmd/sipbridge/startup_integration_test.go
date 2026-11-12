@@ -95,6 +95,9 @@ func testStateStartup(t *testing.T, backend string, offline, partial bool, erase
 	testStateStartupWithSecurity(t, backend, offline, partial, "mtls", erase...)
 }
 func testStateStartupWithSecurity(t *testing.T, backend string, offline, partial bool, securityMode string, erase ...bool) {
+	testStateStartupWithShutdown(t, backend, offline, partial, securityMode, false, erase...)
+}
+func testStateStartupWithShutdown(t *testing.T, backend string, offline, partial bool, securityMode string, observeDrain bool, erase ...bool) {
 	endpoint := os.Getenv("SIPBRIDGE_STATE_TEST_REDIS")
 	if endpoint == "" && backend == "redis" {
 		t.Skip("disposable Redis required")
@@ -166,6 +169,10 @@ func testStateStartupWithSecurity(t *testing.T, backend string, offline, partial
 		}
 	}
 	arguments := []string{"--control-listen", control, "--sip-listen", public, "--sip-plain-listen", sip, "--admin-listen", admin, "--sip-cert", certificate, "--sip-key", keyPath, "--instance", "degraded-fixture", "--advertise", public, "--advertise-plain", sip}
+	arguments = append(arguments, "--sip-withdrawal-grace", "0s", "--sip-drain-timeout", "500ms")
+	if observeDrain {
+		arguments = append(arguments, "--sip-withdrawal-grace", "500ms", "--sip-drain-timeout", "1500ms")
+	}
 	controlURL := "wss://" + control + "/v1/control"
 	controlHeaders := http.Header{}
 	if securityMode == "mtls" {
@@ -379,6 +386,9 @@ func testStateStartupWithSecurity(t *testing.T, backend string, offline, partial
 			if ready.StatusCode == 200 {
 				if len(erase) > 0 && erase[0] {
 					testStartupStateLoss(t, redisClient, prefix+":"+namespace+":", controller, ack, hello, transport, control)
+				}
+				if observeDrain {
+					testStartupDrain(t, command, client, admin, public, transport.TLSClientConfig, exited, &processError)
 				}
 				return
 			}

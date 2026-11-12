@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -213,7 +212,7 @@ func (e *StateEngine) applyCommitted(ctx context.Context, ref state.Ref, id stri
 			for _, prior := range receipts {
 				if prior.OperationID == id && prior.Fingerprint == input.Fingerprint && prior.ExpiresMS > time.Now().UnixMilli() {
 					var result pb.OperationResult
-					if json.Unmarshal(prior.Outcome, &result) != nil {
+					if unmarshalStateReceiptResult(prior.Outcome, &result) != nil {
 						return nil, nil, state.ErrCorrupt
 					}
 					return &result, nil, nil
@@ -277,15 +276,25 @@ func (e *StateEngine) applyCommitted(ctx context.Context, ref state.Ref, id stri
 		}
 		return nil, nil, errors.Join(state.ErrUnknown, err)
 	}
-	var result pb.OperationResult
-	if len(receipt.Outcome) > 0 && json.Unmarshal(receipt.Outcome, &result) != nil {
+	result := new(pb.OperationResult)
+	var resultErr error
+	if applied.Committed != nil && applied.Committed.LocalResult != nil {
+		result = applied.Committed.LocalResult
+		applied.Committed.LocalResult = nil
+		if result.GetSnapshot().GetContext() != nil {
+			resultErr = stateMaterializeResultMessages(result)
+		}
+	} else {
+		resultErr = unmarshalStateReceiptResult(receipt.Outcome, result)
+	}
+	if resultErr != nil {
 		return nil, nil, errors.Join(state.ErrUnknown, state.ErrCorrupt)
 	}
 	e.publishLocalObservations(applied.Committed)
 	if in.Kind == "complete" || in.Kind == "ingest" || in.Kind == "native-ingest" {
 		e.signalOperation(ref)
 	}
-	return &result, applied.Committed, nil
+	return result, applied.Committed, nil
 }
 
 // Locate supplies process-independent directory identity; it performs no SIP or
@@ -688,7 +697,7 @@ func (e *StateEngine) Reserve(ctx context.Context, write *pb.FlowWrite) (*Commit
 		// proof that once returned wire for this same physical attempt.
 		operation = e.id("reserve", write.Effect.Id, write.Effect.AttemptId, uuid.NewString())
 	}
-	result, err := e.apply(ctx, ref, operation, stateEngineInput{Kind: "reserve", Context: write.Effect.Context, Executor: e.cfg.Process, Write: copy, Effect: write.Effect.Id}, deadline, false)
+	result, committed, err := e.applyCommitted(ctx, ref, operation, stateEngineInput{Kind: "reserve", Context: write.Effect.Context, Executor: e.cfg.Process, Write: copy, Effect: write.Effect.Id}, deadline, false)
 	if err != nil {
 		return nil, err
 	}
@@ -701,7 +710,11 @@ func (e *StateEngine) Reserve(ctx context.Context, write *pb.FlowWrite) (*Commit
 	if result.Request == nil {
 		return nil, state.ErrCorrupt
 	}
-	return &CommittedWrite{Wire: append([]byte(nil), result.Request.Wire...)}, nil
+	reserved := &CommittedWrite{Wire: append([]byte(nil), result.Request.Wire...)}
+	if committed != nil {
+		reserved.Drain = committed.LocalDrain
+	}
+	return reserved, nil
 }
 func (e *StateEngine) Complete(ctx context.Context, write *pb.FlowWrite, delivery *pb.DeliveryResult) error {
 	if write == nil || write.Effect == nil || delivery == nil {

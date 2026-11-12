@@ -57,6 +57,8 @@ func run() error {
 	allowRegister := flag.Bool("allow-register", true, "allow inbound REGISTER requests")
 	allowSubscribe := flag.Bool("allow-subscribe", true, "allow inbound SUBSCRIBE requests")
 	requiredAuth := flag.String("require-auth-methods", "", "locally challenge initial REGISTER, INVITE and/or SUBSCRIBE (comma separated)")
+	withdrawalGrace := flag.Duration("sip-withdrawal-grace", 5*time.Second, "SIP readiness withdrawal grace before idle streams close (0..60s)")
+	drainTimeout := flag.Duration("sip-drain-timeout", 40*time.Second, "total SIP transaction drain bound from withdrawal (greater than grace, at most 2m)")
 	flag.Parse()
 	if *stateSchema {
 		_, err := os.Stdout.Write(storagecodec.Receipt())
@@ -65,6 +67,10 @@ func run() error {
 	if *version {
 		fmt.Printf("sipbridge %s\n", buildinfo.Version)
 		return nil
+	}
+	drainOptions := engine.DrainOptions{WithdrawalGrace: *withdrawalGrace, Timeout: *drainTimeout}
+	if err := drainOptions.Validate(); err != nil {
+		return err
 	}
 	methodPolicy := engine.MethodPolicy{DisableRegister: !*allowRegister, DisableSubscribe: !*allowSubscribe}
 	authPolicy, err := engine.ParseRequiredAuthMethods(*requiredAuth, methodPolicy)
@@ -134,7 +140,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	termination, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	process := &pb.ProcessRef{InstanceId: *instance, Epoch: uuid.NewString()}
 	var sipCapture *capture.Exporter
@@ -274,7 +282,7 @@ func run() error {
 			http.NotFound(w, r)
 			return
 		}
-		if len(server.ReadyPeers()) == 0 || !server.CredentialsValid() || !publicTLS.Valid() || stateNative.Ready() != nil {
+		if !serving.Load() || ctx.Err() != nil || len(server.ReadyPeers()) == 0 || !server.CredentialsValid() || !publicTLS.Valid() || stateNative.Ready() != nil {
 			http.Error(w, "signaling unavailable", 503)
 			return
 		}
@@ -330,5 +338,12 @@ func run() error {
 		return err
 	case <-ctx.Done():
 		return nil
+	case <-termination.Done():
+		serving.Store(false)
+		stopSignals()
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"event": "sipbridge-draining"})
+		err := ingress.Drain(ctx, drainOptions)
+		cancel()
+		return err
 	}
 }

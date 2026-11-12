@@ -209,6 +209,13 @@ func (r *stateReduction) appendLifecycleTimers() error {
 				continue
 			}
 			retry := c.RetireMS
+			// Retained request/transaction proof cannot retire before its fixed
+			// cutoff. Native timers run independently; polling cannot shorten it.
+			for _, tx := range c.Transactions {
+				if tx.RetireMS > 0 {
+					retry = max(retry, tx.RetireMS, tx.DispositionUntilMS)
+				}
+			}
 			if retry <= r.now {
 				retry = r.now + 1000
 			}

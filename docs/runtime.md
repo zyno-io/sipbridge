@@ -130,8 +130,9 @@ Codec telemetry uses only fixed record-kind and encode/decode labels, with
 operation/failure counts, cumulative bytes and elapsed seconds on `/metrics`.
 It never scans Redis or exports application identifiers or retained bytes.
 The offline `sipbridge-state-inspect` command reads a bounded raw `data` value,
-checks the same binary and semantic bounds and emits counts, timer/effect classes
-and retention only. It does not contact Redis, restore state or print SIP wire,
+checks the same binary and semantic bounds and emits counts, allowlisted native
+phase/timer classes, fixed retirement/disposition cutoffs and retention only.
+It does not contact Redis, restore state or print SIP wire,
 addresses, credentials, Call-IDs, group/context/effect IDs or recovery tokens.
 Authority/profile/revision are Redis envelope fields, not inferable from raw data;
 operators must inspect them separately through their authorized Redis tooling.
@@ -491,6 +492,39 @@ a later final NOTIFY usable. Zero expiry/timeout fences active NOTIFY before one
 accepted unsubscribe/expiry retains five seconds for terminal delivery without renewing
 the lease. Final completion/failure and NOTIFY 481 remove only that subscription.
 
+## Bounded SIP connection drain
+
+SIGTERM and interrupt withdraw SIP readiness before cancelling the runtime. New
+SIP listener connections, outbound network opens and UDP peer allocations are
+fenced immediately. Existing connections keep their readers, admitted completion,
+control sessions and Redis authority available during drain. The
+`--sip-withdrawal-grace` defaults to five seconds (zero through sixty seconds);
+`--sip-drain-timeout` defaults to forty seconds, must exceed withdrawal grace, and
+cannot exceed two minutes. These are measured from withdrawal, not renewed by
+traffic. Deployment termination grace must also allow a two-second completion
+reporting tail after the drain bound.
+
+After withdrawal grace, idle streams close under their existing write lock.
+Small process-local, hashed transaction hints distinguish an outstanding response
+or INVITE ACK from completed transaction replay retention. They contain no SIP
+wire or authoritative protocol graph and grant no admission or write permission.
+Hints are bounded to 64 per stream and 8,192 per process; ambiguous or saturated
+tracking conservatively holds a flow through the hard drain bound. Expiry and
+reclamation use traffic or drain events, not a healthy background polling loop.
+Pure L/M or application replay retention does not keep a settled socket open.
+
+Existing responses, ACK/CANCEL and already admitted writes may finish; fresh
+session starts on an existing connection are refused during withdrawal. The hard
+deadline closes remaining sockets, including incomplete setup, without rewriting
+logical dialog/subscription state or pretending uncertain writes did not start.
+Closing and writing share the exact-flow fence. Completion reporting remains
+available for at most two additional seconds; a missing report retains the
+existing UNKNOWN semantics. Incoming traffic after reconnection still requires
+ordinary shared-state admission and accepted-flow checks. Drain does not recreate
+missing dialogs, transfer sockets, seal controller owners, or remove native
+post-200/ACK, subscription or replay deadlines. Worker timer takeover remains
+independent of connection closure.
+
 ## Exact physical evidence and response recovery
 
 Every send retains immutable bytes and typed fingerprint. A physical write request
@@ -659,6 +693,36 @@ retained wire refuses the projection; it cannot supply send authority. Group dec
 does not parse these messages. Persisted operation receipts and lifecycle event
 snapshots retain their original independent meaning; this compaction does not
 rewrite historical outcome evidence.
+
+Operation receipts retain their original frozen snapshot and exact outcome, but
+store request/response wire without duplicate parsed SIP fields. Result delivery
+reconstructs those fields from the retained wire; it never substitutes a newer
+context snapshot for a historical receipt. Physical reservation results remain
+wire-only internal values, including their empty-response status sentinel.
+Receipt retention and exact replay admission are unchanged. Compatible workers
+must all support this projection before compact receipts are written.
+Definite fresh CAS success may return one transient typed result DTO, bounded to
+1 MiB, to avoid decoding its own receipt and reparsing already projected messages.
+The execution driver copies that DTO before returning it. Neither backend stores
+it, and the caller consumes it within the operation. Replay, read-only results,
+uncertain commits and larger outcomes use the retained receipt path. This is not
+a result cache or a second protocol state value.
+
+Context retirement blocked by a retained transaction's fixed replay or request
+disposition cutoff schedules that actual cutoff, rather than a one-second retry.
+Native transaction/dialog timers remain separate obligations. Other unresolved
+retirement blockers retain their existing bounded retry behavior.
+
+An ended, never-answered setup with no dialog, accepted subscription, completion
+scope, owner cleanup, current request fence or retained effect can abandon an
+unresponded non-INVITE server transaction still in Trying. Its original context
+retirement, operation replay and request disposition windows must already have
+expired, with no active native timer, pending/deferred response or credential
+work. A fresh CAS applies portable Terminate and prunes using those original
+cutoffs; it does not open another replay window or fabricate a response/event.
+Answered dialogs, accepted subscriptions, client NOTIFY transactions and unresolved
+physical evidence cannot take this path. This bounds abandoned setup storage
+without recurring retirement polling after every obligation has disappeared.
 
 All workers sharing an authority must support compact cached-result projection
 and owner-expiry scheduling. Unchanged descriptors do not make preceding binaries

@@ -18,14 +18,14 @@ var errStateEffectMissing = errors.New("effect not found")
 func stateSameContext(a, b *pb.ContextRef) bool {
 	return a != nil && b != nil && a.Id == b.Id && a.State != nil && b.State != nil && proto.Equal(a.State, b.State)
 }
-func (r *stateReduction) findEffect(id string) (int, state.Effect, stateEngineEffect, error) {
+func (r *stateReduction) findEffect(id string, drain ...*state.LocalDrainObservation) (int, state.Effect, stateEngineEffect, error) {
 	for index, effect := range r.payload.Effects {
 		if effect.ID == id {
 			if !stateSupportedEffectKind(effect.Kind) {
 				return 0, effect, stateEngineEffect{}, state.ErrCorrupt
 			}
 			var body stateEngineEffect
-			if body.unmarshalMetadata(effect.Payload) != nil {
+			if body.unmarshalBinary(effect.Payload, false, drain...) != nil {
 				return 0, effect, body, state.ErrCorrupt
 			}
 			return index, effect, body, nil
@@ -200,7 +200,8 @@ func (r *stateReduction) reserve() error {
 	if write == nil || write.Effect == nil || write.Permit == nil || write.Permit.Authorization == nil {
 		return errors.New("effect permit required")
 	}
-	index, effect, body, err := r.findEffect(write.Effect.Id)
+	var drain state.LocalDrainObservation
+	index, effect, body, err := r.findEffect(write.Effect.Id, &drain)
 	if errors.Is(err, errStateEffectMissing) && r.engine.usesCAS() {
 		r.result.SipStatus = uint32(pb.DeliveryResult_UNKNOWN)
 		r.result.Response = &pb.SipMessage{}
@@ -264,6 +265,7 @@ func (r *stateReduction) reserve() error {
 		return errors.New("immutable effect bytes already reserved")
 	}
 	r.result.Request = &pb.SipMessage{Wire: append([]byte(nil), body.Wire...)}
+	r.payload.LocalDrain = &drain
 	// The exact wire remains in the bounded native TX/dialog values; after the
 	// first physical reservation this effect needs only hash/permit evidence.
 	body.Wire = nil

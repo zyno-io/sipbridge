@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/state"
 )
 
@@ -203,6 +204,7 @@ func TestCASFreshCommitReturnsOwnedDispatchProjection(t *testing.T) {
 				read.result.Update.Record.Payload.Effects = []state.Effect{{ID: "effect", Kind: "deliver", Payload: []byte("committed"),
 					ApplicationLease: &state.ApplicationLeaseRef{ID: "lease", Term: "term"}}}
 				read.result.Update.Record.Payload.LocalObservations = []state.LocalObservation{{ContextID: "context", OperationID: "command", Outcome: []byte("local")}}
+				read.result.Update.Record.Payload.LocalResult = &pb.OperationResult{SipStatus: 200}
 			}
 			store := &casScriptedStore{reads: []casRead{read}}
 			result, err := casTestDriver(t, store).ApplyCommitted(context.Background(), state.Ref{ID: "group"}, in)
@@ -211,6 +213,10 @@ func TestCASFreshCommitReturnsOwnedDispatchProjection(t *testing.T) {
 				t.Fatalf("fresh commit lost dispatch evidence: %+v, %v", result, err)
 			}
 			if populated {
+				read.result.Update.Record.Payload.LocalResult.SipStatus = 503
+				if result.Committed.LocalResult == nil || result.Committed.LocalResult.SipStatus != 200 {
+					t.Fatal("fresh result DTO shared reducer-owned memory")
+				}
 				read.result.Update.Record.Payload.LocalObservations[0].Outcome[0] = 'X'
 				if len(result.Committed.LocalObservations) != 1 || string(result.Committed.LocalObservations[0].Outcome) != "local" {
 					t.Fatal("local observation shared reducer-owned memory")
@@ -234,6 +240,7 @@ func TestCASReplayOrUnknownInspectionDoesNotProjectUnprovenEffects(t *testing.T)
 		if inspected {
 			store.reads = []casRead{updateRead(in, true)}
 			store.reads[0].result.Update.Record.Payload.LocalObservations = []state.LocalObservation{{ContextID: "context", OperationID: "command", Outcome: []byte("unproven")}}
+			store.reads[0].result.Update.Record.Payload.LocalResult = &pb.OperationResult{SipStatus: 200}
 			store.casErrors = []error{state.ErrUnknown}
 			store.inspection.Receipt = &known
 		}

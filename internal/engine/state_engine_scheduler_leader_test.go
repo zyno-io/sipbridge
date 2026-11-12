@@ -16,9 +16,10 @@ import (
 
 type observedSchedulerStore struct {
 	state.Backend
-	loads       atomic.Uint64
-	dropRelease atomic.Bool
-	lastError   atomic.Value
+	loads        atomic.Uint64
+	repairPasses atomic.Uint64
+	dropRelease  atomic.Bool
+	lastError    atomic.Value
 }
 
 type slowSchedulerRepairStore struct {
@@ -61,6 +62,8 @@ func (s *observedSchedulerStore) RepairScheduler(ctx context.Context, token stri
 	next, processed, err := s.Backend.RepairScheduler(ctx, token, cursor, count)
 	if err != nil {
 		s.lastError.Store("repair: " + err.Error())
+	} else if next == 0 {
+		s.repairPasses.Add(1)
 	}
 	return next, processed, err
 }
@@ -225,7 +228,8 @@ func TestSchedulerPairIdleWaitsWithoutQueuePollingOrRecordLoads(t *testing.T) {
 				}
 			})
 			schedulerAwait(t, time.Now().Add(time.Second), func() bool { return a.SchedulerStatistics().Leader || b.SchedulerStatistics().Leader })
-			time.Sleep(2200 * time.Millisecond) // Includes startup repair and many lease renewals.
+			schedulerAwait(t, time.Now().Add(5*time.Second), func() bool { return observedA.repairPasses.Load()+observedB.repairPasses.Load() > 0 })
+			time.Sleep(2200 * time.Millisecond) // Completed startup repair must stay completed across many lease renewals.
 			left, right := a.SchedulerStatistics(), b.SchedulerStatistics()
 			if left.Leader == right.Leader || left.Acquisitions+right.Acquisitions != 1 {
 				t.Fatal("idle pair churned or duplicated scheduler leadership", left, right, observedA.lastError.Load(), observedB.lastError.Load())
@@ -233,7 +237,10 @@ func TestSchedulerPairIdleWaitsWithoutQueuePollingOrRecordLoads(t *testing.T) {
 			if left.HeadReads+right.HeadReads != 1 || left.HintBatches+right.HintBatches != 0 || observedA.loads.Load()+observedB.loads.Load() != 0 {
 				t.Fatal("idle scheduler polled queues or loaded protocol records", left, right, observedA.loads.Load(), observedB.loads.Load())
 			}
-			if left.RepairPages+right.RepairPages != 1 {
+			// Redis SCAN may need multiple pages even with one matching group:
+			// unrelated namespaces share the physical keyspace. Count completed
+			// repair passes, not an assumed one-page database.
+			if observedA.repairPasses.Load()+observedB.repairPasses.Load() != 1 {
 				t.Fatal("idle scheduler continuously rescanned the namespace", left, right)
 			}
 			record, err := s.Load(context.Background(), ref)

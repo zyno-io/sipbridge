@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/state"
 )
 
 // CommittedWrite is a stored effect reservation, never caller-selected wire.
@@ -15,6 +16,7 @@ type CommittedWrite struct {
 	Wire    []byte
 	Known   bool
 	Outcome pb.DeliveryResult_Outcome
+	Drain   *state.LocalDrainObservation
 }
 
 // These startup-wired callbacks accept only a committed effect reference/permit.
@@ -140,6 +142,8 @@ func (i *Ingress) writeCommitted(peer *control.Peer, envelope *pb.Envelope) erro
 }
 
 func (i *Ingress) committedResult(parent context.Context, cmd *pb.FlowWrite) *pb.DeliveryResult {
+	i.drainReports.Add(1)
+	defer func() { i.drainReports.Add(-1); i.wakeDrain() }()
 	result := &pb.DeliveryResult{Outcome: pb.DeliveryResult_UNKNOWN}
 	if cmd != nil {
 		result.Effect = cmd.Effect
@@ -234,6 +238,13 @@ func (i *Ingress) committedResult(parent context.Context, cmd *pb.FlowWrite) *pb
 		if writeErr == nil && n == len(reserved.Wire) {
 			result.Outcome = pb.DeliveryResult_WRITTEN
 			flow.retainedUntil = time.Now().Add(4 * time.Hour)
+			if reserved.Drain != nil {
+				i.observeDrainLocked(flow, *reserved.Drain, true, time.Now())
+			} else if flow.conn != nil {
+				// Historical/custom writers lack transient commit hints. They
+				// cannot make a possibly busy stream look idle during shutdown.
+				flow.drainUnknown = true
+			}
 		} else {
 			result.Error = "socket write failed or partial"
 		}

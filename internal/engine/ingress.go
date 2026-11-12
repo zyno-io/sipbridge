@@ -38,6 +38,9 @@ type physicalFlow struct {
 	poisoned      bool
 	closed        atomic.Bool
 	capture       *capture.Exporter
+	drainHints    map[drainHintKey]time.Time
+	drainRoutes   int
+	drainUnknown  bool
 }
 
 type udpRouteKey struct {
@@ -79,6 +82,11 @@ type Ingress struct {
 	methodPolicy    MethodPolicy
 	authPolicy      *pb.InboundAuthPolicy
 	challenges      localChallenges
+	draining        atomic.Bool
+	drainListeners  map[net.Listener]struct{}
+	drainWake       chan struct{}
+	drainHintCount  atomic.Int64
+	drainReports    atomic.Int64
 }
 
 // IngressStatistics contains aggregate operational evidence without SIP data.
@@ -111,10 +119,15 @@ func NewIngress(process *pb.ProcessRef, server *control.Server, listener string,
 	if selected.AuthPolicy != nil {
 		authPolicy = proto.Clone(selected.AuthPolicy).(*pb.InboundAuthPolicy)
 	}
-	return &Ingress{process: process, control: server, listener: listener, preferred: selected.PreferredController, sourceIP: append(net.IP(nil), selected.SourceIP...), capture: selected.Capture, onRouteTiming: selected.OnRouteTiming, methodPolicy: selected.MethodPolicy, authPolicy: authPolicy, max: max, slots: make(chan struct{}, max), writes: make(chan struct{}, 128), flows: make(map[string]*physicalFlow), peers: make(map[string]*physicalFlow), messages: make(chan struct{}, 128)}
+	return &Ingress{process: process, control: server, listener: listener, preferred: selected.PreferredController, sourceIP: append(net.IP(nil), selected.SourceIP...), capture: selected.Capture, onRouteTiming: selected.OnRouteTiming, methodPolicy: selected.MethodPolicy, authPolicy: authPolicy, max: max, slots: make(chan struct{}, max), writes: make(chan struct{}, 128), flows: make(map[string]*physicalFlow), peers: make(map[string]*physicalFlow), messages: make(chan struct{}, 128), drainWake: make(chan struct{}, 1)}
 }
 
 func (i *Ingress) Serve(ctx context.Context, listener net.Listener, cfg *tls.Config) error {
+	if !i.registerDrainListener(listener) {
+		_ = listener.Close()
+		return nil
+	}
+	defer i.unregisterDrainListener(listener)
 	go func() {
 		<-ctx.Done()
 		listener.Close()
@@ -129,7 +142,7 @@ func (i *Ingress) Serve(ctx context.Context, listener net.Listener, cfg *tls.Con
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || i.draining.Load() {
 				return nil
 			}
 			return err
@@ -236,7 +249,7 @@ func (i *Ingress) readStream(ctx context.Context, flow *physicalFlow) {
 				if !usable {
 					return
 				}
-				i.route(ctx, flow, message)
+				i.route(ctx, flow, message, drainMessageObservation(m))
 				if len(original) == 0 && largeFrame {
 					// A rare large SDP/message must not pin its framing buffers for
 					// the rest of this phone's connection lifetime.
@@ -253,18 +266,30 @@ func (i *Ingress) readStream(ctx context.Context, flow *physicalFlow) {
 	}
 }
 
-func (i *Ingress) route(parent context.Context, flow *physicalFlow, message *pb.SipMessage) {
+func (i *Ingress) route(parent context.Context, flow *physicalFlow, message *pb.SipMessage, observation ...state.LocalDrainObservation) {
 	ctx, cancel := context.WithTimeout(parent, ingressRouteTimeout)
 	defer cancel()
 	i.routeWithin(ctx, flow, message, func(status int) { i.reject(parent, flow, message, status) }, func() {
 		i.rejectUnavailable(parent, flow, message)
-	})
+	}, observation...)
 }
 
-func (i *Ingress) routeWithin(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, reject func(int), unavailable func()) {
+func (i *Ingress) routeWithin(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, reject func(int), unavailable func(), observation ...state.LocalDrainObservation) {
 	started := time.Now()
 	timing := IngressRouteTiming{Outcome: "route-unavailable", InitialBudgetMS: ingressRemainingMS(ctx)}
 	defer func() { i.reportRouteTiming(ctx, message, timing, started) }()
+	completionOnly := false
+	if len(observation) > 0 {
+		if !i.beginDrainRoute(flow, observation[0]) {
+			if !i.beginDrainReplay(flow) {
+				return
+			}
+			completionOnly = true
+		}
+		defer func() {
+			i.finishDrainRoute(flow, observation[0], timing.Outcome == "native-completed" || timing.Outcome == "accepted" || timing.Outcome == "local-challenge-ack")
+		}()
+	}
 	rejectReply, unavailableReply := reject, unavailable
 	reject = func(status int) {
 		timing.SipStatus = ingressDiagnosticStatus(status)
@@ -281,18 +306,18 @@ func (i *Ingress) routeWithin(ctx context.Context, flow *physicalFlow, message *
 		timing.Outcome = "expired"
 		return
 	}
-	if i.methodPolicy.disabled(message) {
+	if !completionOnly && i.methodPolicy.disabled(message) {
 		i.methodRejected.Add(1)
 		timing.Outcome = "method-disabled"
 		timing.SipStatus = 405
 		i.localResponseWithin(ctx, flow, message, 405, "policy-", []*pb.Header{{Name: "Allow", Value: i.methodPolicy.allow()}})
 		return
 	}
-	if i.localChallengeACK(message, flow.ref) {
+	if !completionOnly && i.localChallengeACK(message, flow.ref) {
 		timing.Outcome = "local-challenge-ack"
 		return
 	}
-	if i.requiresLocalChallenge(message) {
+	if !completionOnly && i.requiresLocalChallenge(message) {
 		timing.Outcome = "local-challenge"
 		i.challengeLocally(ctx, flow, message)
 		return
@@ -317,6 +342,11 @@ func (i *Ingress) routeWithin(ctx context.Context, flow *physicalFlow, message *
 			timing.Outcome = "native-completed"
 			return
 		}
+	}
+	if completionOnly {
+		timing.Outcome = "draining"
+		reject(503)
+		return
 	}
 	peers := i.control.ReadyPeers()
 	if len(peers) == 0 {
@@ -436,7 +466,7 @@ func (i *Ingress) routeWithin(ctx context.Context, flow *physicalFlow, message *
 // original budget, and a cancelled middle item cannot release a later item
 // before its own predecessor has completed. Only transient transport work lives
 // here; the native state authority still commits every protocol transition.
-func (i *Ingress) routeUDP(parent context.Context, flow *physicalFlow, message *pb.SipMessage, callID string) bool {
+func (i *Ingress) routeUDP(parent context.Context, flow *physicalFlow, message *pb.SipMessage, callID string, observation ...state.LocalDrainObservation) bool {
 	select {
 	case i.messages <- struct{}{}:
 	default:
@@ -473,7 +503,7 @@ func (i *Ingress) routeUDP(parent context.Context, flow *physicalFlow, message *
 		}
 		i.routeWithin(ctx, flow, message, func(status int) { i.reject(parent, flow, message, status) }, func() {
 			i.rejectUnavailable(parent, flow, message)
-		})
+		}, observation...)
 	}()
 	return true
 }
@@ -592,8 +622,12 @@ func (i *Ingress) localResponseWithin(ctx context.Context, flow *physicalFlow, m
 	flow.write.Lock()
 	defer flow.write.Unlock()
 	if flow.admitSIPUse() {
-		_, _ = flow.writeWire([]byte(response.String()))
+		wire := []byte(response.String())
+		if n, err := flow.writeWire(wire); err == nil && n == len(wire) {
+			i.observeDrainLocked(flow, drainMessageObservation(response), true, time.Now())
+		}
 	}
+	i.wakeDrain()
 }
 
 func (i *Ingress) Write(peer *control.Peer, envelope *pb.Envelope) error {
@@ -664,6 +698,9 @@ func (i *Ingress) addStream(conn net.Conn, host string, port int, network string
 	flow := &physicalFlow{ref: ref, conn: conn, lastUsed: time.Now(), capture: i.capture}
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	if i.draining.Load() {
+		return nil, errors.New("SIP ingress draining")
+	}
 	if len(i.flows) >= i.max {
 		i.flowRejected.Add(1)
 		return nil, errors.New("flow capacity")
@@ -676,6 +713,9 @@ func (i *Ingress) remove(flow *physicalFlow) {
 	flow.closed.Store(true)
 	flow.write.Lock()
 	flow.stopUnusedTimer()
+	for key := range flow.drainHints {
+		i.removeDrainHintLocked(flow, key)
+	}
 	flow.write.Unlock()
 	i.mu.Lock()
 	delete(i.flows, flow.ref.ConnectionId)
@@ -683,6 +723,7 @@ func (i *Ingress) remove(flow *physicalFlow) {
 		delete(i.peers, flow.remote.String())
 	}
 	i.mu.Unlock()
+	i.wakeDrain()
 	for _, peer := range i.control.ReadyPeers() {
 		_ = peer.Send(&pb.Envelope{CorrelationId: uuid.NewString(), Payload: &pb.Envelope_FlowClosed{FlowClosed: &pb.FlowClosed{Flow: flow.ref}}})
 	}
@@ -696,6 +737,9 @@ func (i *Ingress) packetFlow(remote net.Addr) (*physicalFlow, error) {
 	}
 	if flow := i.peers[remote.String()]; flow != nil {
 		return flow, nil
+	}
+	if i.draining.Load() {
+		return nil, errors.New("SIP ingress draining")
 	}
 	if len(i.flows) >= i.max {
 		return nil, errors.New("flow capacity")
@@ -764,11 +808,13 @@ func (i *Ingress) ServeUDP(ctx context.Context, conn net.PacketConn) error {
 		flow.write.Lock()
 		flow.lastUsed = time.Now()
 		flow.write.Unlock()
-		message, err := Observe(append([]byte(nil), buffer[:n]...), false)
+		wire := append([]byte(nil), buffer[:n]...)
+		parsed, err := parseObservedMessage(wire)
 		if err != nil {
 			i.invalidMessages.Add(1)
 			continue
 		}
+		message := projectObservedMessage(wire, parsed, false)
 		callID := ""
 		for _, header := range message.Headers {
 			if header.Name == "call-id" {
@@ -779,13 +825,16 @@ func (i *Ingress) ServeUDP(ctx context.Context, conn net.PacketConn) error {
 		if callID == "" {
 			continue
 		}
-		i.routeUDP(ctx, flow, message, callID)
+		i.routeUDP(ctx, flow, message, callID, drainMessageObservation(parsed))
 	}
 }
 
 // OpenNetwork accepts only a target selected by the authenticated Controller owner.
 // Subsequent writes still name the minted flow and require Controller acknowledgement.
 func (i *Ingress) OpenNetwork(ctx context.Context, called string, target *pb.NetworkTarget) (*pb.FlowRef, error) {
+	if i.draining.Load() {
+		return nil, errors.New("SIP ingress draining")
+	}
 	unusedUntil := outboundStreamExpiry(ctx, time.Now())
 	if target == nil {
 		return nil, errors.New("network target required")

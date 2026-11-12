@@ -156,7 +156,7 @@ func (value *stateEngineEffect) unmarshalMetadata(data []byte) error {
 	return value.unmarshalBinary(data, false)
 }
 
-func (value *stateEngineEffect) unmarshalBinary(data []byte, project bool) error {
+func (value *stateEngineEffect) unmarshalBinary(data []byte, project bool, drain ...*state.LocalDrainObservation) error {
 	decoded := new(storagepb.EngineStateEngineEffect)
 	if err := storagecodec.Unmarshal(data, storagecodec.Effect, decoded); err != nil {
 		return state.ErrCorrupt
@@ -169,9 +169,13 @@ func (value *stateEngineEffect) unmarshalBinary(data []byte, project bool) error
 		if err := next.materializeMessage(); err != nil {
 			return err
 		}
-	} else if next.hasMessageWire() {
-		if _, err := parseObservedMessage(next.Wire); err != nil {
+	} else if next.hasMessageWire() || len(drain) > 0 && len(next.Wire) > 0 {
+		parsed, err := parseObservedMessage(next.Wire)
+		if err != nil {
 			return err
+		}
+		if len(drain) > 0 {
+			*drain[0] = drainMessageObservation(parsed)
 		}
 	}
 	*value = next

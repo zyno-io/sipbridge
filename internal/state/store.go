@@ -19,7 +19,27 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-var referencePattern = regexp.MustCompile(`^[A-Za-z0-9_.:@+\-]{1,96}$`)
+// ValidReference accepts the bounded ASCII identity grammar shared by state
+// envelopes and engine send/policy references. Keep the 96-byte limit and exact
+// punctuation set independent of the wider dispatch-worker grammar below.
+func ValidReference(value string) bool {
+	if len(value) == 0 || len(value) > 96 {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		c := value[index]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' {
+			continue
+		}
+		switch c {
+		case '_', '.', ':', '@', '+', '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 var workerPattern = regexp.MustCompile(`^[A-Za-z0-9_.:@+\-]{1,192}$`)
 var prefixPattern = regexp.MustCompile(`^[A-Za-z0-9_.:\-]{1,96}$`)
 var runIDPattern = regexp.MustCompile(`(?m)^run_id:([a-f0-9]{40})\r?$`)
@@ -116,10 +136,10 @@ func commonDefaults(cfg *Config) error {
 	if cfg.Limits.Transactions == 0 {
 		cfg.Limits.Transactions = 128 // 32 regular + 32 paired CANCEL + 2*16 directional BYE, rounded up.
 	}
-	if !prefixPattern.MatchString(cfg.Prefix) || !referencePattern.MatchString(cfg.Namespace) ||
-		!referencePattern.MatchString(cfg.Generation) || len(cfg.NamespaceKey) < 32 || cfg.Partitions > 4096 ||
-		!referencePattern.MatchString(cfg.Versions.Schema) || !referencePattern.MatchString(cfg.Versions.Reducer) ||
-		!referencePattern.MatchString(cfg.Versions.Timers) || cfg.ClaimTTL < time.Millisecond || cfg.ClaimTTL > 5*time.Second {
+	if !prefixPattern.MatchString(cfg.Prefix) || !ValidReference(cfg.Namespace) ||
+		!ValidReference(cfg.Generation) || len(cfg.NamespaceKey) < 32 || cfg.Partitions > 4096 ||
+		!ValidReference(cfg.Versions.Schema) || !ValidReference(cfg.Versions.Reducer) ||
+		!ValidReference(cfg.Versions.Timers) || cfg.ClaimTTL < time.Millisecond || cfg.ClaimTTL > 5*time.Second {
 		return errors.New("invalid SIP state configuration")
 	}
 	cfg.NamespaceKey = append([]byte(nil), cfg.NamespaceKey...)
@@ -595,7 +615,7 @@ func (s *Store) commit(ctx context.Context, step Step, next Payload, outcome []b
 }
 
 func (s *Store) InspectOperation(ctx context.Context, ref Ref, operationID, fingerprint string) (Inspection, error) {
-	if !referencePattern.MatchString(operationID) || !validText(fingerprint, 256) {
+	if !ValidReference(operationID) || !validText(fingerprint, 256) {
 		return Inspection{}, ErrConflict
 	}
 	record, now, err := s.read(ctx, ref)

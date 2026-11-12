@@ -28,7 +28,7 @@ func (m *MemoryStore) recoverableApplicationLease(ctx context.Context, id, term,
 	if err := validateLeaseIdentity(id, term, false); err != nil {
 		return ApplicationLease{}, err
 	}
-	if !validLeaseHolder(a.ApplicationLeaseHolder) || generation > 1<<53-1 || mode != "create" && generation == 0 || (mode == "create" || mode == "attach") && !validLeaseHash(a.TokenHash) || mode == "attach" && (!validLeaseHash(a.NextTokenHash) || !referencePattern.MatchString(a.AttemptID)) {
+	if !validLeaseHolder(a.ApplicationLeaseHolder) || generation > 1<<53-1 || mode != "create" && generation == 0 || (mode == "create" || mode == "attach") && !validLeaseHash(a.TokenHash) || mode == "attach" && (!validLeaseHash(a.NextTokenHash) || !ValidReference(a.AttemptID)) {
 		return ApplicationLease{}, ErrConflict
 	}
 	now, err := m.lock(ctx)

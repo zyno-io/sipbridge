@@ -7,6 +7,7 @@ import (
 
 	"github.com/emiago/sipgo/sip"
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/state"
 )
 
 var errStateBusinessAuthorityChanged = errors.New("response directory epoch changed")
@@ -21,7 +22,7 @@ func (r *stateReduction) retainResponseAuthority(c *stateContext, tx *stateTrans
 		return nil // The same authenticated command already supplied its policy decision.
 	}
 	authority := response.Authority
-	if authority == nil || !sendFingerprintReference.MatchString(authority.DirectoryEpoch) {
+	if authority == nil || !state.ValidReference(authority.DirectoryEpoch) {
 		return errors.New("response directory authority required")
 	}
 	if c.OwnerDirectoryEpoch != "" && c.OwnerDirectoryEpoch != authority.DirectoryEpoch {

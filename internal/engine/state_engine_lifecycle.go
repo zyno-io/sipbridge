@@ -51,6 +51,9 @@ func (r *stateReduction) lifecycleTimer() (bool, error) {
 			if sub.Terminating && sub.TerminalMS > 0 && sub.TerminalMS <= r.now {
 				c.Snapshot.Ended = true
 				c.RetireMS = r.now + 120000
+				if err := r.endSubscriptionRequests(c); err != nil {
+					return true, err
+				}
 				r.touch(c)
 				r.event(c, pb.DialogEvent_ENDED, nil, c.Operation)
 			} else if !sub.Terminating && sub.ExpiresMS <= r.now {
@@ -422,9 +425,12 @@ func (r *stateReduction) subscriptionResponse(c *stateContext, tx *stateTransact
 		return err
 	}
 	response := parsed.(*sip.Response)
-	if response.CSeq().MethodName == sip.NOTIFY && response.StatusCode >= 200 && (c.Subscription.Final || response.StatusCode == 481) {
+	if !c.Snapshot.Ended && response.CSeq().MethodName == sip.NOTIFY && response.StatusCode >= 200 && (c.Subscription.Final || response.StatusCode == 481) {
 		c.Snapshot.Ended = true
 		c.RetireMS = r.now + 120000
+		if err := r.endSubscriptionRequests(c); err != nil {
+			return err
+		}
 		r.touch(c)
 		r.event(c, pb.DialogEvent_ENDED, nil, c.Operation)
 	}

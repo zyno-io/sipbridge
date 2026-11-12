@@ -178,7 +178,7 @@ func validateApplicationLeaseIDs(ids []string) error {
 	}
 	seen := make(map[string]bool, len(ids))
 	for _, id := range ids {
-		if !referencePattern.MatchString(id) || seen[id] {
+		if !ValidReference(id) || seen[id] {
 			return ErrCorrupt
 		}
 		seen[id] = true
@@ -188,7 +188,7 @@ func validateApplicationLeaseIDs(ids []string) error {
 
 func validApplicationLeaseRef(ref ApplicationLeaseRef) bool {
 	term, err := uuid.Parse(ref.Term)
-	return ref.Generation <= 1<<53-1 && referencePattern.MatchString(ref.ID) && err == nil && term != uuid.Nil && term.String() == ref.Term
+	return ref.Generation <= 1<<53-1 && ValidReference(ref.ID) && err == nil && term != uuid.Nil && term.String() == ref.Term
 }
 
 func decodeApplicationLeases(record *Record, encoded string, now int64, inputIDs []string) error {

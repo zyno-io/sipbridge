@@ -43,7 +43,7 @@ func validateApplicationContexts(contexts []ApplicationContextIndex, ids []strin
 	}
 	seen := make(map[string]bool, len(contexts))
 	for _, entry := range contexts {
-		if !validApplicationLeaseRef(ApplicationLeaseRef{ID: entry.LeaseID, Term: entry.LeaseTerm}) || !owners[entry.LeaseID] || !referencePattern.MatchString(entry.ContextID) || seen[entry.ContextID] {
+		if !validApplicationLeaseRef(ApplicationLeaseRef{ID: entry.LeaseID, Term: entry.LeaseTerm}) || !owners[entry.LeaseID] || !ValidReference(entry.ContextID) || seen[entry.ContextID] {
 			return ErrCorrupt
 		}
 		seen[entry.ContextID] = true
@@ -121,7 +121,7 @@ func (s *Store) ListApplicationContexts(ctx context.Context, ref ApplicationLeas
 			return ApplicationContextPage{}, ErrCorrupt
 		}
 		var entry ApplicationContextEntry
-		if json.Unmarshal([]byte(member[len(ref.Term)+1:]), &entry) != nil || s.validateRef(entry.Ref) != nil || entry.Ref.Incarnation == "" || !referencePattern.MatchString(entry.ContextID) {
+		if json.Unmarshal([]byte(member[len(ref.Term)+1:]), &entry) != nil || s.validateRef(entry.Ref) != nil || entry.Ref.Incarnation == "" || !ValidReference(entry.ContextID) {
 			return ApplicationContextPage{}, ErrCorrupt
 		}
 		page.Entries = append(page.Entries, entry)

@@ -104,6 +104,16 @@ func TestEffectMetadataPreservesWireRefusalAndTypedArms(t *testing.T) {
 
 var effectMetadataBenchmarkResult stateEngineEffect
 
+func BenchmarkEffectMetadataEncoding(b *testing.B) {
+	value := stateEffectForStorage(metadataFixtureEffect(b, "request", false))
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		if _, err := value.MarshalBinary(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkEffectMetadataProjection(b *testing.B) {
 	value := metadataFixtureEffect(b, "request", false)
 	encoded, err := value.MarshalBinary()

@@ -67,7 +67,7 @@ func (s *metadata) validateRef(ref Ref) error {
 	decoded, err := base64.RawURLEncoding.DecodeString(ref.ID)
 	if err != nil || len(decoded) != sha256.Size || ref.Partition >= s.cfg.Partitions ||
 		uint16(binary.BigEndian.Uint32(decoded[:4])%uint32(s.cfg.Partitions)) != ref.Partition ||
-		(ref.Incarnation != "" && !referencePattern.MatchString(ref.Incarnation)) {
+		(ref.Incarnation != "" && !ValidReference(ref.Incarnation)) {
 		return ErrConflict
 	}
 	if ref.CallID != "" {
@@ -183,14 +183,14 @@ func (s *metadata) validatePayloadStructure(payload Payload) error {
 		if effect.ApplicationLease != nil && (!validApplicationLeaseRef(*effect.ApplicationLease) || !leaseIDs[effect.ApplicationLease.ID]) {
 			return ErrCorrupt
 		}
-		if !referencePattern.MatchString(effect.ID) || !referencePattern.MatchString(effect.Kind) || seen[effect.ID] || effect.DeadlineMS <= 0 || effect.DeadlineMS > 1<<53-1 {
+		if !ValidReference(effect.ID) || !ValidReference(effect.Kind) || seen[effect.ID] || effect.DeadlineMS <= 0 || effect.DeadlineMS > 1<<53-1 {
 			return fmt.Errorf("%w: invalid or repeated effect identity %q", ErrCorrupt, effect.ID)
 		}
 		seen[effect.ID] = true
 		switch effect.Status {
 		case EffectPending, EffectAuthorized, EffectCancelled:
 		case EffectDispatching, EffectWritten, EffectNotWritten, EffectUnknown:
-			if !referencePattern.MatchString(effect.AttemptID) {
+			if !ValidReference(effect.AttemptID) {
 				return fmt.Errorf("%w: effect %q has invalid attempt", ErrCorrupt, effect.ID)
 			}
 		default:
@@ -199,7 +199,7 @@ func (s *metadata) validatePayloadStructure(payload Payload) error {
 	}
 	seen = make(map[string]bool, len(payload.Timers))
 	for _, timer := range payload.Timers {
-		if !referencePattern.MatchString(timer.ID) || seen[timer.ID] || !decimal(timer.Generation) || timer.DueMS <= 0 || timer.DueMS > 1<<53-1 || timer.DeadlineMS < timer.DueMS || timer.DeadlineMS > 1<<53-1 {
+		if !ValidReference(timer.ID) || seen[timer.ID] || !decimal(timer.Generation) || timer.DueMS <= 0 || timer.DueMS > 1<<53-1 || timer.DeadlineMS < timer.DueMS || timer.DeadlineMS > 1<<53-1 {
 			return fmt.Errorf("%w: invalid or repeated timer %q", ErrCorrupt, timer.ID)
 		}
 		seen[timer.ID] = true

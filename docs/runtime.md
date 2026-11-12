@@ -694,6 +694,13 @@ does not parse these messages. Persisted operation receipts and lifecycle event
 snapshots retain their original independent meaning; this compaction does not
 rewrite historical outcome evidence.
 
+Terminal effect metadata is still decoded and validated before retention. Once
+its wire and controller envelope have been compacted away, later reductions
+reuse those encoded effect bytes rather than serialize the same metadata again.
+This changes neither proof retention nor settlement or dispatch eligibility.
+An effect whose controller message is already wire-only also needs no cloned
+envelope merely to encode the same retained metadata.
+
 Until their original result cutoff, operation receipts retain their original frozen snapshot and exact outcome, but
 store request/response wire without duplicate parsed SIP fields. Result delivery
 reconstructs those fields from the retained wire; it never substitutes a newer
@@ -734,16 +741,15 @@ disposition cutoff schedules that actual cutoff, rather than a one-second retry.
 Native transaction/dialog timers remain separate obligations. Other unresolved
 retirement blockers retain their existing bounded retry behavior.
 
-An ended, never-answered setup with no dialog, accepted subscription, completion
-scope, owner cleanup, current request fence or retained effect can abandon an
-unresponded non-INVITE server transaction still in Trying. Its original context
-retirement, operation replay and request disposition windows must already have
-expired, with no active native timer, pending/deferred response or credential
-work. A fresh CAS applies portable Terminate and prunes using those original
-cutoffs; it does not open another replay window or fabricate a response/event.
-Answered dialogs, accepted subscriptions, client NOTIFY transactions and unresolved
-physical evidence cannot take this path. This bounds abandoned setup storage
-without recurring retirement polling after every obligation has disappeared.
+When a subscription ends at its terminal grace deadline or a terminal/481 NOTIFY
+response, that same transition terminates any unanswered SUBSCRIBE server
+transaction still in Trying with no selected response, active native timer,
+pending/deferred procedure or unresolved effect. It retains the transaction and
+request-disposition proof through the existing context retirement and original
+request-disposition deadlines. This prevents an unanswered refresh from keeping
+an ended subscription active indefinitely. Client NOTIFY transactions, selected
+responses and uncertain physical writes retain their independent obligations.
+There is no retrospective scan or repair of previously ended records.
 
 All workers sharing an authority must support compact cached-result projection
 and owner-expiry scheduling. Unchanged descriptors do not make preceding binaries

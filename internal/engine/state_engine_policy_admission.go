@@ -9,6 +9,7 @@ import (
 	"github.com/emiago/sipgo/sip"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/state"
 )
 
 const statePolicyAdmissionBytes = 4096
@@ -25,22 +26,22 @@ type statePolicyAdmission struct {
 }
 
 func validPolicyFlow(flow *pb.FlowRef) bool {
-	return flow != nil && validSendProcess(flow.Ingress) && sendFingerprintReference.MatchString(flow.ConnectionId) &&
+	return flow != nil && validSendProcess(flow.Ingress) && state.ValidReference(flow.ConnectionId) &&
 		net.ParseIP(flow.SourceIp) != nil && flow.SourcePort > 0 && flow.SourcePort <= 65535 &&
 		validSendText(flow.Listener, 1024, false) && validSendTransport(flow.Transport)
 }
 
 func (s *statePolicyAdmission) valid() bool {
-	if s == nil || s.Decision == nil || !sendFingerprintReference.MatchString(s.Decision.DirectoryEpoch) ||
+	if s == nil || s.Decision == nil || !state.ValidReference(s.Decision.DirectoryEpoch) ||
 		s.Decision.ExpiresAtMs == 0 || s.Decision.ExpiresAtMs > 1<<53-1 ||
-		!validSendText(s.Command, 160, false) || !sendFingerprintReference.MatchString(s.Term) {
+		!validSendText(s.Command, 160, false) || !state.ValidReference(s.Term) {
 		return false
 	}
 	if f := s.Decision.SelectedFlow; f != nil && !validPolicyFlow(f) {
 		return false
 	}
 	if d := s.Decision.ExpectedDelivery; d != nil && (!validPolicyFlow(d.Flow) || d.NativeRevision == 0 ||
-		!sendFingerprintReference.MatchString(d.DirectoryEpoch) || !validSendText(d.RegistrationTicket, 256, false)) {
+		!state.ValidReference(d.DirectoryEpoch) || !validSendText(d.RegistrationTicket, 256, false)) {
 		return false
 	}
 	return true

@@ -13,9 +13,9 @@ import (
 	"unicode/utf8"
 
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/state"
 )
 
-var sendFingerprintReference = regexp.MustCompile(`^[A-Za-z0-9_.:@+\-]{1,96}$`)
 var sendFingerprintMethod = regexp.MustCompile(`^[A-Z][A-Z0-9_-]{0,31}$`)
 
 // SendFingerprint binds one immutable send intent to its logical context,
@@ -28,14 +28,14 @@ var sendFingerprintMethod = regexp.MustCompile(`^[A-Z][A-Z0-9_-]{0,31}$`)
 func SendFingerprint(snapshot *pb.ContextSnapshot, message *pb.SipMessage, auth *pb.EffectAuthorization, proposed *pb.FlowRef) (string, error) {
 	if snapshot == nil || message == nil || auth == nil || !validSendContext(snapshot.Context) ||
 		!validSendProcess(snapshot.Application) || auth.Effect == nil || !validSendContext(auth.Effect.Context) ||
-		!sameSendContext(snapshot.Context, auth.Effect.Context) || !sendFingerprintReference.MatchString(auth.Effect.AttemptId) ||
+		!sameSendContext(snapshot.Context, auth.Effect.Context) || !state.ValidReference(auth.Effect.AttemptId) ||
 		!validSendText(snapshot.PrincipalId, 256, true) || !validSendText(snapshot.BindingId, 256, true) ||
 		!validSendTransport(snapshot.Transport) || !sendFingerprintMethod.MatchString(message.Method) ||
 		(message.Status != 0 && (message.Status < 100 || message.Status > 699)) ||
 		len(message.Wire) == 0 || len(message.Wire) > 65536 || auth.DeadlineMs == 0 ||
-		(auth.CompletionScope != "" && !sendFingerprintReference.MatchString(auth.CompletionScope)) ||
+		(auth.CompletionScope != "" && !state.ValidReference(auth.CompletionScope)) ||
 		auth.ApplicationLeaseTerm != snapshot.ApplicationLeaseTerm ||
-		(auth.ApplicationLeaseTerm != "" && !sendFingerprintReference.MatchString(auth.ApplicationLeaseTerm)) ||
+		(auth.ApplicationLeaseTerm != "" && !state.ValidReference(auth.ApplicationLeaseTerm)) ||
 		(auth.Effect.Id != "" && len(auth.Effect.Id) != 66) || (auth.Fingerprint != "" && len(auth.Fingerprint) != 64) {
 		return "", errors.New("invalid SIP send fingerprint input")
 	}
@@ -44,12 +44,12 @@ func SendFingerprint(snapshot *pb.ContextSnapshot, message *pb.SipMessage, auth 
 	default:
 		return "", errors.New("invalid SIP send authority class")
 	}
-	state := snapshot.Context.State
-	authority := state.Authority
+	retainedState := snapshot.Context.State
+	authority := retainedState.Authority
 	wireDigest := sha256.Sum256(message.Wire)
 	parts := []string{
 		"sipbridge-send-v1", authority.Service, authority.Generation, authority.PrimaryId,
-		state.GroupId, state.Incarnation, state.CallId, strconv.FormatUint(uint64(state.Partition), 10),
+		retainedState.GroupId, retainedState.Incarnation, retainedState.CallId, strconv.FormatUint(uint64(retainedState.Partition), 10),
 		snapshot.Context.Id, snapshot.Application.InstanceId, snapshot.Application.Epoch, auth.ApplicationLeaseTerm,
 		snapshot.PrincipalId, snapshot.BindingId, snapshot.Transport,
 		strconv.FormatInt(int64(auth.AuthorityClass), 10), auth.CompletionScope,
@@ -59,7 +59,7 @@ func SendFingerprint(snapshot *pb.ContextSnapshot, message *pb.SipMessage, auth 
 	if proposed == nil {
 		parts = append(parts, "", "", "", "", "", "", "")
 	} else {
-		if !validSendProcess(proposed.Ingress) || !sendFingerprintReference.MatchString(proposed.ConnectionId) ||
+		if !validSendProcess(proposed.Ingress) || !state.ValidReference(proposed.ConnectionId) ||
 			net.ParseIP(proposed.SourceIp) == nil || proposed.SourcePort < 1 || proposed.SourcePort > 65535 ||
 			!validSendText(proposed.Listener, 1024, false) || !validSendTransport(proposed.Transport) {
 			return "", errors.New("invalid SIP send fingerprint flow")
@@ -89,14 +89,14 @@ func writeSendFingerprintPart(h hash.Hash, value string) {
 }
 
 func validSendContext(ref *pb.ContextRef) bool {
-	if ref == nil || !sendFingerprintReference.MatchString(ref.Id) || ref.State == nil {
+	if ref == nil || !state.ValidReference(ref.Id) || ref.State == nil {
 		return false
 	}
 	s := ref.State
 	a := s.Authority
-	return a != nil && sendFingerprintReference.MatchString(a.Service) && sendFingerprintReference.MatchString(a.Generation) &&
-		sendFingerprintReference.MatchString(a.PrimaryId) && a.SchemaVersion > 0 &&
-		sendFingerprintReference.MatchString(s.GroupId) && sendFingerprintReference.MatchString(s.Incarnation) &&
+	return a != nil && state.ValidReference(a.Service) && state.ValidReference(a.Generation) &&
+		state.ValidReference(a.PrimaryId) && a.SchemaVersion > 0 &&
+		state.ValidReference(s.GroupId) && state.ValidReference(s.Incarnation) &&
 		validSendText(s.CallId, 1024, false) && s.Partition <= 4095
 }
 
@@ -108,7 +108,7 @@ func sameSendContext(a, b *pb.ContextRef) bool {
 }
 
 func validSendProcess(ref *pb.ProcessRef) bool {
-	return ref != nil && sendFingerprintReference.MatchString(ref.InstanceId) && sendFingerprintReference.MatchString(ref.Epoch)
+	return ref != nil && state.ValidReference(ref.InstanceId) && state.ValidReference(ref.Epoch)
 }
 
 func validSendTransport(value string) bool {

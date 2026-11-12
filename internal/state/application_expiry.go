@@ -126,7 +126,7 @@ func (s *Store) ApplicationExpiryPage(ctx context.Context, limit int) (Applicati
 	cursor, cursorErr := textAt(values, 3)
 	encoded, encodedErr := textAt(values, 4)
 	complete, completeErr := textAt(values, 5)
-	if idErr != nil || tokenErr != nil || cursorErr != nil || encodedErr != nil || completeErr != nil || !referencePattern.MatchString(id) || !validApplicationLeaseRef(ApplicationLeaseRef{ID: id, Term: token}) || len(cursor) > applicationContextMemberLimit || complete != "0" && complete != "1" {
+	if idErr != nil || tokenErr != nil || cursorErr != nil || encodedErr != nil || completeErr != nil || !ValidReference(id) || !validApplicationLeaseRef(ApplicationLeaseRef{ID: id, Term: token}) || len(cursor) > applicationContextMemberLimit || complete != "0" && complete != "1" {
 		return ApplicationExpiryPage{}, ErrCorrupt
 	}
 	var members []string
@@ -137,7 +137,7 @@ func (s *Store) ApplicationExpiryPage(ctx context.Context, limit int) (Applicati
 	for _, member := range members {
 		term, data, ok := strings.Cut(member, "|")
 		var entry ApplicationContextEntry
-		if !ok || len(member) > applicationContextMemberLimit || member <= page.NextCursor || !validApplicationLeaseRef(ApplicationLeaseRef{ID: id, Term: term}) || json.Unmarshal([]byte(data), &entry) != nil || s.validateRef(entry.Ref) != nil || !referencePattern.MatchString(entry.ContextID) {
+		if !ok || len(member) > applicationContextMemberLimit || member <= page.NextCursor || !validApplicationLeaseRef(ApplicationLeaseRef{ID: id, Term: term}) || json.Unmarshal([]byte(data), &entry) != nil || s.validateRef(entry.Ref) != nil || !ValidReference(entry.ContextID) {
 			return ApplicationExpiryPage{}, ErrCorrupt
 		}
 		page.Entries = append(page.Entries, entry)

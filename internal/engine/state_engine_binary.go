@@ -125,6 +125,9 @@ func stateEffectForStorage(value stateEngineEffect) stateEngineEffect {
 	if value.Envelope == nil {
 		return value
 	}
+	if value.Envelope.GetRequest().GetMessage() == nil && value.Envelope.GetEgress().GetMessage() == nil && value.Envelope.GetDialogEvent().GetMessage() == nil {
+		return value
+	}
 	envelope := proto.Clone(value.Envelope).(*pb.Envelope)
 	var message *pb.SipMessage
 	if request := envelope.GetRequest(); request != nil {

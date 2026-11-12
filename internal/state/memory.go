@@ -527,7 +527,7 @@ func scheduleTimes(next Payload, now int64, receipts []Receipt, proof *Receipt) 
 }
 
 func (m *MemoryStore) InspectOperation(ctx context.Context, ref Ref, id, fingerprint string) (Inspection, error) {
-	if !referencePattern.MatchString(id) || !validText(fingerprint, 256) {
+	if !ValidReference(id) || !validText(fingerprint, 256) {
 		return Inspection{}, ErrConflict
 	}
 	r, now, err := m.LoadAt(ctx, ref)
@@ -668,7 +668,7 @@ func (m *MemoryStore) planLeases(before, after []string, fences []ApplicationLea
 	return changes, nil
 }
 func (m *MemoryStore) applicationLease(ctx context.Context, id, term, mode string) (ApplicationLease, error) {
-	if !referencePattern.MatchString(id) {
+	if !ValidReference(id) {
 		return ApplicationLease{}, errors.New("invalid SIP application lease identity")
 	}
 	if mode != "read" {

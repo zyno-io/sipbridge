@@ -9,11 +9,13 @@ import (
 // RetainedInspection contains only bounded classes/counts, never SIP identities
 // or payloads. It is for offline diagnosis and grants no execution authority.
 type RetainedInspection struct {
-	Contexts, Transactions, Dialogs, Allocations, Retired int
-	Answered, Ended, OwnerLost                            int
-	TransactionPhases, NativeTimers                       map[string]int
-	TransactionFamilies, TransactionMethods               map[string]int
-	EarliestContextRetireMS, LatestDispositionUntilMS     int64
+	Contexts, Transactions, Dialogs, Allocations, Retired                   int
+	Answered, Ended, OwnerLost                                              int
+	TransactionPhases, NativeTimers                                         map[string]int
+	TransactionFamilies, TransactionMethods                                 map[string]int
+	EarliestContextRetireMS, LatestDispositionUntilMS                       int64
+	LatestReplayUntilMS, LatestTransactionRetireMS, LatestRespondDeadlineMS int64
+	ContextRetirementGuards, TransactionRetirementGuards                    map[string]int
 }
 
 func InspectRetainedProtocol(data []byte) (RetainedInspection, error) {
@@ -23,10 +25,21 @@ func InspectRetainedProtocol(data []byte) (RetainedInspection, error) {
 	}
 	result := RetainedInspection{Contexts: len(group.Contexts), Allocations: len(group.Allocations), Retired: len(group.Retired),
 		TransactionPhases: make(map[string]int), NativeTimers: make(map[string]int),
-		TransactionFamilies: make(map[string]int), TransactionMethods: make(map[string]int)}
+		TransactionFamilies: make(map[string]int), TransactionMethods: make(map[string]int),
+		ContextRetirementGuards: make(map[string]int), TransactionRetirementGuards: make(map[string]int)}
 	for _, context := range group.Contexts {
 		if context.Snapshot == nil {
 			return RetainedInspection{}, state.ErrCorrupt
+		}
+		result.LatestReplayUntilMS = max(result.LatestReplayUntilMS, context.ReplayUntilMS)
+		for name, present := range map[string]bool{
+			"subscription": context.Subscription != nil, "completionScope": context.CompletionScope != "",
+			"dialog": context.Dialog != "", "ownerCleanup": context.OwnerCleanupAtMS != 0,
+			"ownerProbeEffect": context.OwnerProbeEffect != "",
+		} {
+			if present {
+				result.ContextRetirementGuards[name]++
+			}
 		}
 		result.Transactions += len(context.Transactions)
 		result.Dialogs += len(context.Dialogs)
@@ -34,6 +47,20 @@ func InspectRetainedProtocol(data []byte) (RetainedInspection, error) {
 			result.EarliestContextRetireMS = context.RetireMS
 		}
 		for _, tx := range context.Transactions {
+			result.LatestTransactionRetireMS = max(result.LatestTransactionRetireMS, tx.RetireMS)
+			result.LatestRespondDeadlineMS = max(result.LatestRespondDeadlineMS, tx.RespondDeadlineMS)
+			for name, present := range map[string]bool{
+				"lastResponse": tx.Native.LastResponse != nil, "written": tx.Written,
+				"completionScope": tx.CompletionScope != "", "ownerDeferred": tx.OwnerDeferred,
+				"deferredPresent": tx.DeferredPresent, "pendingResponse": tx.PendingResponse != nil,
+				"finalResponse": tx.FinalResponse != nil, "digestEffect": tx.DigestEffect != "",
+				"digestAttempts": tx.DigestAttempts != 0, "respondStatus": tx.RespondStatus != 0,
+				"unprovenDisposition": tx.DispositionUntilMS <= 0,
+			} {
+				if present {
+					result.TransactionRetirementGuards[name]++
+				}
+			}
 			family := "unsupported"
 			switch tx.Native.Family {
 			case portable.InviteClient, portable.InviteServer, portable.NonInviteClient, portable.NonInviteServer:

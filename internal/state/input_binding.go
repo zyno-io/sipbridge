@@ -39,7 +39,7 @@ func validateInputFields(input Input) error {
 	if err := validateApplicationLeaseIDs(input.ApplicationLeaseIDs); err != nil {
 		return err
 	}
-	if !referencePattern.MatchString(input.ID) || !referencePattern.MatchString(input.Kind) || !validText(input.Fingerprint, 256) ||
+	if !ValidReference(input.ID) || !ValidReference(input.Kind) || !validText(input.Fingerprint, 256) ||
 		input.DeadlineMS <= 0 || input.DeadlineMS > 1<<53-1 || input.ReceiptUntilMS < input.DeadlineMS ||
 		input.ReceiptUntilMS > 1<<53-1 || input.ReceiptUntilMS-input.DeadlineMS > int64(10*time.Minute/time.Millisecond) ||
 		input.ResultUntilMS < 0 || input.ResultUntilMS > input.ReceiptUntilMS {

@@ -1422,9 +1422,6 @@ func (r *stateReduction) timer() error {
 }
 
 func (r *stateReduction) finish() (state.Payload, error) {
-	if err := r.expireAbandonedSetupTransactions(); err != nil {
-		return state.Payload{}, err
-	}
 	active := 0
 	r.payload.Timers = nil
 	for id, c := range r.group.Contexts {
@@ -1473,9 +1470,15 @@ func (r *stateReduction) finish() (state.Payload, error) {
 			if err := body.unmarshalMetadata(effect.Payload); err != nil {
 				return state.Payload{}, err
 			}
-			body.Wire = nil
-			body.Envelope = nil
-			effect.Payload, _ = body.MarshalBinary()
+			if body.Wire != nil || body.Envelope != nil {
+				body.Wire = nil
+				body.Envelope = nil
+				var err error
+				effect.Payload, err = body.MarshalBinary()
+				if err != nil {
+					return state.Payload{}, err
+				}
+			}
 		}
 		filtered = append(filtered, effect)
 	}

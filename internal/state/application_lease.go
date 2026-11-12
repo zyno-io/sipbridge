@@ -215,7 +215,7 @@ func (s *Store) ReadApplicationLease(ctx context.Context, id string) (Applicatio
 }
 
 func validateLeaseIdentity(id, term string, read bool) error {
-	if !referencePattern.MatchString(id) {
+	if !ValidReference(id) {
 		return errors.New("invalid SIP application lease identity")
 	}
 	if !read {
@@ -235,7 +235,7 @@ func decodeApplicationLease(values []interface{}) (ApplicationLease, error) {
 	if err != nil || json.Unmarshal([]byte(encoded), &lease) != nil {
 		return lease, ErrCorrupt
 	}
-	if !referencePattern.MatchString(lease.ID) || lease.CheckedAtMS <= 0 || lease.CheckedAtMS > 1<<53-1 ||
+	if !ValidReference(lease.ID) || lease.CheckedAtMS <= 0 || lease.CheckedAtMS > 1<<53-1 ||
 		lease.ExpiresAtMS < 0 || lease.ExpiresAtMS > 1<<53-1 || lease.RecoveryUntilMS < 0 || lease.RecoveryUntilMS > 1<<53-1 || lease.AttachmentUntilMS < 0 || lease.AttachmentUntilMS > 1<<53-1 || lease.AttachmentUntilMS > 0 && (!lease.Recoverable || lease.ExpiresAtMS > lease.AttachmentUntilMS) ||
 		(lease.Term == "") != (lease.ExpiresAtMS == 0) || lease.Term == "" && (lease.Generation != 0 || lease.Recoverable || lease.RecoveryUntilMS != 0) {
 		return lease, ErrCorrupt
@@ -274,7 +274,7 @@ func validLeaseHash(value string) bool {
 	return true
 }
 func validLeaseHolder(holder ApplicationLeaseHolder) bool {
-	return validLeaseHash(holder.PrincipalHash) && referencePattern.MatchString(holder.HolderID) && referencePattern.MatchString(holder.HolderEpoch)
+	return validLeaseHash(holder.PrincipalHash) && ValidReference(holder.HolderID) && ValidReference(holder.HolderEpoch)
 }
 func normalizeReattachTimeout(value int64) (int64, error) {
 	if value == 0 {
@@ -305,7 +305,7 @@ func (s *Store) recoverableApplicationLease(ctx context.Context, id, term, mode 
 	if err := validateLeaseIdentity(id, term, false); err != nil {
 		return ApplicationLease{}, err
 	}
-	if !validLeaseHolder(a.ApplicationLeaseHolder) || generation > 1<<53-1 || mode != "create" && generation == 0 || (mode == "create" || mode == "attach") && !validLeaseHash(a.TokenHash) || mode == "attach" && (!validLeaseHash(a.NextTokenHash) || !referencePattern.MatchString(a.AttemptID)) {
+	if !validLeaseHolder(a.ApplicationLeaseHolder) || generation > 1<<53-1 || mode != "create" && generation == 0 || (mode == "create" || mode == "attach") && !validLeaseHash(a.TokenHash) || mode == "attach" && (!validLeaseHash(a.NextTokenHash) || !ValidReference(a.AttemptID)) {
 		return ApplicationLease{}, ErrConflict
 	}
 	values, err := s.runKeys(ctx, recoverableApplicationLeaseScript, Ref{Partition: 0}, s.applicationLeaseKeys(id), []interface{}{id, term, mode, a.PrincipalHash, a.HolderID, a.HolderEpoch, a.TokenHash, a.NextTokenHash, a.AttemptID, generation, timeout, uuid.NewString()}, true)

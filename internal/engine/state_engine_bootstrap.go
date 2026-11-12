@@ -10,7 +10,7 @@ import (
 )
 
 func (e *StateEngine) bootstrapGroup(application *pb.ProcessRef, placeholder *pb.ContextRef) (state.Ref, error) {
-	if application == nil || placeholder == nil || placeholder.State != nil || !sendFingerprintReference.MatchString(placeholder.Id) || !sendFingerprintReference.MatchString(application.InstanceId) || !sendFingerprintReference.MatchString(application.Epoch) {
+	if application == nil || placeholder == nil || placeholder.State != nil || !state.ValidReference(placeholder.Id) || !state.ValidReference(application.InstanceId) || !state.ValidReference(application.Epoch) {
 		return state.Ref{}, errors.New("invalid creation inspection identity")
 	}
 	callID := e.id("outbound-call", application.InstanceId, application.Epoch, placeholder.Id) + "@sipbridge"

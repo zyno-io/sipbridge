@@ -326,3 +326,63 @@ func (r *stateReduction) validateReplayFlow(c *stateContext, tx *stateTransactio
 	}
 	return &portable.ProtocolError{Status: 481, Reason: "replacement replay admission required"}
 }
+
+// Called only by the transition that ends a subscription. An unanswered refresh
+// has no autonomous non-INVITE server timeout. End that procedure now, retaining
+// its original disposition proof; do not reopen or repair already ended state.
+func (r *stateReduction) endSubscriptionRequests(c *stateContext) error {
+	if !r.engine.autonomousCompletion() {
+		return nil
+	}
+	for _, tx := range c.Transactions {
+		if tx.Native.Family != portable.NonInviteServer || tx.Native.Phase != portable.Trying ||
+			tx.Native.LastResponse != nil || tx.Written || tx.Emissions != 0 || tx.CompletionScope != "" ||
+			tx.OwnerDeferred || tx.DeferredPresent || tx.PendingResponse != nil || tx.FinalResponse != nil ||
+			tx.DigestEffect != "" || tx.DigestAttempts != 0 || tx.RespondStatus != 0 || tx.RespondDeadlineMS > r.now ||
+			tx.DispositionUntilMS <= 0 {
+			continue
+		}
+		pending := false
+		for _, timer := range tx.Native.Timers {
+			pending = pending || timer.Active
+		}
+		if pending {
+			continue
+		}
+		for _, effect := range r.payload.Effects {
+			var body stateEngineEffect
+			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+				return err
+			}
+			if body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key {
+				continue
+			}
+			if effect.Kind == "wire" || effect.Kind == "deliver" || effect.Status == state.EffectPending || effect.Status == state.EffectAuthorized || effect.Status == state.EffectDispatching || effect.Status == state.EffectUnknown {
+				pending = true
+				break
+			}
+		}
+		if pending {
+			continue
+		}
+		origin, err := tx.Native.Origin.Parse()
+		if err != nil {
+			return err
+		}
+		if origin.CSeq().MethodName != sip.SUBSCRIBE {
+			continue
+		}
+		next, effects, err := portable.StepTransaction(tx.Native, portable.Input{Kind: portable.Terminate, Now: r.now})
+		if err != nil {
+			return err
+		}
+		for _, effect := range effects {
+			if effect.Kind != portable.Ended && effect.Kind != portable.CancelTimer {
+				return state.ErrCorrupt
+			}
+		}
+		tx.Native = next
+		tx.RetireMS = max(tx.RetireMS, c.RetireMS, tx.DispositionUntilMS)
+	}
+	return nil
+}

@@ -18,7 +18,7 @@ files = [
     'internal/engine/state_engine_binary.go', 'internal/state/binary.go',
     'internal/engine/state_engine_fixture_inspection.go', 'cmd/sipbridge-state-inspect/main.go',
     'internal/engine/state_engine.go', 'internal/engine/state_engine_reduce.go',
-    'internal/engine/state_engine_receipts.go', 'internal/engine/state_engine_abandoned_setup.go',
+    'internal/engine/state_engine_receipts.go',
     'internal/engine/state_engine_selectors.go', 'internal/engine/wire.go',
     'internal/engine/state_engine_effects.go', 'internal/engine/state_engine_native_completion.go',
     'internal/engine/state_engine_lifecycle.go', 'internal/engine/state_engine_owner.go',

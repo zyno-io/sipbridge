@@ -599,6 +599,6 @@ func (e *StateEngine) runSchedulePlan(ctx context.Context, plan stateSchedulePla
 		plan = next
 	}
 	if ctx.Err() == nil && len(plan.effects) > 0 {
-		e.dispatchPrepared(plan.ref, plan.effects)
+		e.dispatchPrepared(plan.ref, plan.effects, callbackIndex)
 	}
 }

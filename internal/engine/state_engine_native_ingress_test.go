@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/execution"
 	"sipbridge/internal/state"
 )
 
@@ -148,5 +150,99 @@ func testNativeCompletionIngressRetainsExactFlowAndNativeAuthority(t *testing.T,
 	}
 	if handled, err := f.engine.TryNativeCompletion(context.Background(), f.flow, foreign); err != nil || handled {
 		t.Fatalf("foreign Call-ID admitted: %v / %v", handled, err)
+	}
+}
+
+type completionReadCounts struct {
+	state.Backend
+	views, updates, commits int
+	conflictOnce            bool
+}
+
+func (s *completionReadCounts) ReadState(ctx context.Context, ref state.Ref) (state.StateView, int64, error) {
+	s.views++
+	return s.Backend.ReadState(ctx, ref)
+}
+
+func (s *completionReadCounts) ReadUpdate(ctx context.Context, ref state.Ref, input state.Input) (state.UpdateResult, error) {
+	s.updates++
+	return s.Backend.ReadUpdate(ctx, ref, input)
+}
+
+func (s *completionReadCounts) CompareAndSwap(ctx context.Context, update state.Update, payload state.Payload, outcome []byte) (state.Receipt, error) {
+	s.commits++
+	if s.conflictOnce {
+		s.conflictOnce = false
+		return state.Receipt{}, state.ErrStale
+	}
+	return s.Backend.CompareAndSwap(ctx, update, payload, outcome)
+}
+
+func TestNativeCompletionUsesOneUpdateRead(t *testing.T) {
+	for _, backend := range []string{state.MemoryBackend, state.RedisBackend} {
+		t.Run(backend, func(t *testing.T) {
+			f := newNativeOwnerFixtureBackend(t, backend)
+			f.engine.work = make(chan struct{}, 64)
+			ref := f.admit(t)
+			original := f.engine.store
+			observed := &completionReadCounts{Backend: original}
+			f.engine.store = observed
+			reductions := 0
+			runtime, err := execution.NewCAS(observed, execution.ReducerFunc(func(record state.Record, input state.Input, now int64) (state.Payload, []byte, error) {
+				reductions++
+				return f.engine.reduce(record, input, now)
+			}), 8)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.engine.runtime = runtime
+			before, _ := stateTestLoad(t, f.engine, ref)
+			wrong := stateTestRequest("CANCEL", 1, "", "wrong-branch")
+			if handled, err := f.engine.TryNativeCompletion(context.Background(), f.flow, wrong); err != nil || handled {
+				t.Fatalf("unmatched completion: handled=%v err=%v", handled, err)
+			}
+			if observed.views != 0 || observed.updates != 1 || observed.commits != 0 || reductions != 1 {
+				t.Fatalf("unmatched reads=%d updates=%d commits=%d reductions=%d", observed.views, observed.updates, observed.commits, reductions)
+			}
+			afterMiss, _ := stateTestLoad(t, f.engine, ref)
+			if before.Revision != afterMiss.Revision || len(before.Receipts) != len(afterMiss.Receipts) || !reflect.DeepEqual(before.Proof, afterMiss.Proof) {
+				t.Fatal("unmatched completion changed revision or retained receipts")
+			}
+			correct := stateTestRequest("CANCEL", 1, "", "native-owner")
+			if handled, err := f.engine.TryNativeCompletion(context.Background(), f.flow, correct); err != nil || !handled {
+				t.Fatalf("matched completion: handled=%v err=%v", handled, err)
+			}
+			if observed.views != 0 || observed.updates != 2 || observed.commits != 1 || reductions != 2 {
+				t.Fatalf("matched reads=%d updates=%d commits=%d reductions=%d", observed.views, observed.updates, observed.commits, reductions)
+			}
+			after, _ := stateTestLoad(t, f.engine, ref)
+			if before.Revision == after.Revision {
+				t.Fatal("matched completion did not commit")
+			}
+		})
+	}
+}
+
+func TestNativeCompletionConflictRepeatsSelection(t *testing.T) {
+	f := newNativeOwnerFixtureBackend(t, state.MemoryBackend)
+	f.engine.work = make(chan struct{}, 64)
+	f.admit(t)
+	observed := &completionReadCounts{Backend: f.engine.store, conflictOnce: true}
+	f.engine.store = observed
+	reductions := 0
+	runtime, err := execution.NewCAS(observed, execution.ReducerFunc(func(record state.Record, input state.Input, now int64) (state.Payload, []byte, error) {
+		reductions++
+		return f.engine.reduce(record, input, now)
+	}), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.engine.runtime = runtime
+	request := stateTestRequest("CANCEL", 1, "", "native-owner")
+	if handled, err := f.engine.TryNativeCompletion(context.Background(), f.flow, request); err != nil || !handled {
+		t.Fatalf("completion after conflict: handled=%v err=%v", handled, err)
+	}
+	if observed.views != 0 || observed.updates != 2 || observed.commits != 2 || reductions != 2 {
+		t.Fatalf("reads=%d updates=%d commits=%d reductions=%d", observed.views, observed.updates, observed.commits, reductions)
 	}
 }

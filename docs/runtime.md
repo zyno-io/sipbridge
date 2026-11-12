@@ -126,6 +126,13 @@ materialized only for native wire-fingerprint admission and outgoing controller
 RPCs. Neither representation is cached across operations. Non-SIP effect wire
 (such as a network-open target) keeps its existing typed decoding rules.
 
+Effect encoding constructs only the envelope metadata that is retained. Its
+request/egress/event projection omits the parsed SIP message before any copy;
+it does not clone the parsed headers, addresses or body merely to discard them.
+Exact wire and non-message metadata remain unchanged. This operation-local
+projection shares immutable metadata only until synchronous encoding completes;
+it neither mutates the caller's message nor introduces a retained cache.
+
 Codec telemetry uses only fixed record-kind and encode/decode labels, with
 operation/failure counts, cumulative bytes and elapsed seconds on `/metrics`.
 It never scans Redis or exports application identifiers or retained bytes.
@@ -428,8 +435,10 @@ re-INVITE with 481 when its exact retiring/ended directional dialog proves refus
 an occupied server-transaction key takes precedence. Other methods and live or
 unmatched dialogs retain ordinary processing and rejection arbitration.
 
-Before business routing, read-only completion lookup never creates state. It needs
-exactly one retained native match, checked again by reduction. REGISTER, SUBSCRIBE
+Before business routing, completion selection uses the same authoritative ReadUpdate
+and timestamp as reduction. It never creates state; no match is a read-only result
+without a receipt, and a CAS conflict repeats selection. Exactly one retained native
+match is required; ambiguity is refused. REGISTER, SUBSCRIBE
 and NOTIFY requests skip completion admission/reads; their responses still qualify
 through exact native client-transaction proof. Admitted completion comprises:
 
@@ -500,8 +509,11 @@ grace. A standalone/subscription flow is not moved by another account's registra
 Subscriptions retain Event/id, fixed route headers, accepted Contact/flow/expiry,
 independent local NOTIFY and remote request sequence. Native Dialog validates remote
 CSeq; native client/server transactions own SUBSCRIBE/NOTIFY. Exact replay is response
-only. Rejected refresh preserves accepted fields; failed response delivery does not
-undo accepted business mutation. Every accepted renewal/unsubscribe, even unchanged
+only. Rejected refresh preserves accepted delivery fields and local NOTIFY sequence.
+A refresh already admitted by ingest has consumed its remote request CSeq; rejecting
+the controller response does not roll that sequence back. This differs from rejected
+native ingest, whose partial mutation is rolled back. Failed response delivery does
+not undo accepted business mutation. Every accepted renewal/unsubscribe, even unchanged
 flow/controller, requires a new mutation/publication receipt. Initial bootstrap may
 use its admitted unversioned delivery. Accepted Contact, flow, processor and expiry
 commit together after receipt; failed publication leaves the old route and selects 503.
@@ -906,7 +918,12 @@ Worker head reads, wakes, batches and owned-group executions are counted separat
 from coordinator work. CAS counters distinguish reads, reductions, acknowledged
 commits, conflicts, read-only no-ops, retained-receipt observations and uncertain
 commits using fixed input-kind/event labels. Encoding attempts are not commit
-counts. Counters retain no request identity or per-dialog measurement state.
+counts. Callback counters use fixed effect-kind, discovery-source and event labels
+for attempted receiver RPCs, responses/errors and proven result commits versus
+successful results without a fresh commit projection. Physical dispatch candidate
+locality counts use fixed local/remote/unknown labels. These observations perform no
+store reads, do not deduplicate or prove whether a no-projection result was a replay
+or read-only result, and retain no request identity or per-dialog measurement state.
 Scheduler failures expose fixed stage/error-class counters, including group
 decode and timer-transition failures that would otherwise leave an overdue hint
 unchanged. Raw errors, payloads and SIP identities never become metric labels.

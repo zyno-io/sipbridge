@@ -25,23 +25,24 @@ const stateEffectRecoveryMS = int64(1000)
 // StateEngine retains execution resources only. Every context/transaction value
 // is decoded for one transition, committed, and discarded.
 type StateEngine struct {
-	cfg            Config
-	store          state.Backend
-	control        *control.Server
-	runtime        execution.Driver
-	ctx            context.Context
-	cancel         context.CancelFunc
-	work           chan struct{}
-	background     chan struct{}
-	scheduled      map[string]bool
-	physicalGroups map[string]bool
-	wg             sync.WaitGroup
-	lifecycleMu    sync.Mutex
-	closed         bool
-	dispatchMu     sync.Mutex
-	dispatching    map[string]bool
-	waiters        map[string]map[<-chan struct{}]*stateOperationWaiter
-	scheduler      schedulerStatistics
+	cfg             Config
+	store           state.Backend
+	control         *control.Server
+	runtime         execution.Driver
+	ctx             context.Context
+	cancel          context.CancelFunc
+	work            chan struct{}
+	background      chan struct{}
+	scheduled       map[string]bool
+	physicalGroups  map[string]bool
+	wg              sync.WaitGroup
+	lifecycleMu     sync.Mutex
+	closed          bool
+	dispatchMu      sync.Mutex
+	dispatching     map[string]bool
+	waiters         map[string]map[<-chan struct{}]*stateOperationWaiter
+	scheduler       schedulerStatistics
+	callbackMetrics callbackStatistics
 }
 
 type stateEngineInput struct {
@@ -803,7 +804,7 @@ func (e *StateEngine) schedulePlan(ctx context.Context, ref state.Ref) (stateSch
 	record := stateViewProtocolRecord(view)
 	return stateSchedulePlan{ref: record.Ref, pending: view.HasPending,
 		retire: record.Payload.Retention.Terminal && record.Payload.ActiveTransactions == 0 && len(record.Payload.Effects) == 0 && len(record.Payload.Timers) == 0,
-		timers: e.dueTimers(record, now), effects: e.dispatchableEffects(record.Payload.Effects, now)}, nil
+		timers: e.dueTimers(record, now), effects: e.dispatchableEffects(record.Payload.Effects, now, callbackIndex)}, nil
 }
 
 // Only protocol-only preflight/discovery, historical outcome inspection and
@@ -836,7 +837,11 @@ func (e *StateEngine) dispatchCommitted(ref state.Ref, committed *execution.Comm
 	if effectID != "" && !stateRPCProgressed(effectID, previousKind, committed.Effects) {
 		return
 	}
-	e.dispatchPrepared(committed.Ref, e.dispatchableEffects(committed.Effects, time.Now().UnixMilli()))
+	source := callbackFresh
+	if effectID != "" {
+		source = callbackContinuation
+	}
+	e.dispatchPrepared(committed.Ref, e.dispatchableEffects(committed.Effects, time.Now().UnixMilli(), source), source)
 }
 
 func (e *StateEngine) dispatchAfterEffect(ref state.Ref, effectID, previousKind string) {
@@ -848,10 +853,14 @@ func (e *StateEngine) dispatchAfterEffect(ref state.Ref, effectID, previousKind 
 		if effectID != "" && !stateRPCProgressed(effectID, previousKind, view.Payload.Effects) {
 			return
 		}
-		effects := e.dispatchableEffects(view.Payload.Effects, time.Now().UnixMilli())
+		source := callbackIndex
+		if effectID != "" {
+			source = callbackContinuation
+		}
+		effects := e.dispatchableEffects(view.Payload.Effects, time.Now().UnixMilli(), source)
 		ref := view.Ref
 		view = state.StateView{} // Never retain the authoritative SIP snapshot across RPC.
-		e.dispatchEffects(ref, effects)
+		e.dispatchEffects(ref, effects, source)
 	})
 }
 
@@ -878,11 +887,11 @@ func stateRPCProgressed(effectID, previousKind string, effects []state.Effect) b
 	return true // A completed/collected effect no longer needs its RPC repeated.
 }
 
-func (e *StateEngine) dispatchPrepared(ref state.Ref, effects []state.Effect) {
+func (e *StateEngine) dispatchPrepared(ref state.Ref, effects []state.Effect, source callbackSource) {
 	if len(effects) == 0 {
 		return
 	}
-	e.dispatchWork(func() { e.dispatchEffects(ref, effects) })
+	e.dispatchWork(func() { e.dispatchEffects(ref, effects, source) })
 }
 
 func (e *StateEngine) dispatchWork(work func()) {
@@ -938,11 +947,21 @@ func stateSupportedEffectKind(kind string) bool {
 	}
 }
 
-func (e *StateEngine) dispatchableEffects(effects []state.Effect, now int64) []state.Effect {
+func (e *StateEngine) dispatchableEffects(effects []state.Effect, now int64, source callbackSource) []state.Effect {
 	eligible := stateDispatchableEffects(effects, now)
 	filtered := eligible[:0]
 	worker := e.dispatchWorker(e.cfg.Process)
 	for _, effect := range eligible {
+		if effect.Kind == "deliver" && source < callbackSourceCount {
+			locality := 2
+			if effect.Worker != "" && effect.Worker != state.AnyDispatchWorker {
+				locality = 1
+				if effect.Worker == worker {
+					locality = 0
+				}
+			}
+			e.callbackMetrics.physical[source][locality].Add(1)
+		}
 		if effect.Worker != "" && effect.Worker != state.AnyDispatchWorker && effect.Worker != worker {
 			continue
 		}
@@ -980,7 +999,7 @@ func stateDispatchableEffect(effect state.Effect, now int64) bool {
 	return effect.Kind == "owner" || effect.DeadlineMS+120000 > now || stateHistoricalDelivery(effect) || stateHistoricalAuthorization(effect)
 }
 
-func (e *StateEngine) dispatchEffects(ref state.Ref, effects []state.Effect) {
+func (e *StateEngine) dispatchEffects(ref state.Ref, effects []state.Effect, source callbackSource) {
 	eventPrefix := make(map[string]bool)
 	for _, effect := range effects {
 		if effect.Kind == "event" {
@@ -990,7 +1009,7 @@ func (e *StateEngine) dispatchEffects(ref state.Ref, effects []state.Effect) {
 			}
 			eventPrefix[body.Context] = true
 		}
-		e.dispatchEffect(ref, effect)
+		e.dispatchEffectWithinSource(e.ctx, ref, effect, true, source)
 	}
 }
 
@@ -1009,10 +1028,14 @@ func (e *StateEngine) acquireDispatch(effectID string) func() {
 }
 
 func (e *StateEngine) dispatchEffect(ref state.Ref, effect state.Effect) {
-	e.dispatchEffectWithin(e.ctx, ref, effect, true)
+	e.dispatchEffectWithinSource(e.ctx, ref, effect, true, callbackIndex)
 }
 
 func (e *StateEngine) dispatchEffectWithin(parent context.Context, ref state.Ref, effect state.Effect, chain bool) {
+	e.dispatchEffectWithinSource(parent, ref, effect, chain, callbackIndex)
+}
+
+func (e *StateEngine) dispatchEffectWithinSource(parent context.Context, ref state.Ref, effect state.Effect, chain bool, source callbackSource) {
 	var body stateEngineEffect
 	if body.unmarshalMetadata(effect.Payload) != nil {
 		return
@@ -1210,13 +1233,27 @@ func (e *StateEngine) dispatchEffectWithin(parent context.Context, ref state.Ref
 		request = proto.Clone(request).(*pb.Envelope)
 		request.RemainingBudgetMs = uint32(min(2000, remaining))
 	}
+	e.callbackMetrics.callback(effect.Kind, source, callbackAttempt)
 	reply, err := peer.Call(ctx, request)
+	if err != nil {
+		e.callbackMetrics.callback(effect.Kind, source, callbackError)
+	} else {
+		e.callbackMetrics.callback(effect.Kind, source, callbackResponse)
+	}
 	in := stateEngineInput{Kind: "effect-result", Effect: effect.ID, Executor: executor, Reply: stateCanonicalReply(reply)}
 	if err != nil {
 		in.Failure = "control RPC outcome unavailable"
 	}
 	resultDeadline := time.UnixMilli(effect.DeadlineMS + 120000)
-	if _, committed, err := e.applyCommitted(e.ctx, ref, stateEffectResultID(e, "observed", effect.ID, in), in, resultDeadline, false); err == nil {
+	_, committed, resultErr := e.applyCommitted(e.ctx, ref, stateEffectResultID(e, "observed", effect.ID, in), in, resultDeadline, false)
+	if resultErr != nil {
+		e.callbackMetrics.callback(effect.Kind, source, callbackResultError)
+	} else {
+		if committed != nil {
+			e.callbackMetrics.callback(effect.Kind, source, callbackResultCommit)
+		} else {
+			e.callbackMetrics.callback(effect.Kind, source, callbackResultNoProjection)
+		}
 		release()
 		e.dispatchCommitted(ref, committed, effect.ID, effect.Kind)
 	}

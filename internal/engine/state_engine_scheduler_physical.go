@@ -166,14 +166,14 @@ func (e *StateEngine) schedulePhysicalGroup(worker string, ref state.Ref) {
 			e.scheduler.ownedGroups.Add(1)
 			plan := stateSchedulePlan{ref: current, pending: view.HasPending,
 				retire: view.Payload.Retention.Terminal && view.Payload.ActiveTransactions == 0 && len(view.Payload.Effects) == 0 && len(view.Payload.Timers) == 0,
-				timers: e.dueTimers(stateViewProtocolRecord(view), now), effects: e.dispatchableEffects(view.Payload.Effects, now)}
+				timers: e.dueTimers(stateViewProtocolRecord(view), now), effects: e.dispatchableEffects(view.Payload.Effects, now, callbackIndex)}
 			view = state.StateView{}
 			e.runSchedulePlan(ctx, plan)
 			_ = e.store.AckDispatch(ctx, worker, current, revision)
 			return
 		}
 		var effects []state.Effect
-		for _, effect := range e.dispatchableEffects(view.Payload.Effects, time.Now().UnixMilli()) {
+		for _, effect := range e.dispatchableEffects(view.Payload.Effects, time.Now().UnixMilli(), callbackIndex) {
 			if effect.Worker == worker || effect.Worker == state.AnyDispatchWorker {
 				effects = append(effects, effect)
 			}

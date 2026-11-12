@@ -14,6 +14,7 @@ supplements own the details; a behavior change updates the owning document first
 | Document | Owns |
 | --- | --- |
 | [Controller recovery](docs/controller-recovery.md) | Recoverable logical owners, attachment fencing, authentication and bounded controller restart windows. |
+| [Operation flows](docs/operations/index.md) | Source-to-operation traversal, flowcharts and per-operation work accounting. |
 | [Runtime](docs/runtime.md) | State transitions, leases, completion, physical evidence, exact service bounds and reclamation. |
 | [Protocol](PROTOCOL.md) | Control wire behavior, capability compatibility, identity, business admission and proposed conformance requirements. |
 | [Fixtures](docs/fixtures.md) | Test-program behavior, limits and evidence scope. |
@@ -95,7 +96,7 @@ sequenceDiagram
     participant W as Native worker
     participant R as SIP state store
     C->>I: SIP bytes on an observed flow
-    I->>R: Read-only retained-completion lookup
+    I->>R: ReadUpdate and select retained completion
     alt Proven retained native completion
         I->>R: CAS exact native transition
     else Business admission required
@@ -118,8 +119,8 @@ transport. Before business routing it can prove an exact retained native
 completion without creating a group/context. REGISTER, SUBSCRIBE and NOTIFY
 requests use normal policy admission when enabled. The process-local
 [method policy](docs/runtime.md#process-local-method-policy) can reject disabled
-REGISTER/SUBSCRIBE locally before any state or control access. A read-side match is a hint; the
-CAS transition validates current native identities, flow, lease and deadline.
+REGISTER/SUBSCRIBE locally before any state or control access. Selection and reduction use the same authoritative update read; CAS validates
+incarnation, revision, lease and deadline, and conflicts repeat selection.
 
 Business routing selects an eligible controller, with bounded authenticated redirects
 before acceptance. Existing calls prefer their connected original controller. A tagged
@@ -183,8 +184,9 @@ new-call eligibility only after explicit committed removal and unchanged-binding
 CAS; existing-context transport authority has its own bounded lease.
 
 Subscriptions retain accepted Contact, flow, Event identity, expiry and independent
-NOTIFY/request sequence. A rejected refresh preserves those fields. Controller
-adoption changes processing authority first; only a policy-accepted refresh and
+NOTIFY/request sequence. A rejected refresh preserves the accepted delivery fields
+and local NOTIFY sequence; its admitted remote request CSeq remains consumed.
+Controller adoption changes processing authority first; only a policy-accepted refresh and
 validated publication receipt can change accepted delivery. INVITE ownership
 never changes through this path.
 

@@ -260,6 +260,13 @@ func run() error {
 			for _, statistic := range stateNative.ExecutionStatistics() {
 				fmt.Fprintf(w, "zt_sipbridge_execution_total{input=%q,event=%q} %d\n", statistic.Kind, statistic.Event, statistic.Count)
 			}
+			callbacks, physical := stateNative.CallbackStatistics()
+			for _, statistic := range callbacks {
+				fmt.Fprintf(w, "zt_sipbridge_callback_total{kind=%q,source=%q,event=%q} %d\n", statistic.Kind, statistic.Source, statistic.Event, statistic.Count)
+			}
+			for _, statistic := range physical {
+				fmt.Fprintf(w, "zt_sipbridge_physical_candidate_total{source=%q,locality=%q} %d\n", statistic.Source, statistic.Locality, statistic.Count)
+			}
 			if sipCapture != nil {
 				dropped, failures := sipCapture.Stats()
 				fmt.Fprintf(w, "zt_sipbridge_capture_dropped_total %d\nzt_sipbridge_capture_export_failures_total %d\n", dropped, failures)

@@ -248,6 +248,14 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 		return record.Payload, outcome, execution.ErrReadOnly
 	}
 
+	if in.Kind == "native-ingest" && in.NativeCompletion && in.Ingest == nil {
+		selection := &stateReduction{engine: e, record: record, group: g, in: in, now: now}
+		if err := selection.selectNativeCompletion(); err != nil {
+			return record.Payload, nil, err
+		}
+		in = selection.in
+	}
+
 	var originalRevision uint64
 	originalContext := false
 	if in.Context != nil {

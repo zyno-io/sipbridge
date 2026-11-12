@@ -115,6 +115,15 @@ export default defineConfig({
         ]
       },
       {
+        text: 'Operation Flows',
+        items: [
+          { text: 'Overview', link: '/operations/' },
+          { text: 'Execution and Storage', link: '/operations/execution' },
+          { text: 'Scheduling and Lifecycle', link: '/operations/lifecycle' },
+          { text: 'SIP Operations', link: '/operations/sip' }
+        ]
+      },
+      {
         text: 'Specification',
         items: [
           { text: 'Architecture', link: '/spec/architecture' },

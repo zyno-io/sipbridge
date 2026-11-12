@@ -95,10 +95,19 @@ func (b *stateProcessBarrier) blockedInput(ref state.Ref, id string) bool {
 
 func (b *stateProcessBarrier) matchBegin(step *state.Step) {
 	var input stateEngineInput
-	if unmarshalRetainedFixture(step.Input.Payload, &input) != nil || input.Ingest == nil {
+	if unmarshalRetainedFixture(step.Input.Payload, &input) != nil {
 		return
 	}
-	m, err := sip.ParseMessage(input.Ingest.Wire)
+	var wire []byte
+	if input.Ingest != nil {
+		wire = input.Ingest.Wire
+	} else if input.Kind == "native-ingest" && input.NativeCompletion && input.Message != nil {
+		// Single-read completion has not selected a context at this read barrier.
+		wire = input.Message.Wire
+	} else {
+		return
+	}
+	m, err := sip.ParseMessage(wire)
 	if err != nil {
 		return
 	}

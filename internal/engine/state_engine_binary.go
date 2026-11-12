@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/state"
 	"sipbridge/internal/storagecodec"
@@ -127,16 +126,29 @@ func stateEffectForStorage(value stateEngineEffect) stateEngineEffect {
 	if value.Envelope.GetRequest().GetMessage() == nil && value.Envelope.GetEgress().GetMessage() == nil && value.Envelope.GetDialogEvent().GetMessage() == nil {
 		return value
 	}
-	envelope := proto.Clone(value.Envelope).(*pb.Envelope)
+	original := value.Envelope
+	envelope := &pb.Envelope{CorrelationId: original.CorrelationId, SessionId: original.SessionId, RemainingBudgetMs: original.RemainingBudgetMs}
+	envelope.ProtoReflect().SetUnknown(original.ProtoReflect().GetUnknown())
 	var message *pb.SipMessage
-	if request := envelope.GetRequest(); request != nil {
-		message, request.Message = request.Message, nil
-	}
-	if egress := envelope.GetEgress(); egress != nil {
-		message, egress.Message = egress.Message, nil
-	}
-	if event := envelope.GetDialogEvent(); event != nil {
-		message, event.Message = event.Message, nil
+	switch payload := original.Payload.(type) {
+	case *pb.Envelope_Request:
+		request := payload.Request
+		retained := &pb.RequestPresented{Snapshot: request.Snapshot, RequestId: request.RequestId, Flow: request.Flow}
+		retained.ProtoReflect().SetUnknown(request.ProtoReflect().GetUnknown())
+		envelope.Payload = &pb.Envelope_Request{Request: retained}
+		message = request.Message
+	case *pb.Envelope_Egress:
+		egress := payload.Egress
+		retained := &pb.EgressRequest{Snapshot: egress.Snapshot, ReturnFlow: egress.ReturnFlow, Authorization: egress.Authorization}
+		retained.ProtoReflect().SetUnknown(egress.ProtoReflect().GetUnknown())
+		envelope.Payload = &pb.Envelope_Egress{Egress: retained}
+		message = egress.Message
+	case *pb.Envelope_DialogEvent:
+		event := payload.DialogEvent
+		retained := &pb.DialogEvent{Kind: event.Kind, Snapshot: event.Snapshot, OperationId: event.OperationId, Error: event.Error}
+		retained.ProtoReflect().SetUnknown(event.ProtoReflect().GetUnknown())
+		envelope.Payload = &pb.Envelope_DialogEvent{DialogEvent: retained}
+		message = event.Message
 	}
 	if message != nil && len(value.Wire) == 0 {
 		value.Wire = message.Wire

@@ -238,6 +238,19 @@ func TestNativeReceiverDispatcherStartsOnlyLegacyAndRecordsAcceptance(t *testing
 				t.Fatal(err)
 			}
 			waitRPCDispatchDrain(t, f.engine)
+			callbacks, _ := f.engine.CallbackStatistics()
+			observed := map[string]uint64{}
+			for _, statistic := range callbacks {
+				if statistic.Kind == "present" && statistic.Source == "index" {
+					observed[statistic.Event] += statistic.Count
+				}
+			}
+			if observed["attempt"] != 1 || observed["response"] != 1 || observed["error"] != 0 {
+				t.Fatalf("callback RPC counts: %v", observed)
+			}
+			if cas && observed["result_commit"] != 1 {
+				t.Fatalf("fresh callback result not counted: %v", observed)
+			}
 			record, _ := stateTestLoad(t, f.engine, ref)
 			for _, remaining := range record.Payload.Effects {
 				if remaining.ID == effect.ID {

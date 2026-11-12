@@ -7,7 +7,6 @@ import (
 
 	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
-	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/state"
 )
@@ -17,7 +16,7 @@ func (i *Ingress) ConfigureNativeCompletion(handler func(context.Context, *pb.Fl
 }
 
 // TryNativeCompletion never creates a group/context and never invokes business
-// routing. A read-side candidate remains a hint; the reducer proves it again.
+// routing. Selection and reduction share the same authoritative update read.
 func (e *StateEngine) TryNativeCompletion(parent context.Context, flow *pb.FlowRef, received *pb.SipMessage) (bool, error) {
 	if !e.autonomousCompletion() || received == nil || flow == nil {
 		return false, nil
@@ -62,50 +61,14 @@ func (e *StateEngine) TryNativeCompletion(parent context.Context, flow *pb.FlowR
 	if err != nil {
 		return false, err
 	}
-	view, _, err := e.store.ReadState(ctx, ref)
-	if errors.Is(err, state.ErrNotFound) {
+	in := stateEngineInput{Kind: "native-ingest", NativeCompletion: true, Flow: flow, Message: &pb.SipMessage{Wire: message.Wire}}
+	result, committed, err := e.applyCommitted(ctx, ref, uuid.NewString(), in, time.Now().Add(2*time.Second), false)
+	if errors.Is(err, state.ErrNotFound) || errors.Is(err, errNativeCompletionUnmatched) {
 		return false, nil
 	}
-	if err != nil {
-		return false, classifyStateReadFailure(err)
+	if errors.Is(err, errNativeCompletionAmbiguous) {
+		return true, rejectIngest(481, "ambiguous native completion context")
 	}
-	record := stateViewProtocolRecord(view)
-	group, err := decodeStateGroup(record)
-	if err != nil {
-		return false, classifyStateReadFailure(err)
-	}
-	var selected *pb.OwnerIngest
-	for _, c := range group.Contexts {
-		if !completion && !c.OwnerLost {
-			continue // Exact final replay is allowed only after the owner fence.
-		}
-		admission := pb.OwnerIngest_EXISTING_FLOW
-		if flow.Transport == "tls" {
-			admission = pb.OwnerIngest_TLS_DIALOG_CONTINUITY
-			if message.Status > 0 {
-				admission = pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY
-			}
-		}
-		candidate := &pb.OwnerIngest{Context: e.contextRef(record.Ref, c.Snapshot.Context.Id), Application: c.Snapshot.Application,
-			Flow: flow, Wire: message.Wire, PrincipalId: c.Snapshot.PrincipalId, BindingId: c.Snapshot.BindingId, Admission: admission}
-		r := &stateReduction{engine: e, record: record, group: group, now: time.Now().UnixMilli()}
-		if r.validateCompletionRelay(c, portable.Message{Wire: message.Wire, Transport: flow.Transport}, candidate) != nil {
-			continue
-		}
-		if selected != nil {
-			return true, rejectIngest(481, "ambiguous native completion context")
-		}
-		selected = candidate
-	}
-	if selected == nil {
-		return false, nil
-	}
-	c := group.Contexts[selected.Context.Id]
-	in := stateEngineInput{Kind: "native-ingest", NativeCompletion: true, Context: selected.Context, Flow: flow, Ingest: selected,
-		Application: proto.Clone(c.Snapshot.Application).(*pb.ProcessRef), ApplicationLeaseTerm: c.Snapshot.ApplicationLeaseTerm}
-	operationRef := record.Ref
-	view, record, group, c, selected = state.StateView{}, state.Record{}, stateGroup{}, nil, nil
-	result, committed, err := e.applyCommitted(ctx, operationRef, uuid.NewString(), in, time.Now().Add(2*time.Second), false)
 	if err != nil {
 		return true, err
 	}
@@ -116,8 +79,56 @@ func (e *StateEngine) TryNativeCompletion(parent context.Context, flow *pb.FlowR
 		}
 		return true, rejectIngest(status, "native completion refused")
 	}
-	e.dispatchCommitted(operationRef, committed, "", "")
+	if committed != nil {
+		e.dispatchCommitted(committed.Ref, committed, "", "")
+	}
 	return true, nil
+}
+
+var errNativeCompletionUnmatched = errors.New("native completion unmatched")
+var errNativeCompletionAmbiguous = errors.New("native completion ambiguous")
+
+// selectNativeCompletion derives authority only from this update's record and time.
+func (r *stateReduction) selectNativeCompletion() error {
+	if r.in.Flow == nil || r.in.Message == nil {
+		return state.ErrCorrupt
+	}
+	message, err := Observe(r.in.Message.Wire, false)
+	if err != nil {
+		return err
+	}
+	completion := message.Status > 0 || message.Method == "ACK" || message.Method == "CANCEL" || message.Method == "BYE"
+	var selected *pb.OwnerIngest
+	var selectedContext *stateContext
+	for _, c := range r.group.Contexts {
+		if !completion && !c.OwnerLost {
+			continue
+		}
+		admission := pb.OwnerIngest_EXISTING_FLOW
+		if r.in.Flow.Transport == "tls" {
+			admission = pb.OwnerIngest_TLS_DIALOG_CONTINUITY
+			if message.Status > 0 {
+				admission = pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY
+			}
+		}
+		candidate := &pb.OwnerIngest{Context: r.engine.contextRef(r.record.Ref, c.Snapshot.Context.Id), Application: c.Snapshot.Application,
+			Flow: r.in.Flow, Wire: message.Wire, PrincipalId: c.Snapshot.PrincipalId, BindingId: c.Snapshot.BindingId, Admission: admission}
+		if r.validateCompletionRelay(c, portable.Message{Wire: message.Wire, Transport: r.in.Flow.Transport}, candidate) != nil {
+			continue
+		}
+		if selected != nil {
+			return errNativeCompletionAmbiguous
+		}
+		selected, selectedContext = candidate, c
+	}
+	if selected == nil {
+		return errNativeCompletionUnmatched
+	}
+	r.in.Context = selected.Context
+	r.in.Ingest = selected
+	r.in.Application = selectedContext.Snapshot.Application
+	r.in.ApplicationLeaseTerm = selectedContext.Snapshot.ApplicationLeaseTerm
+	return nil
 }
 
 func (r *stateReduction) ingestNativeCompletion() error {

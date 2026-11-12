@@ -321,6 +321,14 @@ for controller steps.
 
 ## Ingress, selectors and completion
 
+Stream framing reuses its parsed SIP message for the operation-local public
+projection after the same mandatory identity/branch validation as ordinary
+observation. It does not reparse the same frame or trust parsed objects supplied
+over control. Exact wire bytes and message bodies remain independently owned.
+Framing allocates its original-byte buffer on demand; after a frame larger than
+8 KiB drains the stream, it releases that buffer and replaces the parser stream
+so rare large messages do not pin their high-water capacity to a phone connection.
+
 ### Process-local method policy
 
 `--allow-register` and `--allow-subscribe` default to true. Setting either to
@@ -603,10 +611,65 @@ requires retention. Missing/changed credentials fail setup, never adopt another 
 
 ## Scheduling, results and reclamation
 
-One group recovery timer replaces per-effect timers. One background scheduler per
-state namespace holds a 250-ms Redis-time lease, renewed every 50 ms with a unique
-leadership token. Followers retry acquisition every 100 ms and do not enumerate
-queues or repair indexes. Conditional renewal/release cannot revive or delete a
+### Owned scheduling
+
+Each group has one derivative timer executor, identified by a native worker's
+process epoch. Its earliest protocol, recovery or retirement deadline is projected
+into that worker's sorted queue. The worker remembers only its next deadline and
+wake cursor, and executes due groups from its own queue. A heartbeat covers all
+owned groups; no per-dialog Redis mutex or periodic owner-lease probe is required.
+Targeted bounded wake streams notify only the affected worker. Scheduling metadata
+never grants SIP, socket or application authority: store CAS, timer generations,
+application lease guards and exact physical reservation/settlement remain required.
+
+A bounded coordinator transfers expired workers' timer queues and repairs missing
+projections. Transfers change scheduling metadata only. An old acknowledgement
+cannot erase a transferred timer. A previously admitted old-worker timer may still
+commit its exact generation once through the ordinary CAS boundary. Healthy
+workers' timer groups are not decoded by the coordinator. Initial call setup may
+fail during worker loss; established-dialog and subscription/NOTIFY completion
+retain their existing shared-state guarantees.
+
+Application leases have one shared expiry deadline per owner. Renewal changes
+only owner metadata. Expiry retains the existing recovery grace, then starts a
+bounded, resumable internal context sweep. Acknowledgement advances progress only
+after affected groups reconcile; a new owner term or attachment generation fences
+old acknowledgements. Public controller context enumeration retains its live-owner
+restriction. Healthy contexts have no periodic owner-probe transaction; already
+lost owners retain the cleanup timers needed by their existing obligations.
+
+The portable SIP reducers remain the authority for protocol transition behavior.
+Pure transitions do not require namespace-wide timer execution or protocol-state
+rewrites for healthy owner heartbeats. There is no asynchronous authoritative
+resident checkpoint: externally visible state changes still commit before output.
+
+CAS admission validates and serializes its immutable input envelope once. The
+adapter retains only that operation's canonical encoded input, digest and compact
+field/payload binding until CAS completes. Commit verifies that the supplied input
+still matches the binding, then reuses the same canonical envelope and digest.
+It does not repeat whole-envelope JSON/base64 encoding for validation and commit.
+The fingerprint and retained receipt representation remain unchanged; mutating
+any admitted identity, deadline, lease ID or payload still refuses the CAS.
+
+The context's cached command result retains its outcome and exact request/response
+wire, but no duplicate context snapshot or parsed SIP message graph. Public command
+replay, inspection and waiters project a fresh snapshot from the canonical context
+and reconstruct request/response fields from that wire at their boundary. Invalid
+retained wire refuses the projection; it cannot supply send authority. Group decode
+does not parse these messages. Persisted operation receipts and lifecycle event
+snapshots retain their original independent meaning; this compaction does not
+rewrite historical outcome evidence.
+
+All workers sharing an authority must support compact cached-result projection
+and owner-expiry scheduling. Unchanged descriptors do not make preceding binaries
+compatible with these omitted derived fields. Upgrade the worker cohort together;
+an older binary is not a compatible rollback once compact records are written.
+No schema migration or historical-format fallback is introduced.
+
+One group recovery timer replaces per-effect timers. One metadata coordinator per
+state namespace holds a two-second Redis-time lease, renewed every 500 ms with a
+unique leadership token. Followers retry acquisition every 500 ms and do not
+enumerate shared queues or repair indexes. Conditional renewal/release cannot revive or delete a
 successor's lease. A changed primary invalidates the lease. Leadership coordinates
 background work only; both SIP workers remain active and all CAS, owner, deadline
 and exact physical-write guards remain authoritative. An uncertain/expired local
@@ -616,6 +679,16 @@ the latest conservative local lease deadline; renewal failure cancels the leader
 and its admitted work. One repair page may run concurrently with due-work
 discovery, with a two-second total budget and the same per-operation Redis lease
 guards. A slow repair page cannot block renewal or native timer admission.
+
+Timer ownership is chosen on the group's first commit and is independent of its
+current physical connection. A request arriving on another worker still acquires
+fresh shared state and can commit normally. Its response stays on that request's
+socket; no timer-ownership move is required. An owner that loses its heartbeat is
+eligible for metadata-only queue transfer. The coordinator checks orphan queues
+every 500 ms and transfers at most 64 groups per page, pacing remaining pages at
+20 ms. The orphan index is bounded by retained scheduled groups plus live workers,
+not by a fixed admission cap that could prevent cold recovery. A group with no
+deadline has no timer-queue entry; its next commit reinstates scheduling if needed.
 
 Native physical delivery has a separate, per-process dispatch index. Each commit
 projects the opaque ingress process/epoch target of unsettled native delivery
@@ -640,9 +713,18 @@ guards still decide which operation may progress. Physical ingress targets remai
 explicit and are never expanded through this registration. Blocking application
 I/O has a separate group-admission memo from timer reduction.
 
-Every index mutation atomically updates a sorted head projection containing at most
-two entries per partition. A queue whose head advances appends a constant marker to
-a wake stream, exactly trimmed to its latest entry. This is a bounded notification,
+Owned timer and physical queues share one targeted wake stream per worker, trimmed
+to its latest marker with a 120-second idle TTL. The worker reads their earliest
+head and cursor atomically, then waits locally until that deadline or an earlier
+head notification. No scheduler-leader lease is required to read its own queue.
+Only a committed protocol transition advances a timer obligation; a physical hint
+acknowledgement cannot delete it. Earlier physical/timer heads wake only that
+worker. Ordinary registration renewals do not reload protocol records.
+
+Unowned groups retain the bounded shared ready/due path. Its index mutation
+atomically updates a head projection containing at most two entries per partition.
+A queue whose head advances appends a constant marker to a wake stream, exactly
+trimmed to its latest entry. This is a bounded notification,
 not an event/job history or a consumer group. Types and required command permissions
 are checked before protocol mutation. The head, wake cursor and Redis time are read
 atomically under the current scheduler lease. Only the next deadline and stream
@@ -653,10 +735,10 @@ alone does not reload queues or protocol records. A change between head-read and
 XREAD remains visible; coalesced/trimmed notifications require one fresh head read.
 The memory store supplies the same boundary with process-local notifications.
 
-A new leader rebuilds the head projection from the ready/due queue heads before
+A new coordinator rebuilds the shared head projection from unowned ready/due queues before
 waiting; it never adopts its predecessor's cached timestamp/cursor. Redis failure,
 primary change or notification error discards the cache and reacquires leadership.
-When work is due, every 20 ms the leader visits ceil(partitions/8), clamped to 1–8
+When unowned work is due, every 20 ms the coordinator visits ceil(partitions/8), clamped to 1–8
 partitions, with a 100-ms read budget. Through 64 partitions a healthy sweep takes
 at most 160 ms, below 500-ms native T1. One bounded Lua call validates the current
 lease and reads consecutive partitions at a common Redis TIME cutoff; ready/due
@@ -679,7 +761,8 @@ The memo contains no parsed mutable SIP object or authorization, is discarded at
 the operation boundary, and is cleared before a failed transition restores its
 original aggregate. It never bypasses a fresh store read, native validation or
 CAS fencing. Exhausting the memo budget falls back to ordinary reconstruction.
-Ready precedes due; overlapping work deduplicates. A newly elected leader, or a
+Shared ready precedes shared due; overlapping work deduplicates. Owned queues merge
+their physical/timer heads by deadline. A newly elected coordinator, or a
 leader observing corrupt hints, runs one bounded incremental metadata-repair scan,
 at most one 128-key page per second alongside normal dispatch. It stops at the end
 of that scan instead of continuously rescanning an idle namespace. Normal commits
@@ -689,6 +772,11 @@ records or guarantee timely recovery from arbitrary external index corruption.
 The admin metrics expose scheduler leadership, acquisitions, head reads, hint
 batches, coalesced wakeups and repair pages as bounded process counters/gauges;
 collecting them performs no store reads and includes no context/queue identity.
+Worker head reads, wakes, batches and owned-group executions are counted separately
+from coordinator work. CAS counters distinguish reads, reductions, acknowledged
+commits, conflicts, read-only no-ops, retained-receipt observations and uncertain
+commits using fixed input-kind/event labels. Encoding attempts are not commit
+counts. Counters retain no request identity or per-dialog measurement state.
 Scheduler failures expose fixed stage/error-class counters, including group
 decode and timer-transition failures that would otherwise leave an overdue hint
 unchanged. Raw errors, payloads and SIP identities never become metric labels.
@@ -713,7 +801,17 @@ extends SIP/command/physical authority. Notifications behind predecessors retain
 same horizon.
 
 Command waits register a bounded local notification before fresh effect dispatch.
-Notifications are coalesced hints; results always reload validated Redis. Fresh commits
+Notifications are coalesced hints. A definite successful local CAS may hand its
+matching waiter one compact result DTO containing exact message wire and the
+committed snapshot. This transient projection is restricted to the exact group,
+incarnation, context and operation; lower store revisions cannot replace higher
+ones. Only completed outcomes or the existing proven written-public-BYE result
+qualify. Uncertain CAS, replay and read-only paths cannot publish it. The reducer
+builds it only for active local waiters; it is never persisted, is removed with the
+waiter, and contains no authoritative protocol aggregate. Public message fields
+are reconstructed only when returning it. The optional DTO is capped at 1 MiB;
+larger replies use the store-read fallback. Missing local evidence, sibling-worker
+completion and reconnect retain the validated store-read fallback. Fresh commits
 wait for notification or 40 ms before first read. Replay/nil projections read immediately,
 then back off 10/20/40 ms. Each wait starts after read/decode, avoiding catch-up reads.
 In the last 100 ms of original deadline, waits cap at 10 ms and remaining budget.

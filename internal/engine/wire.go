@@ -36,15 +36,22 @@ func parseObservedMessage(wire []byte) (sip.Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	if m.CallID() == nil || m.CSeq() == nil || m.From() == nil || m.To() == nil || m.Via() == nil {
-		return nil, fmt.Errorf("missing mandatory SIP identity")
+	if err := validateObservedMessage(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func validateObservedMessage(m sip.Message) error {
+	if m == nil || m.CallID() == nil || m.CSeq() == nil || m.From() == nil || m.To() == nil || m.Via() == nil {
+		return fmt.Errorf("missing mandatory SIP identity")
 	}
 	if _, request := m.(*sip.Request); request {
 		if _, err := sip.ClientTxKeyMake(m); err != nil {
-			return nil, fmt.Errorf("RFC 3261 Via branch required")
+			return fmt.Errorf("RFC 3261 Via branch required")
 		}
 	}
-	return m, nil
+	return nil
 }
 
 // Observe parses an immutable serialization. Native objects never cross control.
@@ -53,6 +60,19 @@ func Observe(wire []byte, outbound bool) (*pb.SipMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	return projectObservedMessage(wire, m, outbound), nil
+}
+
+// The stream parser and original bytes belong to the same framing operation.
+// Reuse that parsed value only here, never across a control/store trust boundary.
+func observeFramedMessage(wire []byte, m sip.Message) (*pb.SipMessage, error) {
+	if err := validateObservedMessage(m); err != nil {
+		return nil, err
+	}
+	return projectObservedMessage(wire, m, false), nil
+}
+
+func projectObservedMessage(wire []byte, m sip.Message, outbound bool) *pb.SipMessage {
 	w := &pb.SipMessage{Wire: wire, Body: m.Body(), Addresses: make(map[string]*pb.AddressList)}
 	var all []sip.Header
 	if request, ok := m.(*sip.Request); ok {
@@ -92,7 +112,7 @@ func Observe(wire []byte, outbound bool) (*pb.SipMessage, error) {
 	if auth, err := digest.ParseCredentials(header(m, "Authorization")); err == nil {
 		w.Authorization = &pb.DigestCredentials{Username: auth.Username, Realm: auth.Realm, Nonce: auth.Nonce, Uri: auth.URI, Response: auth.Response, Algorithm: auth.Algorithm, Qop: auth.QOP, Nc: fmt.Sprintf("%08x", auth.Nc), Cnonce: auth.Cnonce}
 	}
-	return w, nil
+	return w
 }
 
 // observeSelectors preserves wire validation and native key rules without

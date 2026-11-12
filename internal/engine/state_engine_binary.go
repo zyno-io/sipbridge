@@ -9,8 +9,73 @@ import (
 )
 
 func (value stateGroup) MarshalBinary() ([]byte, error) {
-	return storagecodec.Marshal(storagecodec.Group, storageEncodeEngineStateGroup(value))
+	encoded := storageEncodeEngineStateGroup(value)
+	if encoded.Contexts != nil {
+		for _, entry := range encoded.Contexts.Values {
+			if entry != nil && entry.Value != nil && entry.Value.Result != nil {
+				entry.Value.Result = stateResultForStorage(entry.Value.Result)
+			}
+		}
+	}
+	return storagecodec.Marshal(storagecodec.Group, encoded)
 }
+
+// The context is the authority for the current snapshot. Cached command results
+// retain their outcome and exact SIP wire, with projections built only at public
+// boundaries. Copy small DTOs without cloning their immutable wire.
+func stateResultForStorage(value *pb.OperationResult) *pb.OperationResult {
+	wireOnly := func(message *pb.SipMessage) *pb.SipMessage {
+		if message == nil {
+			return nil
+		}
+		if message.Method == "" && message.Uri == "" && message.Status == 0 && message.Reason == "" &&
+			len(message.Body) == 0 && len(message.Headers) == 0 && len(message.Addresses) == 0 && len(message.Vias) == 0 &&
+			len(message.Selectors) == 0 && message.Authorization == nil && len(message.ProtoReflect().GetUnknown()) == 0 {
+			return message
+		}
+		return &pb.SipMessage{Wire: message.Wire}
+	}
+	request, response := wireOnly(value.Request), wireOnly(value.Response)
+	if value.Snapshot == nil && request == value.Request && response == value.Response && len(value.ProtoReflect().GetUnknown()) == 0 {
+		return value
+	}
+	return &pb.OperationResult{
+		Certainty: value.Certainty, Error: value.Error, SipStatus: value.SipStatus,
+		Request: request, Response: response, RetirementProof: value.RetirementProof,
+	}
+}
+
+// The caller owns this public result independently of retained context state.
+// Validate both messages before publishing either projection. Exact bytes alone
+// are not proof of authority, physical write, or successful SIP completion.
+func stateMaterializeResultMessages(result *pb.OperationResult) error {
+	if result == nil {
+		return nil
+	}
+	// Parsed operation-local projections were already produced by Observe.
+	// Retained cached DTOs always have these discriminator fields cleared by
+	// group decode, including records written by the preceding representation.
+	request, response := result.Request, result.Response
+	var err error
+	if request != nil && request.Method == "" {
+		request, err = Observe(result.Request.Wire, true)
+		if err != nil || request.Method == "" {
+			return state.ErrCorrupt
+		}
+	}
+	if response != nil && response.Status == 0 {
+		response, err = Observe(result.Response.Wire, false)
+		if err != nil || response.Status == 0 {
+			return state.ErrCorrupt
+		}
+	}
+	if request != nil && request.Status != 0 {
+		return state.ErrCorrupt
+	}
+	result.Request, result.Response = request, response
+	return nil
+}
+
 func (value *stateGroup) UnmarshalBinary(data []byte) error {
 	decoded := new(storagepb.EngineStateGroup)
 	if err := storagecodec.Unmarshal(data, storagecodec.Group, decoded); err != nil {
@@ -20,6 +85,11 @@ func (value *stateGroup) UnmarshalBinary(data []byte) error {
 	for _, context := range next.Contexts {
 		if context == nil {
 			return state.ErrCorrupt
+		}
+		// Accept the preceding representation but do not retain its redundant
+		// projection or use it as command-result authority.
+		if context.Result != nil {
+			context.Result = stateResultForStorage(context.Result)
 		}
 		for _, transaction := range context.Transactions {
 			if transaction == nil || transaction.Policy != nil && !transaction.Policy.valid() {

@@ -22,17 +22,18 @@ type CASStore interface {
 
 // CASRuntime executes pure computations without legacy claims or recovery.
 type CASRuntime struct {
-	store    CASStore
-	reducer  Reducer
-	slots    chan struct{}
-	casGates *[casGroupGateStripes]chan struct{}
+	store      CASStore
+	reducer    Reducer
+	slots      chan struct{}
+	casGates   *[casGroupGateStripes]chan struct{}
+	statistics runtimeStatistics
 }
 
 // ErrUncommitted proves this invocation committed no protocol transition. It
 // preserves prompt availability refusals without manufacturing an unknown send.
 var ErrUncommitted = errors.New("computation was not committed")
 
-// ErrReadOnly is restricted to a negative internal precondition result. It never
+// ErrReadOnly is a validated internal observation requiring no mutation. It never
 // grants permission for external work and is not a retained operation receipt.
 var ErrReadOnly = errors.New("internal computation requires no state change")
 
@@ -87,6 +88,7 @@ func (r *CASRuntime) Apply(ctx context.Context, ref state.Ref, input state.Input
 
 // ApplyCommitted returns dispatch hints only after a definite fresh CAS commit.
 func (r *CASRuntime) ApplyCommitted(ctx context.Context, ref state.Ref, input state.Input) (Result, error) {
+	counts := &r.statistics[statisticKind(input.Kind)]
 	parentCtx := ctx
 	timing := RequestTiming(parentCtx)
 	admissionCtx := parentCtx
@@ -96,6 +98,7 @@ func (r *CASRuntime) ApplyCommitted(ctx context.Context, ref state.Ref, input st
 		defer stop()
 	}
 	readUpdate := func(readCtx context.Context, readRef state.Ref) (state.UpdateResult, error) {
+		counts[statRead].Add(1)
 		started := time.Now()
 		read, err := r.store.ReadUpdate(readCtx, readRef, input)
 		if timing != nil {
@@ -128,6 +131,7 @@ func (r *CASRuntime) ApplyCommitted(ctx context.Context, ref state.Ref, input st
 		}
 		read, err := readUpdate(fallbackCtx, ref)
 		if err == nil && read.Receipt != nil {
+			counts[statReceipt].Add(1)
 			return Result{Receipt: *read.Receipt}, nil
 		}
 		if err != nil {
@@ -199,6 +203,7 @@ func (r *CASRuntime) ApplyCommitted(ctx context.Context, ref state.Ref, input st
 	// may return an exact receipt even if the semantic deadline elapsed meanwhile.
 	read, err := readUpdate(parentCtx, ref)
 	if err == nil && read.Receipt != nil {
+		counts[statReceipt].Add(1)
 		return Result{Receipt: *read.Receipt}, nil
 	}
 	for {
@@ -214,6 +219,7 @@ func (r *CASRuntime) ApplyCommitted(ctx context.Context, ref state.Ref, input st
 			ref = *read.Ref
 		}
 		if err == nil && read.Receipt != nil {
+			counts[statReceipt].Add(1)
 			return Result{Receipt: *read.Receipt}, nil
 		}
 		if err == nil {
@@ -225,12 +231,14 @@ func (r *CASRuntime) ApplyCommitted(ctx context.Context, ref state.Ref, input st
 				return Result{}, errors.Join(ErrUncommitted, state.ErrBusy)
 			}
 			started := time.Now()
+			counts[statReduce].Add(1)
 			next, outcome, reduceErr := r.reducer.Reduce(update.Record, update.Input, update.NowMS)
 			if timing != nil {
 				timing.Reduce += time.Since(started)
 				timing.Reductions++
 			}
-			if errors.Is(reduceErr, ErrReadOnly) && update.Record.Pending == nil && input.Proof && (input.Kind == "effect-start" || input.Kind == "effect-result" || input.Kind == "timer") {
+			if errors.Is(reduceErr, ErrReadOnly) && update.Record.Pending == nil && input.Proof && (input.Kind == "effect-start" || input.Kind == "effect-result" || input.Kind == "timer" || input.Kind == "owner-check") {
+				counts[statReadOnly].Add(1)
 				return Result{Receipt: state.Receipt{OperationID: input.ID, Fingerprint: input.Fingerprint, Revision: update.Record.Revision,
 					ExpiresMS: input.ReceiptUntilMS, Outcome: outcome}}, nil
 			}
@@ -247,14 +255,17 @@ func (r *CASRuntime) ApplyCommitted(ctx context.Context, ref state.Ref, input st
 				}
 			}
 			if commitErr == nil {
-				return Result{Receipt: receipt, Committed: committedEffects(update.Record.Ref, next.Effects)}, nil
+				counts[statCommit].Add(1)
+				return Result{Receipt: receipt, Committed: committedEffects(update.Record.Ref, receipt.Revision, next)}, nil
 			}
 			if errors.Is(commitErr, state.ErrUnknown) {
+				counts[statUnknown].Add(1)
 				// Inspect the same external operation against this exact proposed
 				// incarnation. Internal uncertainty is never replayed here.
 				if !input.Proof || input.Kind == "command" {
 					known, inspectErr := r.store.InspectOperation(admissionCtx, update.Record.Ref, input.ID, input.Fingerprint)
 					if inspectErr == nil && known.Receipt != nil {
+						counts[statReceipt].Add(1)
 						return Result{Receipt: *known.Receipt}, nil
 					}
 				}
@@ -265,6 +276,7 @@ func (r *CASRuntime) ApplyCommitted(ctx context.Context, ref state.Ref, input st
 		if !errors.Is(err, state.ErrStale) && !errors.Is(err, state.ErrBusy) {
 			return Result{}, errors.Join(ErrUncommitted, err)
 		}
+		counts[statConflict].Add(1)
 		if timing != nil {
 			if errors.Is(err, state.ErrStale) {
 				timing.Stale++

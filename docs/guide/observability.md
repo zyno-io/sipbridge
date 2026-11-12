@@ -21,9 +21,15 @@ content or credentials. When you need to see the SIP traffic itself, turn on
 | `zt_sipbridge_method_rejected_total` | Local `405` responses from `--allow-register=false` / `--allow-subscribe=false`. |
 | `zt_sipbridge_capture_dropped_total` | Capture records dropped because the queue was full. Present only with capture enabled. |
 | `zt_sipbridge_capture_export_failures_total` | Capture batches the collector did not accept. Present only with capture enabled. |
+| `zt_sipbridge_execution_total` | Fixed `input`/`event` counters distinguish reads, reductions, acknowledged commits, conflicts, read-only observations, receipts and uncertain commits. |
+| `zt_sipbridge_worker_head_reads_total` | Reads of this worker's timer/physical queue heads. |
+| `zt_sipbridge_worker_hint_batches_total` | Due-work batches from this worker's own indexes. |
+| `zt_sipbridge_worker_wakeups_total` | Coalesced targeted queue-change notifications. |
+| `zt_sipbridge_worker_owned_groups_total` | Executions of groups for which this worker is the timer executor. |
 
 The `zt_` prefix is historical. The counters start at zero when the process
-starts and have no labels. A rising `ingress_rejected` count means the
+starts. Ingress and capture counters have no labels; execution labels use a fixed
+vocabulary and never contain SIP/account/context identities. A rising `ingress_rejected` count means the
 instance is at its connection limit; a rising `capture_dropped` count means the
 collector is not keeping up.
 

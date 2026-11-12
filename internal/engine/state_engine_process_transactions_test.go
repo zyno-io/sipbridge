@@ -330,13 +330,27 @@ func TestStateNativeProcessNon2xxServerACKCompletesOnReplacementTLS(t *testing.T
 }
 
 func TestStateNativeProcessCancelledLateForksCleanupAfterOwnerDeath(t *testing.T) {
+	processCancelledLateForksCleanupAfterOwnerDeath(t, newRelayProcessHarness, true)
+}
+
+func TestStateNativeCurrentProcessCancelledLateForksCleanupAfterOwnerDeath(t *testing.T) {
+	processCancelledLateForksCleanupAfterOwnerDeath(t, newNativeProcessHarness, false)
+}
+
+func processCancelledLateForksCleanupAfterOwnerDeath(t *testing.T, harness func(*testing.T) *processHarness, egressGrantExpiry bool) {
+	t.Helper()
 	for _, scenario := range []struct {
 		name         string
 		rejected     bool
 		expiredGrant bool
 	}{{name: "cancel-pending"}, {name: "cancel-final487", rejected: true}, {name: "cancel-expired-cleanup-grant", expiredGrant: true}} {
+		// Native completion does not request the historical controller egress
+		// grant whose expiry this relay-only scenario exercises.
+		if scenario.expiredGrant && !egressGrantExpiry {
+			continue
+		}
 		t.Run(scenario.name, func(t *testing.T) {
-			h := newRelayProcessHarness(t)
+			h := harness(t)
 			if scenario.expiredGrant {
 				var held sync.Once
 				h.beforeEgressReply = func(egress *pb.EgressRequest) {

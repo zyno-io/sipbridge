@@ -134,6 +134,16 @@ type stateProcessStore struct {
 	barrier *stateProcessBarrier
 }
 
+func (s *stateProcessStore) ReadUpdate(ctx context.Context, ref state.Ref, input state.Input) (state.UpdateResult, error) {
+	result, err := s.Store.ReadUpdate(ctx, ref, input)
+	if err == nil && result.Update != nil {
+		// Pause the actual native CAS admission before reduction/commit. Unlike
+		// historical Begin, this read owns no durable claim or pending input.
+		s.barrier.matchBegin(&state.Step{Record: result.Update.Record, Input: result.Update.Input})
+	}
+	return result, err
+}
+
 func (s *stateProcessStore) Begin(ctx context.Context, ref state.Ref, worker string, input state.Input) (state.BeginResult, error) {
 	if s.barrier.blocked(ref) && input.Kind != "reserve" && input.Kind != "complete" {
 		blocked, err := s.blockedOriginalInput(ctx, ref)

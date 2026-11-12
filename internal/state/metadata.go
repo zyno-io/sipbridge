@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"sipbridge/internal/storagecodec"
 	"strings"
-	"time"
 )
 
 // metadata holds immutable configuration and pure validation only.
@@ -81,13 +80,8 @@ func (s *metadata) validateRef(ref Ref) error {
 }
 
 func (s *metadata) validateInput(input Input) error {
-	if err := validateApplicationLeaseIDs(input.ApplicationLeaseIDs); err != nil {
+	if err := validateInputFields(input); err != nil {
 		return err
-	}
-	if !referencePattern.MatchString(input.ID) || !referencePattern.MatchString(input.Kind) || !validText(input.Fingerprint, 256) ||
-		input.DeadlineMS <= 0 || input.DeadlineMS > 1<<53-1 || input.ReceiptUntilMS < input.DeadlineMS ||
-		input.ReceiptUntilMS > 1<<53-1 || input.ReceiptUntilMS-input.DeadlineMS > int64(10*time.Minute/time.Millisecond) {
-		return errors.New("invalid SIP input identity/deadline")
 	}
 	_, data, err := digestInput(input)
 	if err != nil {
@@ -145,6 +139,9 @@ func (s *metadata) decodeProtocolRecord(ref Ref, inc, revision string, data []by
 }
 
 func (s *metadata) validatePayloadStructure(payload Payload) error {
+	if payload.TimerWorker != "" && !dispatchWorkerPattern.MatchString(payload.TimerWorker) {
+		return ErrCorrupt
+	}
 	if err := validateApplicationContexts(payload.ApplicationContexts, payload.ApplicationLeaseIDs); err != nil {
 		return err
 	}

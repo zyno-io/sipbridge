@@ -85,7 +85,11 @@ func TestStateSubscriptionSameFlowRefreshPublishesMutationFence(t *testing.T) {
 			stateTestApply(t, a, ref, "publication-complete", stateEngineInput{Kind: "effect-result", Executor: a.cfg.Process, Effect: adoption.ID, Reply: &pb.Envelope{Payload: &pb.Envelope_FlowAdoptionResult{FlowAdoptionResult: &pb.FlowAdoptionResult{Receipt: receipt}}}})
 			_, group = stateTestLoad(t, b, ref)
 			accepted := group.Contexts[ref.Id]
-			if !proto.Equal(accepted.Result.GetSnapshot().GetDelivery(), receipt) || accepted.Subscription.Terminating != (expires == 0) || !proto.Equal(accepted.Flow, flow) {
+			inspection, err := b.inspectContext(context.Background(), app, ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !proto.Equal(inspection.GetSnapshot().GetDelivery(), receipt) || accepted.Subscription.Terminating != (expires == 0) || !proto.Equal(accepted.Flow, flow) {
 				t.Fatal("accepted response did not retain the same-flow mutation fence and lease")
 			}
 			if expires == 0 {

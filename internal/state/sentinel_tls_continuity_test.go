@@ -176,16 +176,31 @@ func TestStateScopedTLSAuthoritySurvivesRealSentinelPromotion(t *testing.T) {
 	if err := store.client.Do(ctx, "CONFIG", "GET", "*").Err(); err == nil || !strings.Contains(err.Error(), "NOPERM") {
 		t.Fatal("native client acquired administration", err)
 	}
-	// A missing PERSIST grant must reject before any owner reference is written.
-	admin := material.admin(t, primary.address)
-	if err := admin.Do(ctx, "ACL", "SETUSER", "sipbridge", "-persist").Err(); err != nil {
-		t.Fatal(err)
-	}
+	// Prepare the owner before revoking PERSIST: owner-expiry scheduling also
+	// preflights that grant during acquisition, before writing any lease state.
 	candidate, err := store.AcquireApplicationLease(ctx, "permission-owner", uuid.NewString())
 	if err != nil {
 		t.Fatal(err)
 	}
 	step := begin(t, store, group(t, store, "acl-permission"), "permission-input", true)
+	admin := material.admin(t, primary.address)
+	if err := admin.Do(ctx, "ACL", "SETUSER", "sipbridge", "-persist").Err(); err != nil {
+		t.Fatal(err)
+	}
+	const refusedOwner = "permission-refused-owner"
+	if _, err := store.AcquireApplicationLease(ctx, refusedOwner, uuid.NewString()); !errors.Is(err, ErrAuthority) {
+		t.Fatal("missing PERSIST permission did not reject owner acquisition", err)
+	}
+	leaseKeys, expiryKeys := store.applicationLeaseKeys(refusedOwner), store.applicationExpiryKeys(refusedOwner)
+	if count, err := admin.Exists(ctx, leaseKeys[0], expiryKeys[1]).Result(); err != nil || count != 0 {
+		t.Fatal("ACL refusal partially created owner or expiry sidecar", count, err)
+	}
+	for _, index := range []string{leaseKeys[1], expiryKeys[0]} {
+		if _, err := admin.ZScore(ctx, index, refusedOwner).Result(); !errors.Is(err, redis.Nil) {
+			t.Fatal("ACL refusal partially indexed refused owner", err)
+		}
+	}
+	// The existing owner's first reference must still refuse atomically.
 	if _, err := store.Commit(ctx, *step, Payload{ApplicationLeaseIDs: []string{"permission-owner"}}, nil); !errors.Is(err, ErrAuthority) {
 		t.Fatal("missing PERSIST permission did not reject", err)
 	}

@@ -237,6 +237,13 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 	if err != nil {
 		return record.Payload, nil, err
 	}
+	if in.Kind == "owner-check" && !e.nativeOwnerCheckNeeded(g, record, now) {
+		outcome, err := json.Marshal(&pb.OperationResult{Certainty: pb.OperationResult_COMPLETED})
+		if err != nil {
+			return record.Payload, nil, err
+		}
+		return record.Payload, outcome, execution.ErrReadOnly
+	}
 
 	var originalRevision uint64
 	originalContext := false
@@ -290,6 +297,8 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 			err = r.ownerControlResult()
 		case "owner-result":
 			err = r.ownerProbeResult()
+		case "owner-check":
+			// expireNativeOwners already applied all required owner transitions.
 		case "digest-result":
 			err = r.digestResult()
 		case "effect-result":
@@ -378,6 +387,11 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 		}
 	}
 	stateRefreshResultSnapshot(r.group, r.result, e.cfg.Process)
+	if r.result.Snapshot.GetContext() != nil {
+		if err := stateMaterializeResultMessages(r.result); err != nil {
+			return record.Payload, nil, err
+		}
+	}
 	outcome, _ := json.Marshal(r.result)
 	return data, outcome, nil
 }
@@ -1031,6 +1045,7 @@ func (r *stateReduction) command() error {
 				return errors.New("command replay payload conflict")
 			}
 			r.result = proto.Clone(c.Result).(*pb.OperationResult)
+			r.result.Snapshot = stateSnapshot(c, r.engine.cfg.Process)
 			return nil
 		}
 		return errors.New("stale command sequence")
@@ -1499,7 +1514,13 @@ func (r *stateReduction) finish() (state.Payload, error) {
 		return state.Payload{}, err
 	}
 	r.payload.ProtocolState = data
+	if r.engine.autonomousCompletion() {
+		r.payload.TimerWorker = r.engine.dispatchWorker(r.engine.cfg.Process)
+	}
 	r.finishedBudget = budget
+	if err := r.projectLocalObservations(); err != nil {
+		return state.Payload{}, err
+	}
 	return r.payload, nil
 }
 

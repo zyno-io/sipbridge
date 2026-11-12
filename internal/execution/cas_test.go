@@ -202,6 +202,7 @@ func TestCASFreshCommitReturnsOwnedDispatchProjection(t *testing.T) {
 			if populated {
 				read.result.Update.Record.Payload.Effects = []state.Effect{{ID: "effect", Kind: "deliver", Payload: []byte("committed"),
 					ApplicationLease: &state.ApplicationLeaseRef{ID: "lease", Term: "term"}}}
+				read.result.Update.Record.Payload.LocalObservations = []state.LocalObservation{{ContextID: "context", OperationID: "command", Outcome: []byte("local")}}
 			}
 			store := &casScriptedStore{reads: []casRead{read}}
 			result, err := casTestDriver(t, store).ApplyCommitted(context.Background(), state.Ref{ID: "group"}, in)
@@ -210,6 +211,10 @@ func TestCASFreshCommitReturnsOwnedDispatchProjection(t *testing.T) {
 				t.Fatalf("fresh commit lost dispatch evidence: %+v, %v", result, err)
 			}
 			if populated {
+				read.result.Update.Record.Payload.LocalObservations[0].Outcome[0] = 'X'
+				if len(result.Committed.LocalObservations) != 1 || string(result.Committed.LocalObservations[0].Outcome) != "local" {
+					t.Fatal("local observation shared reducer-owned memory")
+				}
 				source := &read.result.Update.Record.Payload.Effects[0]
 				source.Payload[0] = 'X'
 				source.ApplicationLease.Term = "changed"
@@ -228,6 +233,7 @@ func TestCASReplayOrUnknownInspectionDoesNotProjectUnprovenEffects(t *testing.T)
 		store := &casScriptedStore{reads: []casRead{{result: state.UpdateResult{Receipt: &known}}}}
 		if inspected {
 			store.reads = []casRead{updateRead(in, true)}
+			store.reads[0].result.Update.Record.Payload.LocalObservations = []state.LocalObservation{{ContextID: "context", OperationID: "command", Outcome: []byte("unproven")}}
 			store.casErrors = []error{state.ErrUnknown}
 			store.inspection.Receipt = &known
 		}

@@ -40,11 +40,16 @@ type Backend interface {
 	CompleteApplicationAttachment(context.Context, ApplicationLeaseRef, ApplicationLeaseHolder) (ApplicationLease, error)
 	AttachApplicationLease(context.Context, string, string, uint64, ApplicationLeaseAttach) (ApplicationLease, error)
 	ListApplicationContexts(context.Context, ApplicationLeaseRef, string, int) (ApplicationContextPage, error)
+	ApplicationExpiryHead(context.Context) (ScheduleHead, error)
+	ApplicationExpiryPage(context.Context, int) (ApplicationExpiryPage, error)
+	AckApplicationExpiryPage(context.Context, ApplicationExpiryPage) error
 	ScheduleHints(context.Context, uint16, int, int) ([]HintBatch, error)
 	LeaseScheduler(context.Context, string, bool) (time.Time, error)
 	ReleaseScheduler(context.Context, string) error
 	ScheduleHead(context.Context, string, bool) (ScheduleHead, error)
 	WaitSchedule(context.Context, string) (string, error)
+	WaitDispatch(context.Context, string, string) (string, error)
+	TakeoverTimers(context.Context, string, string, int) (bool, error)
 	SchedulerHints(context.Context, string, uint16, int, int) ([]HintBatch, error)
 	RepairScheduler(context.Context, string, uint64, int) (uint64, int, error)
 	DispatchHead(context.Context, string) (ScheduleHead, error)

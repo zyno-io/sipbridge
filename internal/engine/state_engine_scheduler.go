@@ -10,25 +10,32 @@ import (
 )
 
 type schedulerStatistics struct {
-	leader       atomic.Bool
-	acquisitions atomic.Uint64
-	headReads    atomic.Uint64
-	hintBatches  atomic.Uint64
-	wakeups      atomic.Uint64
-	repairPages  atomic.Uint64
-	failures     schedulerFailureCounters
+	leader        atomic.Bool
+	acquisitions  atomic.Uint64
+	headReads     atomic.Uint64
+	hintBatches   atomic.Uint64
+	wakeups       atomic.Uint64
+	repairPages   atomic.Uint64
+	workerHeads   atomic.Uint64
+	workerBatches atomic.Uint64
+	workerWakes   atomic.Uint64
+	ownedGroups   atomic.Uint64
+	failures      schedulerFailureCounters
 }
 
 type SchedulerStatistics struct {
 	Leader                                                     bool
 	Acquisitions, HeadReads, HintBatches, Wakeups, RepairPages uint64
+	WorkerHeadReads, WorkerBatches, WorkerWakeups, OwnedGroups uint64
 	Failures                                                   []SchedulerFailure
 }
 
 func (e *StateEngine) SchedulerStatistics() SchedulerStatistics {
 	return SchedulerStatistics{Leader: e.scheduler.leader.Load(), Acquisitions: e.scheduler.acquisitions.Load(),
 		HeadReads: e.scheduler.headReads.Load(), HintBatches: e.scheduler.hintBatches.Load(), Wakeups: e.scheduler.wakeups.Load(),
-		RepairPages: e.scheduler.repairPages.Load(), Failures: e.scheduler.failureSnapshot()}
+		RepairPages: e.scheduler.repairPages.Load(), Failures: e.scheduler.failureSnapshot(),
+		WorkerHeadReads: e.scheduler.workerHeads.Load(), WorkerBatches: e.scheduler.workerBatches.Load(),
+		WorkerWakeups: e.scheduler.workerWakes.Load(), OwnedGroups: e.scheduler.ownedGroups.Load()}
 }
 
 func (e *StateEngine) schedule() {
@@ -50,7 +57,7 @@ func (e *StateEngine) schedule() {
 			_ = e.store.ReleaseScheduler(ctx, token)
 			stop()
 		}
-		timer := time.NewTimer(100 * time.Millisecond)
+		timer := time.NewTimer(500 * time.Millisecond)
 		select {
 		case <-e.ctx.Done():
 			timer.Stop()
@@ -74,7 +81,7 @@ func (e *StateEngine) scheduleLeader(token string, until time.Time) {
 	renewDone := make(chan struct{})
 	go func() {
 		defer close(renewDone)
-		ticker := time.NewTicker(50 * time.Millisecond)
+		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {
@@ -139,6 +146,8 @@ func (e *StateEngine) scheduleLeader(token string, until time.Time) {
 
 	repair := time.NewTicker(time.Second)
 	defer repair.Stop()
+	takeover := time.NewTimer(500 * time.Millisecond)
+	defer takeover.Stop()
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
 	var nextPass time.Time
@@ -172,6 +181,18 @@ func (e *StateEngine) scheduleLeader(token string, until time.Time) {
 			return
 		case <-failure:
 			return
+		case <-takeover.C:
+			ctx, stop := pass()
+			more, err := e.store.TakeoverTimers(ctx, token, e.dispatchWorker(e.cfg.Process), 64)
+			stop()
+			if err != nil && leader.Err() == nil {
+				e.scheduler.fail(schedulerRepairFailure, err)
+			}
+			pause := 500 * time.Millisecond
+			if more && err == nil {
+				pause = 20 * time.Millisecond
+			}
+			takeover.Reset(pause)
 		case <-repair.C:
 			if repairing && repairDone == nil {
 				repairDone = make(chan struct{})
@@ -197,6 +218,15 @@ func (e *StateEngine) scheduleLeader(token string, until time.Time) {
 			refresh = true
 		case <-timer.C:
 			e.scheduler.hintBatches.Add(1)
+			if head.ApplicationExpiry {
+				ctx, stop := context.WithTimeout(leader, 2*time.Second)
+				err := e.processApplicationExpiry(ctx)
+				stop()
+				e.scheduler.fail(schedulerGroupFailure, err)
+				nextPass = time.Now().Add(20 * time.Millisecond)
+				refresh = true
+				break
+			}
 			if idle {
 				hints.partition = head.Partition
 				idle = false

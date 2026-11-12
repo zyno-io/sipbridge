@@ -320,7 +320,8 @@ func assertRedisReservationOtherCallProgress(t *testing.T, engine *StateEngine) 
 	}
 	_, group := stateTestLoad(t, engine, call.context)
 	current := group.Contexts[call.context.Id]
-	if current == nil || current.Result == nil || current.Result.Certainty != pb.OperationResult_COMPLETED || current.Result.Response.GetStatus() != 200 {
+	inspected, err := engine.inspectContext(context.Background(), call.application, call.context)
+	if current == nil || err != nil || inspected.GetCertainty() != pb.OperationResult_COMPLETED || inspected.GetResponse().GetStatus() != 200 {
 		t.Fatal("unrelated B OPTIONS did not reach its native final result")
 	}
 }

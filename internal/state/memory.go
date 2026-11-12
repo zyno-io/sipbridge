@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -28,6 +29,7 @@ type MemoryStore struct {
 	schedules           []memorySchedule
 	leases              map[string]*memoryLease
 	applicationContexts map[string]map[string]ApplicationContextEntry
+	applicationExpiry   hintHeap
 	leaseOrder          list.List
 	schedulerHolder     string
 	schedulerUntil      int64
@@ -35,6 +37,9 @@ type MemoryStore struct {
 	schedulerWake       chan struct{}
 	dispatchQueues      map[string]*hintHeap
 	dispatchWorkers     map[string]int64
+	timerQueues         map[string]*hintHeap
+	timerWorkers        map[string]int64
+	dispatchWakes       map[string]*memoryWorkerWake
 }
 
 type memoryGroup struct {
@@ -45,6 +50,7 @@ type memoryGroup struct {
 	proof              *Receipt
 	ready, due, retire int64
 	workers            []string
+	timerWorker        string
 }
 
 type memoryLease struct {
@@ -57,13 +63,15 @@ type memoryLease struct {
 	lastTokenHash        string
 	lastNextTokenHash    string
 	lastAttachGeneration uint64
+	expiry               *memoryApplicationExpiry
 }
 
 type memoryUpdate struct {
-	store            *MemoryStore
-	ref              Ref
-	revision, digest string
-	priorEffects     map[string]applicationLeaseEffect
+	store        *MemoryStore
+	ref          Ref
+	revision     string
+	input        *preparedInput
+	priorEffects map[string]applicationLeaseEffect
 }
 
 func NewMemory(cfg Config) (*MemoryStore, error) { return newMemory(cfg, time.Now) }
@@ -141,6 +149,9 @@ func (m *MemoryStore) Close() error {
 	}
 	m.closed = true
 	close(m.schedulerWake)
+	for _, wake := range m.dispatchWakes {
+		close(wake.changed)
+	}
 	m.available.Store(false)
 	m.groups = nil
 	m.leases = nil
@@ -148,6 +159,9 @@ func (m *MemoryStore) Close() error {
 	m.schedules = nil
 	m.dispatchQueues = nil
 	m.dispatchWorkers = nil
+	m.timerQueues = nil
+	m.timerWorkers = nil
+	m.dispatchWakes = nil
 	m.leaseOrder.Init()
 	return nil
 }
@@ -240,19 +254,23 @@ func (m *MemoryStore) ReadUpdate(ctx context.Context, ref Ref, input Input) (Upd
 	if err := m.validateRef(ref); err != nil {
 		return UpdateResult{}, err
 	}
-	if err := m.validateInput(input); err != nil {
-		return UpdateResult{}, err
-	}
-	digest, encoded, err := digestInput(input)
+	prepared, err := m.prepareInput(input, false)
 	if err != nil {
 		return UpdateResult{}, err
 	}
 	// Own the immutable input, including payload and lease-ID slices.
-	var owned Input
-	if err := json.Unmarshal(encoded, &owned); err != nil {
-		return UpdateResult{}, err
+	input = ownedInput(input)
+	// Preserve the preceding JSON-roundtrip projection without rebuilding or
+	// decoding the envelope. Canonical omitempty made empty slices absent.
+	if len(input.Payload) == 0 {
+		input.Payload = nil
 	}
-	input = owned
+	if len(input.ApplicationLeaseIDs) == 0 {
+		input.ApplicationLeaseIDs = nil
+	}
+	if !utf8.ValidString(input.Fingerprint) {
+		input.Fingerprint = string([]rune(input.Fingerprint))
+	}
 	now, err := m.lock(ctx)
 	if err != nil {
 		return UpdateResult{}, err
@@ -288,7 +306,7 @@ func (m *MemoryStore) ReadUpdate(ctx context.Context, ref Ref, input Input) (Upd
 	if input.DeadlineMS <= now {
 		return UpdateResult{}, ErrExpired
 	}
-	token := &memoryUpdate{store: m, ref: r.Ref, revision: r.Revision, digest: digest, priorEffects: snapshotApplicationEffects(r.Payload.Effects)}
+	token := &memoryUpdate{store: m, ref: r.Ref, revision: r.Revision, input: prepared, priorEffects: snapshotApplicationEffects(r.Payload.Effects)}
 	result := UpdateResult{Update: &Update{Record: r, Input: input, NowMS: now, token: token}}
 	if existing {
 		observed := r.Ref
@@ -305,8 +323,7 @@ func (m *MemoryStore) CompareAndSwap(ctx context.Context, update Update, next Pa
 	if update.Record.Ref != token.ref || update.Record.Revision != token.revision || update.Record.Authority != m.authority {
 		return Receipt{}, ErrConflict
 	}
-	digest, _, err := digestInput(update.Input)
-	if err != nil || digest != token.digest {
+	if !token.input.matches(update.Input) {
 		return Receipt{}, ErrConflict
 	}
 	if err := m.validatePayloadStructure(next); err != nil {
@@ -338,7 +355,7 @@ func (m *MemoryStore) CompareAndSwap(ctx context.Context, update Update, next Pa
 	if err != nil || revision == 1<<63-1 {
 		return Receipt{}, ErrCapacity
 	}
-	receipt := Receipt{OperationID: update.Input.ID, Fingerprint: update.Input.Fingerprint, InputDigest: digest,
+	receipt := Receipt{OperationID: update.Input.ID, Fingerprint: update.Input.Fingerprint, InputDigest: token.input.digest,
 		Revision: strconv.FormatUint(revision+1, 10), ExpiresMS: update.Input.ReceiptUntilMS, Outcome: append([]byte(nil), outcome...)}
 	now, err := m.lock(ctx)
 	if err != nil {
@@ -443,6 +460,7 @@ func (m *MemoryStore) CompareAndSwap(ctx context.Context, update Update, next Pa
 		if lease == nil {
 			continue
 		}
+		wasReferenced := lease.references > 0
 		lease.references = change.references
 		lease.sealed = lease.sealed || change.seal
 		if lease.references > 0 {
@@ -450,8 +468,12 @@ func (m *MemoryStore) CompareAndSwap(ctx context.Context, update Update, next Pa
 		} else {
 			lease.idleUntil = now + applicationLeaseIdleTTL.Milliseconds()
 		}
+		m.retainApplicationExpiry(lease, now, !wasReferenced && lease.references > 0)
 	}
 	m.applyApplicationContexts(contextChanges)
+	if g.timerWorker == "" {
+		g.timerWorker = next.TimerWorker
+	}
 	g.data, g.revision, g.receipts, g.proof = data, receipt.Revision, receipts, proof
 	g.ready, g.due, g.retire = ready, due, retire
 	m.groups[g.ref.ID] = g
@@ -535,6 +557,12 @@ func (m *MemoryStore) Retire(ctx context.Context, ref Ref) error {
 	}
 	m.applyApplicationContexts(contextChanges)
 	delete(m.groups, ref.ID)
+	if queue := m.timerQueues[g.timerWorker]; queue != nil {
+		queue.set(g.ref, 0)
+		if queue.Len() == 0 {
+			delete(m.timerQueues, g.timerWorker)
+		}
+	}
 	m.scheduleDispatch(g, nil, now)
 	m.schedules[ref.Partition].ready.set(ref, 0)
 	m.schedules[ref.Partition].due.set(ref, 0)
@@ -544,6 +572,7 @@ func (m *MemoryStore) Retire(ctx context.Context, ref Ref) error {
 func (m *MemoryStore) liveLease(id string, now int64) *memoryLease {
 	lease := m.leases[id]
 	if lease != nil && lease.references == 0 && lease.idleUntil <= now {
+		m.forgetApplicationExpiry(id)
 		delete(m.leases, id)
 		m.leaseOrder.Remove(lease.element)
 		return nil
@@ -641,6 +670,11 @@ func (m *MemoryStore) applicationLease(ctx context.Context, id, term, mode strin
 	if mode == "read" {
 		return m.observeLease(id, now), nil
 	}
+	previousTerm := ""
+	var expiryState *memoryApplicationExpiry
+	if lease != nil {
+		previousTerm, expiryState = lease.Term, lease.expiry
+	}
 	if lease != nil && lease.Recoverable {
 		return ApplicationLease{}, ErrStale
 	}
@@ -668,6 +702,7 @@ func (m *MemoryStore) applicationLease(ctx context.Context, id, term, mode strin
 		m.leaseOrder.MoveToBack(element)
 		saved := m.liveLease(candidate, now)
 		if saved != nil && saved.references == 0 && saved.ExpiresAtMS <= now && (!saved.Recoverable || saved.ExpiresAtMS+saved.ReattachTimeoutMS <= now) {
+			m.forgetApplicationExpiry(candidate)
 			delete(m.leases, candidate)
 			m.leaseOrder.Remove(element)
 		}
@@ -691,11 +726,12 @@ func (m *MemoryStore) applicationLease(ctx context.Context, id, term, mode strin
 	} else {
 		element = m.leaseOrder.PushBack(id)
 	}
-	lease = &memoryLease{ApplicationLease: ApplicationLease{ID: id, Term: term, ExpiresAtMS: expires, CheckedAtMS: now}, references: refs, element: element}
+	lease = &memoryLease{ApplicationLease: ApplicationLease{ID: id, Term: term, ExpiresAtMS: expires, CheckedAtMS: now}, references: refs, element: element, expiry: expiryState}
 	if refs == 0 {
 		lease.idleUntil = now + applicationLeaseIdleTTL.Milliseconds()
 	}
 	m.leases[id] = lease
+	m.scheduleApplicationExpiry(lease, now, previousTerm != "" && previousTerm != term)
 	return lease.ApplicationLease, nil
 }
 func (m *MemoryStore) AcquireApplicationLease(ctx context.Context, id, term string) (ApplicationLease, error) {
@@ -784,8 +820,14 @@ type memorySchedule struct{ ready, due hintHeap }
 func (m *MemoryStore) schedule(g *memoryGroup) {
 	index := &m.schedules[g.ref.Partition]
 	previous := m.scheduleDeadline()
-	index.ready.set(g.ref, g.ready)
-	index.due.set(g.ref, g.due)
+	if g.timerWorker == "" {
+		index.ready.set(g.ref, g.ready)
+		index.due.set(g.ref, g.due)
+	} else {
+		index.ready.set(g.ref, 0)
+		index.due.set(g.ref, 0)
+		m.scheduleOwnedTimer(g)
+	}
 	next := m.scheduleDeadline()
 	if next > 0 && (previous == 0 || next < previous) {
 		m.wakeSchedule()

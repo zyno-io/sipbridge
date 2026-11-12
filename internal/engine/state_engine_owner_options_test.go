@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"strconv"
 	"testing"
 	"time"
 
@@ -72,12 +71,11 @@ func TestNativeOwnerLossEndsUnsendableRetainedOptionsWithoutPhysicalRetry(t *tes
 			// The physical socket belonged to the former process. No controller
 			// or transport implementation is installed in this pure reduction.
 			f.engine.cfg.Process = &pb.ProcessRef{InstanceId: "replacement-worker", Epoch: "new-epoch"}
-			r := &stateReduction{engine: f.engine}
-			input, err := marshalRetainedFixture(stateEngineInput{Kind: "timer", Timer: r.timerID(ref.Id, "owner", "probe", ""), Generation: strconv.FormatInt(c.OwnerProbeAtMS, 10)})
+			input, err := marshalRetainedFixture(stateEngineInput{Kind: "owner-check"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			next, _, err := f.engine.reduce(record, state.Input{Kind: "timer", Proof: true, Payload: input, DeadlineMS: now + 2000}, now)
+			next, _, err := f.engine.reduce(record, state.Input{Kind: "owner-check", Proof: true, Payload: input, DeadlineMS: now + 2000}, now)
 			if err != nil {
 				t.Fatal("owner timer could not fence the dead process", err)
 			}

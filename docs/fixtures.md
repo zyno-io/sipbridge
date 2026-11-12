@@ -149,6 +149,11 @@ removing their remaining shared reducer readers.
 `dependencies/sipgo.json`, including license and separate patch provenance. Checksum
 manifest/tree digest reject silent changes, additions and removals. Generate native
 TLS test certificates only in the disposable copy made by `scripts/test-native.sh`.
+That copy also corrects the upstream client-builder test's initial CSeq range
+assertion to match its existing 15-bit random allocation (0 through 32767).
+The former `> 1` assertion randomly rejected valid generated values. The checked-in
+dependency and its runtime behavior remain unchanged; the fixture adjustment
+fails closed if the pinned assertion changes.
 Native transaction matching, timer, digest-URI and dialog semantics remain in those
 pinned reducers; adapter cleanup does not authorize editing the snapshot.
 

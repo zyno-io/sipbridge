@@ -26,7 +26,18 @@ files = [
     'internal/engine/state_engine_admission.go', 'internal/engine/state_engine_subscription.go',
     'internal/engine/state_engine_auth.go', 'internal/engine/state_engine_response.go',
     'internal/engine/state_engine_policy_admission.go', 'internal/engine/state_engine_request_fence.go',
-    'internal/state/types.go', 'internal/state/application_contexts.go', 'internal/state/application_lease.go'
+    'internal/state/types.go', 'internal/state/application_contexts.go', 'internal/state/application_lease.go',
+    'internal/state/application_expiry.go', 'internal/state/application_lease_guard.go', 'internal/state/input_binding.go',
+    'internal/state/timer_workers.go', 'internal/state/dispatch.go', 'internal/state/scheduler.go',
+    'internal/state/scripts.go', 'internal/state/store.go', 'internal/state/update.go',
+    'internal/state/memory.go', 'internal/state/memory_application_expiry.go',
+    'internal/state/memory_application_recovery.go', 'internal/state/memory_dispatch.go',
+    'internal/state/memory_timer_workers.go', 'internal/state/memory_scheduler.go',
+    'internal/execution/cas.go', 'internal/execution/result.go', 'internal/execution/statistics.go',
+    'internal/engine/state_engine_native_owner.go', 'internal/engine/state_engine_owner_expiry.go',
+    'internal/engine/state_engine_scheduler.go', 'internal/engine/state_engine_scheduler_physical.go',
+    'internal/engine/state_engine_waiters.go', 'internal/engine/ingress.go',
+    'internal/engine/state_engine_execution_metrics.go', 'internal/engine/state_engine_scheduler_metrics.go'
 ]
 receipt = {'encoding': 'protobuf-v1', 'source': 'proto/sipbridge-storage.proto',
            'protoc': '3.21.12', 'protoc_gen_go': '1.36.12',

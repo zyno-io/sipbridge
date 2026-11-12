@@ -78,7 +78,12 @@ func (m *MemoryStore) ScheduleHead(ctx context.Context, token string, _ bool) (S
 		return ScheduleHead{}, ErrStale
 	}
 	due, partition := m.schedulePartition()
-	return ScheduleHead{DueMS: due, After: scheduleDelay(now, due), Cursor: strconv.FormatUint(m.schedulerCursor, 10) + "-0", Partition: partition}, nil
+	applicationExpiry := false
+	if m.applicationExpiry.Len() > 0 && (due == 0 || m.applicationExpiry.items[0].due < due) {
+		due = m.applicationExpiry.items[0].due
+		applicationExpiry = true
+	}
+	return ScheduleHead{DueMS: due, After: scheduleDelay(now, due), Cursor: strconv.FormatUint(m.schedulerCursor, 10) + "-0", Partition: partition, ApplicationExpiry: applicationExpiry}, nil
 }
 
 func (m *MemoryStore) WaitSchedule(ctx context.Context, cursor string) (string, error) {

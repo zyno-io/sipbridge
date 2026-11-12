@@ -8,7 +8,7 @@ local started=redis.call('TIME')
 local started_ms=tonumber(started[1])*1000+math.floor(tonumber(started[2])/1000)
 local observed_low=started_ms; local observed_high=started_ms
 local function execute()
-` + commonLua + applicationLeaseRecordLua + applicationLeaseGuardLua + applicationContextIndexLua + dispatchIndexLua + body + `
+` + commonLua + applicationLeaseRecordLua + applicationExpiryLua + applicationLeaseGuardLua + applicationContextIndexLua + dispatchIndexLua + body + `
 end
 local result=execute()
 local finished=redis.call('TIME')
@@ -48,7 +48,34 @@ local function schedulerGuard(key,holder)
   redis.call('HGET',key,'primary')~=ARGV[2] or untilms<=nowms() then return 'STALE' end
  return nil
 end
+local function timerScheduleProblem(owner)
+ if owner=='' then return nil end
+ if #owner~=64 or not string.match(owner,'^[a-f0-9]+$') then return 'CORRUPT' end
+ local root=string.sub(KEYS[4],1,#KEYS[4]-#'scheduler:heads')
+ local key=root..'timer:'..owner; local wake=root..'dispatch:'..owner..':wake'
+ if not keytype(key,'zset') or not keytype(wake,'stream') or not keytype(root..'timer:workers','zset') then return 'CORRUPT' end
+ if not redis.acl_check_cmd('ZADD',key,1,KEYS[1]) or not redis.acl_check_cmd('ZREM',key,KEYS[1]) or
+    not redis.acl_check_cmd('ZRANGE',key,0,0,'WITHSCORES') or
+    not redis.acl_check_cmd('XADD',wake,'MAXLEN','=',1,'*','changed','1') or not redis.acl_check_cmd('PEXPIRE',wake,120000) or
+    not redis.acl_check_cmd('ZADD',root..'timer:workers',1,owner) then return 'AUTHORITY' end
+ return nil
+end
+local function projectTimerSchedule(member,due,owner)
+ if owner=='' then return end
+ local root=string.sub(KEYS[4],1,#KEYS[4]-#'scheduler:heads')
+ local key=root..'timer:'..owner; local wake=root..'dispatch:'..owner..':wake'
+ if due and due>0 and not redis.call('ZSCORE',root..'timer:workers',owner) then redis.call('ZADD',root..'timer:workers',nowms()+2000,owner) end
+ local previous=redis.call('ZRANGE',key,0,0,'WITHSCORES')
+ if due and due>0 then redis.call('ZADD',key,due,member) else redis.call('ZREM',key,member) end
+ local head=redis.call('ZRANGE',key,0,0,'WITHSCORES')
+ if #head>0 and (#previous==0 or tonumber(head[2])<tonumber(previous[2])) then
+  redis.call('XADD',wake,'MAXLEN','=',1,'*','changed','1')
+  redis.call('PEXPIRE',wake,120000)
+ end
+end
 local function scheduleProblem()
+ local ownerProblem=timerScheduleProblem(redis.call('HGET',KEYS[1],'timerOwner') or '')
+ if ownerProblem then return ownerProblem end
  if not keytype(KEYS[4],'zset') or not keytype(KEYS[5],'stream') then return 'CORRUPT' end
  if not redis.acl_check_cmd('ZRANGE',KEYS[2],0,0,'WITHSCORES') or
   not redis.acl_check_cmd('ZRANGE',KEYS[3],0,0,'WITHSCORES') or
@@ -81,6 +108,8 @@ local function checkgroup()
  return nil
 end
 local function schedule(member, ready, due, forceWake)
+ local owner=redis.call('HGET',KEYS[1],'timerOwner') or ''
+ if owner~='' then projectTimerSchedule(member,due,owner); ready=0; due=0; forceWake=false end
  if ready and ready>0 then redis.call('ZADD',KEYS[2],ready,member) else redis.call('ZREM',KEYS[2],member) end
  if due and due>0 then redis.call('ZADD',KEYS[3],due,member) else redis.call('ZREM',KEYS[3],member) end
  local changed=false
@@ -228,6 +257,9 @@ local contextPlan,contextProblem=planApplicationContexts(redis.call('HGET',KEYS[
 if contextProblem then return fail(contextProblem) end
 local dispatchPlan,dispatchProblem=planDispatch(redis.call('HGET',KEYS[1],'dispatchWorkers') or '[]',ARGV[#ARGV-3])
 if dispatchProblem then return fail(dispatchProblem) end
+local timerOwner=redis.call('HGET',KEYS[1],'timerOwner') or ''
+if timerOwner=='' then timerOwner=ARGV[#ARGV-5] end
+local timerProblem=timerScheduleProblem(timerOwner); if timerProblem then return fail(timerProblem) end
 local retained={}
 for _,r in ipairs(cjson.decode(redis.call('HGET',KEYS[1],'receipts') or '[]')) do
  if tonumber(r.expiresMs)>now then table.insert(retained,r) end
@@ -255,7 +287,7 @@ if isCAS then
 end
 redis.call('HSET',KEYS[1],'revision',ARGV[8],'data',ARGV[12],'receipts',encodedReceipts,'proof',proof,
  'pending','','pendingDigest','','claimId','','claimant','','claimUntilMs','0',
- 'readyAtMs',ARGV[15],'dueAtMs',integer(due),'retireAtMs',integer(retire),'reservedBytes',ARGV[18],'applicationLeaseIds',ARGV[23],'applicationContexts',ARGV[#ARGV-4],'dispatchWorkers',dispatchPlan.encoded,'dispatchTargets',ARGV[#ARGV-3])
+ 'readyAtMs',ARGV[15],'dueAtMs',integer(due),'retireAtMs',integer(retire),'reservedBytes',ARGV[18],'applicationLeaseIds',ARGV[23],'applicationContexts',ARGV[#ARGV-4],'dispatchWorkers',dispatchPlan.encoded,'dispatchTargets',ARGV[#ARGV-3],'timerOwner',timerOwner)
 local physical=applyDispatch(dispatchPlan,now)
 schedule(KEYS[1],tonumber(ARGV[15]),due,physical)
 return {'RECEIPT',ARGV[14]}
@@ -312,6 +344,7 @@ if problem then return fail(problem) end
 applyApplicationLeases(plan)
 applyApplicationContexts(contexts)
 applyDispatch(dispatch,nowms())
+projectTimerSchedule(KEYS[1],0,redis.call('HGET',KEYS[1],'timerOwner') or '')
 redis.call('DEL',KEYS[1]); schedule(KEYS[1],0,0); return {'OK'}
 `)
 

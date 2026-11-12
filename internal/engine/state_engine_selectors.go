@@ -99,9 +99,6 @@ func (r *stateReduction) refreshSelectors() error {
 			addDialog(c.Snapshot.CallId, c.Snapshot.LocalTag, c.Snapshot.RemoteTag)
 		}
 		sort.Strings(c.Snapshot.Selectors)
-		if c.Result != nil && c.Result.Snapshot != nil {
-			c.Result.Snapshot = stateSnapshot(c, r.engine.cfg.Process)
-		}
 	}
 	return nil
 }

@@ -88,10 +88,24 @@ func testStatePublicByeWriteReleasesLocalTeardownBeforePeerResponse(t *testing.T
 	if writtenPublicBye(group.Contexts[ref.Id]) != nil {
 		t.Fatal("reservation fabricated a write receipt")
 	}
+	logical, _ := f.engine.group(ref)
+	signal, stop := f.engine.watchOperation(logical, stateOperationIdentity{ref.Id, "public-bye"})
+	defer stop()
 	if err = f.engine.Complete(ctx, write, &pb.DeliveryResult{Effect: write.Effect, Outcome: pb.DeliveryResult_WRITTEN}); err != nil {
 		t.Fatal(err)
 	}
-	logical, _ := f.engine.group(ref)
+	local, err := f.engine.awaitOperationPolling(ctx, logical, ref.Id, "public-bye", &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}, false, stateOperationPolling{
+		observe: func(after string) (*pb.OperationResult, error) {
+			return f.engine.observeLocalOperation(logical, ref.Id, "public-bye", signal, after)
+		},
+		load: func(context.Context, state.Ref) (state.Record, error) {
+			t.Fatal("definite local completion reread the whole group")
+			return state.Record{}, nil
+		},
+	})
+	if err != nil || local.GetCertainty() != pb.OperationResult_ACCEPTED || local.GetRequest().GetMethod() != "BYE" || !bytes.Equal(local.GetRequest().GetWire(), reserved.Wire) || local.GetSnapshot().GetEnded() {
+		t.Fatal("local handoff lost exact written-BYE proof", err)
+	}
 	bounded, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	result, err := f.engine.awaitOperation(bounded, logical, ref.Id, "public-bye", &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}, false)
@@ -124,7 +138,8 @@ func testStatePublicByeWriteReleasesLocalTeardownBeforePeerResponse(t *testing.T
 	}
 	_, group = stateTestLoad(t, f.engine, ref)
 	c = group.Contexts[ref.Id]
-	if c.Result.Certainty != pb.OperationResult_COMPLETED || c.Result.GetResponse().GetStatus() != 200 || !c.Snapshot.Ended {
+	inspected, err = f.engine.inspectContext(ctx, f.app, ref)
+	if err != nil || inspected.GetCertainty() != pb.OperationResult_COMPLETED || inspected.GetResponse().GetStatus() != 200 || !c.Snapshot.Ended {
 		t.Fatal("the eventual peer response did not complete the native BYE normally")
 	}
 }

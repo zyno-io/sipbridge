@@ -33,6 +33,7 @@ func (e *StateEngine) physicalDispatchSession(worker string) {
 	ctx, cancel := context.WithCancel(e.ctx)
 	defer cancel()
 	readHead := func() (state.ScheduleHead, error) {
+		e.scheduler.workerHeads.Add(1)
 		read, stop := context.WithTimeout(ctx, 100*time.Millisecond)
 		defer stop()
 		return e.store.DispatchHead(read, worker)
@@ -52,7 +53,7 @@ func (e *StateEngine) physicalDispatchSession(worker string) {
 	go func(cursor string) {
 		defer close(done)
 		for ctx.Err() == nil {
-			next, err := e.store.WaitSchedule(ctx, cursor)
+			next, err := e.store.WaitDispatch(ctx, worker, cursor)
 			if err != nil {
 				select {
 				case failed <- struct{}{}:
@@ -97,7 +98,9 @@ func (e *StateEngine) physicalDispatchSession(worker string) {
 			}
 			continue
 		case <-wake:
+			e.scheduler.workerWakes.Add(1)
 		case <-timer.C:
+			e.scheduler.workerBatches.Add(1)
 			read, stop := context.WithTimeout(ctx, 100*time.Millisecond)
 			hints, err := e.store.DispatchHints(read, worker, 8)
 			stop()
@@ -154,11 +157,21 @@ func (e *StateEngine) schedulePhysicalGroup(worker string, ref state.Ref) {
 		}()
 		ctx, cancel := context.WithTimeout(e.ctx, 2*time.Second)
 		defer cancel()
-		view, _, err := e.store.ReadState(ctx, ref)
+		view, now, err := e.store.ReadState(ctx, ref)
 		if err != nil {
 			return
 		}
 		current, revision := view.Ref, view.Revision
+		if view.TimerWorker == worker {
+			e.scheduler.ownedGroups.Add(1)
+			plan := stateSchedulePlan{ref: current, pending: view.HasPending,
+				retire: view.Payload.Retention.Terminal && view.Payload.ActiveTransactions == 0 && len(view.Payload.Effects) == 0 && len(view.Payload.Timers) == 0,
+				timers: e.dueTimers(stateViewProtocolRecord(view), now), effects: e.dispatchableEffects(view.Payload.Effects, now)}
+			view = state.StateView{}
+			e.runSchedulePlan(ctx, plan)
+			_ = e.store.AckDispatch(ctx, worker, current, revision)
+			return
+		}
 		var effects []state.Effect
 		for _, effect := range e.dispatchableEffects(view.Payload.Effects, time.Now().UnixMilli()) {
 			if effect.Worker == worker || effect.Worker == state.AnyDispatchWorker {

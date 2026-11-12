@@ -249,7 +249,7 @@ if lease.sealed or lease.expires<=now then return fail('EXPIRED') end
 if redis.call('ZCARD',KEYS[2])>4096 then return fail('CORRUPT') end
 local lower='['..term..'|'
 if after~='' then lower='('..after end
-local members=redis.call('ZRANGEBYLEX',KEYS[2],lower,'['..term..'|'..string.char(255),'LIMIT',0,limit+1)
+local members=redis.call('ZRANGE',KEYS[2],lower,'['..term..'|'..string.char(255),'BYLEX','LIMIT',0,limit+1)
 for _,member in ipairs(members) do if redis.call('ZSCORE',KEYS[2],member)~='0' then return fail('CORRUPT') end end
 return {'CONTEXTS',#members==0 and '[]' or cjson.encode(members)}
 `)

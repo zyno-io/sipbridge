@@ -93,6 +93,7 @@ for _,member in ipairs(expired) do
  if problem then return fail(problem) end
  if not previous or previous.expires<=now and previous.references==0 and
     (not previous.recoverable or previous.expires+previous.reattachTimeout<=now) then
+  local expiryProblem=forgetApplicationExpiry(member); if expiryProblem then return fail(expiryProblem) end
   redis.call('DEL',key); redis.call('ZREM',KEYS[2],member)
  else
   redis.call('ZADD',KEYS[2],previous.references>0 and math.max(previous.expires,now+idle) or previous.expires,member)
@@ -102,10 +103,14 @@ if not redis.call('ZSCORE',KEYS[2],id) and redis.call('ZCARD',KEYS[2])>=capacity
 local expiry=now+lifetime
 if saved and saved.term==term and saved.expires>expiry then expiry=saved.expires end
 local references=saved and saved.references or 0
+local reset=saved and saved.term~=term and ARGV[15] or ''
+local expiryPlan,expiryProblem=planApplicationExpiry(id,expiry,references,reset,true)
+if expiryProblem then return fail(expiryProblem) end
 if references>0 and not redis.acl_check_cmd('PERSIST',KEYS[1]) then return fail('AUTHORITY') end
 redis.call('HSET',KEYS[1],'id',id,'term',term,'expiresAtMs',integer(expiry),'references',integer(references),'sealed','0','recoveryUntilMs','0')
 if references>0 then redis.call('PERSIST',KEYS[1]) else redis.call('PEXPIRE',KEYS[1],idle) end
 redis.call('ZADD',KEYS[2],expiry,id)
+applyApplicationExpiry(expiryPlan)
 return {'LEASE',cjson.encode(applicationLeaseObservation(id,{term=term,expires=expiry,recoveryUntil=0},now))}
 `
 
@@ -118,6 +123,7 @@ local generation,timeout=tonumber(ARGV[16]),tonumber(ARGV[17])
 local now=nowms()
 local saved,err=readApplicationLeaseRecord(KEYS[1],id,120000)
 if err then return fail(err) end
+local completing=saved and mode=='complete' and saved.attachmentUntil>0
 if mode=='create' then
  if saved then return fail('CONFLICT') end
  local prefix=ARGV[#ARGV-2]
@@ -127,6 +133,7 @@ if mode=='create' then
   local old,problem=readApplicationLeaseRecord(key,member,120000)
   if problem then return fail(problem) end
   if not old or old.references==0 and old.expires<=now and (not old.recoverable or old.expires+old.reattachTimeout<=now) then
+   local expiryProblem=forgetApplicationExpiry(member); if expiryProblem then return fail(expiryProblem) end
    redis.call('DEL',key); redis.call('ZREM',KEYS[2],member)
   else redis.call('ZADD',KEYS[2],math.max(old.expires,now+120000),member) end
  end
@@ -170,6 +177,8 @@ else
 end
 local expiry=math.max(saved.expires or 0,now+5000)
 if saved.attachmentUntil>0 then expiry=math.min(expiry,saved.attachmentUntil) end
+local expiryPlan,expiryProblem=planApplicationExpiry(id,expiry,saved.references,completing and ARGV[18] or '',true)
+if expiryProblem then return fail(expiryProblem) end
 saved.expires=expiry; saved.recoveryUntil=0
 if saved.references>0 and not redis.acl_check_cmd('PERSIST',KEYS[1]) then return fail('AUTHORITY') end
 redis.call('HSET',KEYS[1],'id',id,'term',term,'expiresAtMs',integer(expiry),
@@ -181,6 +190,7 @@ redis.call('HSET',KEYS[1],'id',id,'term',term,'expiresAtMs',integer(expiry),
  'attachmentUntilMs',integer(saved.attachmentUntil))
 if saved.references>0 then redis.call('PERSIST',KEYS[1]) else redis.call('PEXPIRE',KEYS[1],120000) end
 redis.call('ZADD',KEYS[2],expiry,id)
+applyApplicationExpiry(expiryPlan)
 return {'LEASE',cjson.encode(applicationLeaseObservation(id,saved,now))}
 `
 
@@ -246,7 +256,7 @@ func (s *Store) applicationLease(ctx context.Context, id, term, mode string) (Ap
 	if err := validateLeaseIdentity(id, term, mode == "read"); err != nil {
 		return ApplicationLease{}, err
 	}
-	values, err := s.runKeys(ctx, applicationLeaseScript, Ref{Partition: 0}, s.applicationLeaseKeys(id), []interface{}{id, term, mode, ApplicationLeaseLifetime.Milliseconds(), applicationLeaseIdleTTL.Milliseconds(), applicationLeaseLimit, applicationLeasePrune, s.partitionPrefix(0) + "application-lease:"}, mode != "read")
+	values, err := s.runKeys(ctx, applicationLeaseScript, Ref{Partition: 0}, s.applicationLeaseKeys(id), []interface{}{id, term, mode, ApplicationLeaseLifetime.Milliseconds(), applicationLeaseIdleTTL.Milliseconds(), applicationLeaseLimit, applicationLeasePrune, s.partitionPrefix(0) + "application-lease:", uuid.NewString()}, mode != "read")
 	if err != nil {
 		return ApplicationLease{}, err
 	}
@@ -298,7 +308,7 @@ func (s *Store) recoverableApplicationLease(ctx context.Context, id, term, mode 
 	if !validLeaseHolder(a.ApplicationLeaseHolder) || generation > 1<<53-1 || mode != "create" && generation == 0 || (mode == "create" || mode == "attach") && !validLeaseHash(a.TokenHash) || mode == "attach" && (!validLeaseHash(a.NextTokenHash) || !referencePattern.MatchString(a.AttemptID)) {
 		return ApplicationLease{}, ErrConflict
 	}
-	values, err := s.runKeys(ctx, recoverableApplicationLeaseScript, Ref{Partition: 0}, s.applicationLeaseKeys(id), []interface{}{id, term, mode, a.PrincipalHash, a.HolderID, a.HolderEpoch, a.TokenHash, a.NextTokenHash, a.AttemptID, generation, timeout}, true)
+	values, err := s.runKeys(ctx, recoverableApplicationLeaseScript, Ref{Partition: 0}, s.applicationLeaseKeys(id), []interface{}{id, term, mode, a.PrincipalHash, a.HolderID, a.HolderEpoch, a.TokenHash, a.NextTokenHash, a.AttemptID, generation, timeout, uuid.NewString()}, true)
 	if err != nil {
 		return ApplicationLease{}, err
 	}

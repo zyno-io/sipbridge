@@ -37,6 +37,7 @@ func (m *MemoryStore) recoverableApplicationLease(ctx context.Context, id, term,
 	}
 	defer m.unlock()
 	lease := m.liveLease(id, now)
+	completing := lease != nil && mode == "complete" && lease.AttachmentUntilMS > 0
 	if mode == "create" {
 		if lease != nil {
 			return ApplicationLease{}, ErrConflict
@@ -48,6 +49,7 @@ func (m *MemoryStore) recoverableApplicationLease(ctx context.Context, id, term,
 			m.leaseOrder.MoveToBack(element)
 			saved := m.liveLease(candidate, now)
 			if saved != nil && saved.references == 0 && saved.ExpiresAtMS <= now && (!saved.Recoverable || saved.ExpiresAtMS+saved.ReattachTimeoutMS <= now) {
+				m.forgetApplicationExpiry(candidate)
 				delete(m.leases, candidate)
 				m.leaseOrder.Remove(element)
 			}
@@ -75,6 +77,7 @@ func (m *MemoryStore) recoverableApplicationLease(ctx context.Context, id, term,
 				if lease.references == 0 {
 					lease.idleUntil = now + applicationLeaseIdleTTL.Milliseconds()
 				}
+				m.scheduleApplicationExpiry(lease, now, false)
 			}
 			result := lease.ApplicationLease
 			result.CheckedAtMS = now
@@ -142,5 +145,6 @@ func (m *MemoryStore) recoverableApplicationLease(ctx context.Context, id, term,
 		lease.idleUntil = now + applicationLeaseIdleTTL.Milliseconds()
 	}
 	m.leases[id] = lease
+	m.scheduleApplicationExpiry(lease, now, completing)
 	return lease.ApplicationLease, nil
 }

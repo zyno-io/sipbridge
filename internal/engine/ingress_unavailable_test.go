@@ -149,12 +149,14 @@ func TestUnavailableUDPRespondsAfterRealRedisReadBudgetExpires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expired := make(chan error, 1)
+	expired := make(chan bool, 1)
 	f := newUDPOrderFixture(t, func(i *Ingress) {
 		i.stateWriter = engine
 		i.stateLocate = func(ctx context.Context, message *pb.SipMessage) (*pb.ContextSnapshot, error) {
 			ref, err := engine.LocateRoute(ctx, message)
-			expired <- ctx.Err()
+			// A socket deadline can win before the context timer callback. The
+			// production predicate also checks its monotonic deadline directly.
+			expired <- arbitrationExpired(ctx, time.Now())
 			return ref, err
 		}
 		i.stateReject = engine.Reject
@@ -174,8 +176,8 @@ func TestUnavailableUDPRespondsAfterRealRedisReadBudgetExpires(t *testing.T) {
 	if !strings.HasPrefix(string(wire[:n]), "SIP/2.0 503 ") {
 		t.Fatalf("unexpected unavailable reply: %s", wire[:n])
 	}
-	if err := <-expired; !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("fixture did not exhaust the original routing budget", err)
+	if !<-expired {
+		t.Fatal("fixture did not exhaust the original routing budget")
 	}
 }
 

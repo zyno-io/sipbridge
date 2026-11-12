@@ -92,6 +92,9 @@ func (e *StateEngine) inspectContext(ctx context.Context, application *pb.Proces
 	}
 	projectWrittenPublicBye(c, result)
 	result.Snapshot = stateSnapshot(c, e.cfg.Process)
+	if err := stateMaterializeResultMessages(result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 

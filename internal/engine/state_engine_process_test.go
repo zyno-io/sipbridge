@@ -864,9 +864,18 @@ func processEstablish(h *processHarness, a *processWorker, phone *processPhone, 
 }
 
 func TestStateNativeProcessLossDuringActiveUASPhases(t *testing.T) {
+	processLossDuringActiveUASPhases(t, newRelayProcessHarness)
+}
+
+func TestStateNativeCurrentProcessLossDuringActiveUASPhases(t *testing.T) {
+	processLossDuringActiveUASPhases(t, newNativeProcessHarness)
+}
+
+func processLossDuringActiveUASPhases(t *testing.T, harness func(*testing.T) *processHarness) {
+	t.Helper()
 	for _, phase := range []string{"initial-proceeding", "awaiting-ack", "remote-reinvite", "bye-admitted"} {
 		t.Run(phase, func(t *testing.T) {
-			h := newRelayProcessHarness(t)
+			h := harness(t)
 			a, b := h.start("sip-a"), h.start("sip-b")
 			old := h.phone(a)
 			callID := phase + "-" + uuid.NewString()
@@ -986,7 +995,16 @@ func (h *processHarness) waitReplacementTransaction(callID, requestID string, pr
 }
 
 func TestStateNativeProcessLostInviteCompletionStillACKsResponseOnB(t *testing.T) {
-	h := newRelayProcessHarness(t)
+	processLostInviteCompletionStillACKsResponseOnB(t, newRelayProcessHarness)
+}
+
+func TestStateNativeCurrentProcessLostInviteCompletionStillACKsResponseOnB(t *testing.T) {
+	processLostInviteCompletionStillACKsResponseOnB(t, newNativeProcessHarness)
+}
+
+func processLostInviteCompletionStillACKsResponseOnB(t *testing.T, harness func(*testing.T) *processHarness) {
+	t.Helper()
+	h := harness(t)
 	a, b := h.start("sip-a"), h.start("sip-b")
 	phone := h.phone(a)
 	seedCall := "flow-seed-" + uuid.NewString()

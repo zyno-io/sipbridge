@@ -272,6 +272,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 
 type stateOperationPolling struct {
 	load           func(context.Context, state.Ref) (state.Record, error)
+	observe        func(string) (*pb.OperationResult, error)
 	wait           func(context.Context, time.Duration) bool
 	now            func() time.Time
 	waitBeforeRead bool
@@ -295,6 +296,9 @@ func waitStateOperationSignal(ctx context.Context, delay time.Duration, signal <
 
 func (e *StateEngine) awaitOperationSignal(ctx context.Context, ref state.Ref, contextID, operation string, accepted *pb.OperationResult, respond bool, signal <-chan struct{}, waitBeforeRead bool) (*pb.OperationResult, error) {
 	return e.awaitOperationPolling(ctx, ref, contextID, operation, accepted, respond, stateOperationPolling{
+		observe: func(after string) (*pb.OperationResult, error) {
+			return e.observeLocalOperation(ref, contextID, operation, signal, after)
+		},
 		load: func(ctx context.Context, ref state.Ref) (state.Record, error) {
 			view, _, err := e.store.ReadState(ctx, ref)
 			if err != nil {
@@ -312,6 +316,7 @@ func (e *StateEngine) awaitOperationSignal(ctx context.Context, ref state.Ref, c
 
 func (e *StateEngine) awaitOperationPolling(ctx context.Context, ref state.Ref, contextID, operation string, accepted *pb.OperationResult, respond bool, polling stateOperationPolling) (*pb.OperationResult, error) {
 	latest := proto.Clone(accepted).(*pb.OperationResult)
+	var observedRevision string
 	delay := 10 * time.Millisecond
 	if polling.waitBeforeRead {
 		delay = 40 * time.Millisecond
@@ -326,7 +331,7 @@ func (e *StateEngine) awaitOperationPolling(ctx context.Context, ref state.Ref, 
 		}
 		return pause > 0 && polling.wait(ctx, pause)
 	}
-	expired := func(reason string) *pb.OperationResult {
+	expired := func(reason string) (*pb.OperationResult, error) {
 		result := proto.Clone(latest).(*pb.OperationResult)
 		if respond {
 			result.Certainty = pb.OperationResult_UNKNOWN
@@ -334,19 +339,37 @@ func (e *StateEngine) awaitOperationPolling(ctx context.Context, ref state.Ref, 
 				result.Error = reason
 			}
 		}
-		return result
+		if err := stateMaterializeResultMessages(result); err != nil {
+			return nil, err
+		}
+		return result, nil
 	}
 	if polling.waitBeforeRead && !wait(delay) {
-		return expired("SIP response delivery deadline elapsed"), nil
+		return expired("SIP response delivery deadline elapsed")
 	}
 	for {
 		if ctx.Err() != nil {
-			return expired("SIP response delivery deadline elapsed"), nil
+			return expired("SIP response delivery deadline elapsed")
+		}
+		if polling.observe != nil {
+			observed, err := polling.observe(observedRevision)
+			if err != nil {
+				return nil, err
+			}
+			if observed != nil && (observed.Certainty != pb.OperationResult_ACCEPTED || !respond && observed.Request != nil) {
+				if err := stateMaterializeResultMessages(observed); err != nil {
+					return nil, err
+				}
+				if observed.Certainty == pb.OperationResult_ACCEPTED && observed.Request.GetMethod() != "BYE" {
+					return nil, state.ErrCorrupt
+				}
+				return observed, nil
+			}
 		}
 		record, err := polling.load(ctx, ref)
 		if err != nil {
 			if respond {
-				return expired("SIP response delivery outcome unavailable"), nil
+				return expired("SIP response delivery outcome unavailable")
 			}
 			return nil, err
 		}
@@ -354,15 +377,19 @@ func (e *StateEngine) awaitOperationPolling(ctx context.Context, ref state.Ref, 
 		if err != nil {
 			return nil, err
 		}
+		observedRevision = record.Revision
 		c := group.Contexts[contextID]
 		if c == nil {
 			return &pb.OperationResult{Certainty: pb.OperationResult_UNKNOWN, Error: "native context retired"}, nil
 		}
 		if c.Operation == operation && c.Result != nil {
 			latest = proto.Clone(c.Result).(*pb.OperationResult)
+			latest.Snapshot = stateSnapshot(c, e.cfg.Process)
 			if latest.Certainty != pb.OperationResult_ACCEPTED || !respond && writtenPublicBye(c) != nil {
 				projectWrittenPublicBye(c, latest)
-				latest.Snapshot = stateSnapshot(c, e.cfg.Process)
+				if err := stateMaterializeResultMessages(latest); err != nil {
+					return nil, err
+				}
 				return latest, nil
 			}
 		}
@@ -374,7 +401,7 @@ func (e *StateEngine) awaitOperationPolling(ctx context.Context, ref state.Ref, 
 		// Pace from the completed read, so slow Redis/decode work cannot
 		// accumulate ticker events and immediately start another full read.
 		if !wait(delay) {
-			return expired("SIP response delivery deadline elapsed"), nil
+			return expired("SIP response delivery deadline elapsed")
 		}
 		delay = min(delay*2, 40*time.Millisecond)
 	}
@@ -443,49 +470,7 @@ func (e *StateEngine) scheduleGroupIn(parent context.Context, ref state.Ref) {
 			e.scheduler.fail(schedulerGroupFailure, err)
 			return
 		}
-		if plan.pending {
-			legacy, ok := e.runtime.(interface {
-				Resume(context.Context, state.Ref) (state.Receipt, error)
-			})
-			if e.autonomousCompletion() || !ok {
-				return // Production and CAS fixtures never recover retained claims.
-			}
-			// A ready effect is not a pending reducer input. Do not issue an
-			// IDLE Begin/recovery request for every ordinary effect/timer hint.
-			plan.effects, plan.timers = nil, nil
-			_, _ = legacy.Resume(ctx, plan.ref)
-			plan, err = e.schedulePlan(ctx, plan.ref)
-			if err != nil {
-				return
-			}
-		}
-		if plan.retire {
-			_ = e.store.Retire(ctx, plan.ref)
-			return
-		}
-		if len(plan.timers) > 0 {
-			// A timer transition may invalidate an older effect or create its
-			// native completion. Never dispatch the pre-transition snapshot.
-			plan.effects = nil
-			changed := e.applyScheduledTimers(ctx, plan.ref, plan.timers)
-			plan.timers = nil
-			if ctx.Err() != nil {
-				if changed {
-					e.dispatch(plan.ref)
-				}
-				return
-			}
-			plan, err = e.schedulePlan(ctx, plan.ref)
-			if err != nil {
-				if changed {
-					e.dispatch(plan.ref)
-				}
-				return
-			}
-		}
-		if ctx.Err() == nil && len(plan.effects) > 0 {
-			e.dispatchPrepared(plan.ref, plan.effects)
-		}
+		e.runSchedulePlan(ctx, plan)
 	}()
 }
 
@@ -552,5 +537,55 @@ func (r *stateReduction) pruneRetired() {
 		if until <= r.now {
 			delete(r.group.Retired, id)
 		}
+	}
+}
+
+// runSchedulePlan consumes a transient protocol projection; all timer mutations
+// still acquire fresh CAS inputs, and no decoded aggregate crosses external I/O.
+func (e *StateEngine) runSchedulePlan(ctx context.Context, plan stateSchedulePlan) {
+	if plan.pending {
+		legacy, ok := e.runtime.(interface {
+			Resume(context.Context, state.Ref) (state.Receipt, error)
+		})
+		if e.autonomousCompletion() || !ok {
+			return // Production and CAS fixtures never recover retained claims.
+		}
+		// A ready effect is not a pending reducer input. Do not issue an
+		// IDLE Begin/recovery request for every ordinary effect/timer hint.
+		plan.effects, plan.timers = nil, nil
+		_, _ = legacy.Resume(ctx, plan.ref)
+		next, err := e.schedulePlan(ctx, plan.ref)
+		if err != nil {
+			return
+		}
+		plan = next
+	}
+	if plan.retire {
+		_ = e.store.Retire(ctx, plan.ref)
+		return
+	}
+	if len(plan.timers) > 0 {
+		// A timer transition may invalidate an older effect or create its
+		// native completion. Never dispatch the pre-transition snapshot.
+		plan.effects = nil
+		changed := e.applyScheduledTimers(ctx, plan.ref, plan.timers)
+		plan.timers = nil
+		if ctx.Err() != nil {
+			if changed {
+				e.dispatch(plan.ref)
+			}
+			return
+		}
+		next, err := e.schedulePlan(ctx, plan.ref)
+		if err != nil {
+			if changed {
+				e.dispatch(plan.ref)
+			}
+			return
+		}
+		plan = next
+	}
+	if ctx.Err() == nil && len(plan.effects) > 0 {
+		e.dispatchPrepared(plan.ref, plan.effects)
 	}
 }

@@ -27,6 +27,16 @@ func (m *MemoryStore) RegisterDispatchWorker(ctx context.Context, worker string)
 		return ErrCapacity
 	}
 	m.dispatchWorkers[worker] = now + 2000
+	if m.timerWorkers == nil {
+		m.timerWorkers = make(map[string]int64)
+	}
+	for id, until := range m.timerWorkers {
+		if until <= now && (m.timerQueues[id] == nil || m.timerQueues[id].Len() == 0) {
+			delete(m.timerWorkers, id)
+			m.forgetDispatchWake(id)
+		}
+	}
+	m.timerWorkers[worker] = now + DispatchWorkerLifetime.Milliseconds()
 	return nil
 }
 
@@ -76,9 +86,16 @@ func (m *MemoryStore) scheduleDispatch(g *memoryGroup, workers []string, now int
 			queue = &hintHeap{}
 			m.dispatchQueues[worker] = queue
 		}
+		var previous int64
+		if queue.Len() > 0 {
+			previous = queue.items[0].due
+		}
 		queue.set(g.ref, max(1, now))
+		if previous == 0 || queue.items[0].due < previous {
+			m.wakeDispatch(worker)
+		}
 	}
-	if len(workers) > 0 {
+	if len(workers) > 0 && g.timerWorker == "" {
 		m.wakeSchedule()
 	}
 }
@@ -96,7 +113,11 @@ func (m *MemoryStore) DispatchHead(ctx context.Context, worker string) (Schedule
 	if queue := m.dispatchQueues[worker]; queue != nil && queue.Len() > 0 {
 		due = queue.items[0].due
 	}
-	return ScheduleHead{DueMS: due, After: scheduleDelay(now, due), Cursor: strconv.FormatUint(m.schedulerCursor, 10) + "-0"}, nil
+	if queue := m.timerQueues[worker]; queue != nil && queue.Len() > 0 && (due == 0 || queue.items[0].due < due) {
+		due = queue.items[0].due
+	}
+	wake := m.dispatchWake(worker)
+	return ScheduleHead{DueMS: due, After: scheduleDelay(now, due), Cursor: strconv.FormatUint(wake.cursor, 10) + "-0"}, nil
 }
 
 func (m *MemoryStore) DispatchHints(ctx context.Context, worker string, limit int) ([]Hint, error) {
@@ -108,10 +129,7 @@ func (m *MemoryStore) DispatchHints(ctx context.Context, worker string, limit in
 		return nil, err
 	}
 	defer m.unlock()
-	if queue := m.dispatchQueues[worker]; queue != nil {
-		return queue.hints(now, limit), nil
-	}
-	return nil, nil
+	return m.workerHints(worker, now, limit), nil
 }
 
 func (m *MemoryStore) AckDispatch(ctx context.Context, worker string, ref Ref, revision string) error {

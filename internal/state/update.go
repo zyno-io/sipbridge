@@ -21,7 +21,7 @@ type Update struct {
 // redisUpdate binds CAS to the exact validated Redis read/connection.
 type redisUpdate struct {
 	counter      string
-	digest       string
+	input        *preparedInput
 	transport    *primaryObservation
 	priorEffects map[string]applicationLeaseEffect
 }
@@ -40,18 +40,16 @@ func (s *Store) ReadUpdate(ctx context.Context, ref Ref, input Input) (UpdateRes
 	if err := s.validateRef(ref); err != nil {
 		return UpdateResult{}, err
 	}
-	if err := s.validateInput(input); err != nil {
-		return UpdateResult{}, err
-	}
-	digest, encoded, err := digestInput(input)
+	prepared, err := s.prepareInput(input, true)
 	if err != nil {
 		return UpdateResult{}, err
 	}
+	input = ownedInput(input)
 	observation, err := s.ensurePrimary(ctx)
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	values, err := s.run(ctx, readUpdateScript, ref, []interface{}{string(encoded)}, false, observation)
+	values, err := s.run(ctx, readUpdateScript, ref, []interface{}{prepared.encoded}, false, observation)
 	if err != nil {
 		return UpdateResult{}, err
 	}
@@ -122,7 +120,7 @@ func (s *Store) ReadUpdate(ctx context.Context, ref Ref, input Input) (UpdateRes
 		observed := record.Ref
 		return UpdateResult{Ref: &observed}, ErrBusy
 	}
-	update := &Update{Record: record, Input: input, NowMS: now, token: &redisUpdate{counter: counter, digest: digest,
+	update := &Update{Record: record, Input: input, NowMS: now, token: &redisUpdate{counter: counter, input: prepared,
 		transport: observation, priorEffects: snapshotApplicationEffects(record.Payload.Effects)}}
 	result := UpdateResult{Update: update}
 	if existing {
@@ -141,8 +139,7 @@ func (s *Store) CompareAndSwap(ctx context.Context, update Update, next Payload,
 	if err != nil || counter == 1<<63-1 {
 		return Receipt{}, ErrCapacity
 	}
-	digest, encoded, err := digestInput(update.Input)
-	if err != nil || digest != token.digest {
+	if !token.input.matches(update.Input) {
 		return Receipt{}, ErrConflict
 	}
 	if update.Record.Pending != nil {
@@ -150,11 +147,11 @@ func (s *Store) CompareAndSwap(ctx context.Context, update Update, next Payload,
 	}
 	step := Step{Record: update.Record, Input: update.Input, NowMS: update.NowMS, Claim: Claim{
 		Authority: s.authority, Ref: update.Record.Ref, BaseRevision: update.Record.Revision,
-		Token: strconv.FormatUint(counter+1, 10), InputDigest: digest, transport: token.transport,
+		Token: strconv.FormatUint(counter+1, 10), InputDigest: token.input.digest, transport: token.transport, preparedInput: token.input,
 		applicationEffects: token.priorEffects,
 	}}
 	if step.Record.Authority != s.authority {
 		return Receipt{}, ErrAuthority
 	}
-	return s.commit(ctx, step, next, outcome, compareAndSwapScript, []interface{}{string(encoded), token.counter})
+	return s.commit(ctx, step, next, outcome, compareAndSwapScript, []interface{}{token.input.encoded, token.counter})
 }

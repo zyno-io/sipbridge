@@ -303,7 +303,7 @@ func TestSchedulerPairAbruptLeaderLossRebuildsAndDispatches(t *testing.T) {
 			due := time.Now().Add(100 * time.Millisecond)
 			ref := schedulerSeedTimer(t, s, due)
 			leader.cancel()
-			schedulerAwait(t, due.Add(450*time.Millisecond), func() bool {
+			schedulerAwait(t, due.Add(state.SchedulerLeaseLifetime+750*time.Millisecond), func() bool {
 				record, err := s.Load(context.Background(), ref)
 				return follower.SchedulerStatistics().Leader && err == nil && len(record.Payload.Timers) == 0
 			})

@@ -76,7 +76,7 @@ These timers govern how sipbridge detects a lost controller; see
 | Owner context inventory page / quota | 64 references / 4,096 references |
 | Lease renewal | At most every 2 seconds per session |
 | Grace period after a lease is first seen expired | 5 seconds |
-| Typical time to detect a lost controller | About 40 seconds after last renewal |
+| Typical time to detect a lost controller | About 35 seconds after last renewal, plus bounded scheduling/admission latency |
 | SIP cleanup after a controller is declared lost | 64 seconds |
 | Existing-context registration transport lease | 4 hours |
 | External receipt reconciliation | 120 seconds |
@@ -87,8 +87,13 @@ These timers govern how sipbridge detects a lost controller; see
 
 | Item | Value |
 | --- | --- |
-| Scheduler tick | 20 ms, visiting 1–8 partitions with a 100 ms read budget |
-| Full sweep at 64 partitions | At most 160 ms, below the 500 ms SIP T1 |
+| Worker timer ownership | One earliest-deadline entry per scheduled group |
+| Worker heartbeat / lifetime | 500 ms / 2 seconds |
+| Coordinator renewal / lifetime | 500 ms / 2 seconds |
+| Orphan transfer | At most 64 groups per page; 500 ms idle check and 20 ms continuation |
+| Unowned fallback scheduling | 20 ms, visiting 1–8 partitions with a 100 ms read budget |
+| Healthy fallback sweep at 64 partitions | At most 160 ms, excluding leadership handoff |
+| Local completion handoff | At most one 1 MiB optional result per active matching waiter |
 | Compare-and-swap retry pause | 5 ms, within the original deadline |
 | Local execution stripes | 1,024 |
 

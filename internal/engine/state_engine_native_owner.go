@@ -67,6 +67,27 @@ func (r *stateReduction) requireNativeOwner(c *stateContext, session bool) (stat
 	return r.guardNativeLease(c.Snapshot.Application, c.Snapshot.ApplicationLeaseTerm, generation)
 }
 
+// Called only against a fresh validated mutation read. A no-op acknowledges
+// scheduling progress, never application ownership or permission to write.
+func (e *StateEngine) nativeOwnerCheckNeeded(group stateGroup, record state.Record, now int64) bool {
+	for _, c := range group.Contexts {
+		if c.Rejection || c.OwnerLost {
+			continue
+		}
+		lease, exists := record.ApplicationLeases[e.applicationLeaseID(c.Snapshot.Application)]
+		if !exists || lease.CheckedAtMS != now || c.Snapshot.ApplicationLeaseTerm == "" || lease.Term != c.Snapshot.ApplicationLeaseTerm {
+			return true
+		}
+		if lease.Recoverable && lease.Generation != c.Snapshot.AttachmentGeneration && lease.ExpiresAtMS > now && lease.AttachmentUntilMS == 0 {
+			return true
+		}
+		if lease.ExpiresAtMS <= now && lease.RecoveryUntilMS <= now {
+			return true
+		}
+	}
+	return false
+}
+
 // A negative observation for a pinned term remains true after a later handshake
 // acquires a successor. It can therefore be committed without a live-term guard.
 func (r *stateReduction) expireNativeOwners() error {
@@ -107,9 +128,6 @@ func (r *stateReduction) expireNativeOwners() error {
 		if lease.Term == c.Snapshot.ApplicationLeaseTerm && lease.ExpiresAtMS <= r.now && lease.RecoveryUntilMS > r.now {
 			// Another worker may observe expiry before the worker holding this
 			// owner's healthy control session. Give it the shared fixed window.
-			if c.OwnerProbeAtMS == 0 || c.OwnerProbeAtMS > lease.RecoveryUntilMS {
-				c.OwnerProbeAtMS = lease.RecoveryUntilMS
-			}
 			continue
 		}
 		if lease.Term != c.Snapshot.ApplicationLeaseTerm || lease.ExpiresAtMS <= r.now {
@@ -186,11 +204,10 @@ func (r *stateReduction) appendNativeOwnerTimers() error {
 			continue
 		}
 		if !c.OwnerLost {
-			next, err := r.nativeOwnerProbeDeadline(c)
-			if err != nil {
-				return err
-			}
-			c.OwnerProbeAtMS = next
+			// Application health has one shared lease deadline. Healthy contexts
+			// need no periodic protocol transition to rewrite a probe timestamp.
+			c.OwnerProbeAtMS = 0
+			continue
 		} else if c.OwnerProbeAtMS == 0 {
 			c.OwnerProbeAtMS = r.now + stateOwnerProbeInterval
 		}
@@ -229,7 +246,7 @@ func (r *stateReduction) autonomousProtocolInput() bool {
 		return false
 	}
 	switch r.in.Kind {
-	case "timer", "complete", "native-ingest":
+	case "timer", "complete", "native-ingest", "owner-check":
 		return true
 	case "ingest":
 		in := r.in.Ingest

@@ -526,7 +526,15 @@ func (s *Store) commit(ctx context.Context, step Step, next Payload, outcome []b
 	if !decimal(step.Claim.Token) || !decimal(step.Claim.BaseRevision) {
 		return Receipt{}, ErrCorrupt
 	}
-	digest, _, err := digestInput(step.Input)
+	var digest string
+	if prepared := step.Claim.preparedInput; prepared != nil {
+		// The private CAS path checked this binding before constructing Claim.
+		// Historical claimed fixtures have no prepared input and use their
+		// original canonical validation path below.
+		digest = prepared.digest
+	} else {
+		digest, _, err = digestInput(step.Input)
+	}
 	if err != nil || digest != step.Claim.InputDigest {
 		return Receipt{}, ErrConflict
 	}
@@ -566,7 +574,10 @@ func (s *Store) commit(ctx context.Context, step Step, next Payload, outcome []b
 	if err != nil {
 		return Receipt{}, err
 	}
-	args = append(args, string(contextProjection))
+	if next.TimerWorker != "" && !dispatchWorkerPattern.MatchString(next.TimerWorker) {
+		return Receipt{}, ErrCorrupt
+	}
+	args = append(args, next.TimerWorker, string(contextProjection))
 	workers, err := json.Marshal(dispatchWorkers(next.Effects))
 	if err != nil {
 		return Receipt{}, err

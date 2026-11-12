@@ -10,15 +10,16 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const SchedulerLeaseLifetime = 250 * time.Millisecond
+const SchedulerLeaseLifetime = 2 * time.Second
 
 // ScheduleHead is a scheduling hint, never a cached protocol record. After is
 // relative to the validated read's Redis clock and adjusted for elapsed I/O.
 type ScheduleHead struct {
-	DueMS     int64
-	After     time.Duration
-	Cursor    string
-	Partition uint16
+	DueMS             int64
+	After             time.Duration
+	Cursor            string
+	Partition         uint16
+	ApplicationExpiry bool
 }
 
 func scheduleDelay(now, due int64) time.Duration {
@@ -78,6 +79,7 @@ func (s *Store) ScheduleHead(ctx context.Context, token string, rebuild bool) (S
 			keys = append(keys, prefix+"ready", prefix+"due")
 		}
 	}
+	keys = append(keys, s.root+"application-expiry")
 	start := time.Now()
 	values, err := s.runKeys(ctx, schedulerHeadScript, Ref{}, keys, []interface{}{token, rebuild}, rebuild)
 	if err != nil {
@@ -93,8 +95,12 @@ func (s *Store) ScheduleHead(ctx context.Context, token string, rebuild bool) (S
 		return ScheduleHead{}, ErrCorrupt
 	}
 	var partition uint16
+	applicationExpiry := false
 	if due != 0 {
 		queue, err := textAt(values, 4)
+		if err == nil && queue == s.root+"application-expiry" {
+			return ScheduleHead{DueMS: due, After: max(0, scheduleDelay(now, due)-time.Since(start)), Cursor: cursor, ApplicationExpiry: true}, nil
+		}
 		if err != nil || !strings.HasPrefix(queue, s.root+"{p") {
 			return ScheduleHead{}, ErrCorrupt
 		}
@@ -108,7 +114,7 @@ func (s *Store) ScheduleHead(ctx context.Context, token string, rebuild bool) (S
 		}
 		partition = uint16(parsed)
 	}
-	return ScheduleHead{DueMS: due, After: max(0, scheduleDelay(now, due)-time.Since(start)), Cursor: cursor, Partition: partition}, nil
+	return ScheduleHead{DueMS: due, After: max(0, scheduleDelay(now, due)-time.Since(start)), Cursor: cursor, Partition: partition, ApplicationExpiry: applicationExpiry}, nil
 }
 
 func validScheduleCursor(cursor string) bool {
@@ -193,11 +199,11 @@ if not redis.acl_check_cmd('ZRANGE',KEYS[2],0,0,'WITHSCORES') or
  not redis.acl_check_cmd('XREVRANGE',KEYS[3],'+','-','COUNT',1) then return fail('AUTHORITY') end
 if ARGV[8]=='1' then
  if not redis.acl_check_cmd('DEL',KEYS[2]) or not redis.acl_check_cmd('ZADD',KEYS[2],1,'probe') then return fail('AUTHORITY') end
- for offset=4,#KEYS do
+ for offset=4,#KEYS-1 do
   if not redis.acl_check_cmd('ZRANGE',KEYS[offset],0,0,'WITHSCORES') then return fail('AUTHORITY') end
  end
  redis.call('DEL',KEYS[2])
- for offset=4,#KEYS do
+ for offset=4,#KEYS-1 do
   if keytype(KEYS[offset],'zset') then
    local head=redis.call('ZRANGE',KEYS[offset],0,0,'WITHSCORES')
    if #head>0 then redis.call('ZADD',KEYS[2],scheduleScore(head[2]),KEYS[offset]) end
@@ -205,6 +211,9 @@ if ARGV[8]=='1' then
  end
 end
 local head=redis.call('ZRANGE',KEYS[2],0,0,'WITHSCORES')
+if not keytype(KEYS[#KEYS],'zset') then return fail('CORRUPT') end
+local application=redis.call('ZRANGE',KEYS[#KEYS],0,0,'WITHSCORES')
+if #application>0 and (#head==0 or tonumber(application[2])<tonumber(head[2])) then head={KEYS[#KEYS],application[2]} end
 local wake=redis.call('XREVRANGE',KEYS[3],'+','-','COUNT',1)
 local due=#head>0 and head[2] or '0'
 return {'SCHEDULE_HEAD',integer(nowms()),due,#wake>0 and wake[1][1] or '0-0',#head>0 and head[1] or ''}

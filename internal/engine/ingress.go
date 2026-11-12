@@ -184,9 +184,10 @@ func (i *Ingress) readStream(ctx context.Context, flow *physicalFlow) {
 	parser := sip.NewParser()
 	parser.MaxMessageLength = 65536
 	stream := parser.NewSIPStream()
-	defer stream.Close()
+	defer func() { stream.Close() }()
 	buffer := make([]byte, 4096)
-	original := make([]byte, 0, 8192)
+	var original []byte
+	largeFrame := false
 	for {
 		n, readErr := conn.Read(buffer)
 		if n > 0 {
@@ -222,9 +223,9 @@ func (i *Ingress) readStream(ctx context.Context, flow *physicalFlow) {
 				}
 				wire := append([]byte(nil), original[:size]...)
 				original = original[size:]
+				largeFrame = largeFrame || size > 8192
 				i.capture.Submit(capture.Observation{Timestamp: time.Now(), Direction: "in", Transport: flow.ref.Transport, Source: conn.RemoteAddr().String(), Destination: conn.LocalAddr().String(), Outcome: "received", Wire: wire})
-				_ = m
-				message, err := Observe(wire, false)
+				message, err := observeFramedMessage(wire, m)
 				if err != nil {
 					i.invalidMessages.Add(1)
 					return
@@ -236,6 +237,14 @@ func (i *Ingress) readStream(ctx context.Context, flow *physicalFlow) {
 					return
 				}
 				i.route(ctx, flow, message)
+				if len(original) == 0 && largeFrame {
+					// A rare large SDP/message must not pin its framing buffers for
+					// the rest of this phone's connection lifetime.
+					original = nil
+					stream.Close()
+					stream = parser.NewSIPStream()
+					largeFrame = false
+				}
 			}
 		}
 		if readErr != nil {

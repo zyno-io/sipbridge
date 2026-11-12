@@ -159,6 +159,17 @@ type Payload struct {
 	ApplicationLeaseIDs     []string                  `json:"applicationLeaseIds,omitempty"`
 	CommitLeaseGuards       []ApplicationLeaseRef     `json:"-"`
 	CommitLeaseFences       []ApplicationLeaseRef     `json:"-"`
+	// TimerWorker is a transient executor hint. The adapter persists its own
+	// derivative scalar projection, never a second copy of protocol state.
+	TimerWorker string `json:"-"`
+	// LocalObservations are operation-local result projections, never persisted
+	// by either store. Only definite commit success may publish them to waiters.
+	LocalObservations []LocalObservation `json:"-"`
+}
+
+type LocalObservation struct {
+	ContextID, OperationID string
+	Outcome                []byte
 }
 
 type Receipt struct {
@@ -183,6 +194,7 @@ type Record struct {
 }
 
 type Claim struct {
+	preparedInput      *preparedInput // Set only after the CAS adapter verifies its private input binding.
 	transport          *primaryObservation
 	applicationEffects map[string]applicationLeaseEffect
 	ID                 string

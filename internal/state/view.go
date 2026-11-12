@@ -5,12 +5,13 @@ import "context"
 // StateView is a non-authorizing, independently owned protocol projection.
 // It deliberately cannot carry replay receipts, input bodies or observed leases.
 type StateView struct {
-	Ref        Ref
-	Authority  Authority
-	Versions   Versions
-	Revision   string
-	Payload    Payload
-	HasPending bool
+	Ref         Ref
+	Authority   Authority
+	Versions    Versions
+	Revision    string
+	Payload     Payload
+	HasPending  bool
+	TimerWorker string
 }
 
 func protocolView(record Record, pending bool) StateView {
@@ -24,7 +25,7 @@ local err=checkgroup(); if err then return fail(err) end
 local now=nowms()
 return {'STATE',integer(now),redis.call('HGET',KEYS[1],'incarnation'),redis.call('HGET',KEYS[1],'revision'),
  redis.call('HGET',KEYS[1],'data'),redis.call('HGET',KEYS[1],'callId'),
- redis.call('HSTRLEN',KEYS[1],'pending')>0 and '1' or '0'}
+ redis.call('HSTRLEN',KEYS[1],'pending')>0 and '1' or '0',redis.call('HGET',KEYS[1],'timerOwner') or ''}
 `)
 
 // ReadState does not fetch replay history or observe application leases. Every
@@ -37,7 +38,7 @@ func (s *Store) ReadState(ctx context.Context, ref Ref) (StateView, int64, error
 	if err != nil {
 		return StateView{}, 0, err
 	}
-	if len(values) != 7 || values[0] != "STATE" {
+	if len(values) != 8 || values[0] != "STATE" {
 		return StateView{}, 0, ErrCorrupt
 	}
 	now, err := millisAt(values, 1)
@@ -58,7 +59,13 @@ func (s *Store) ReadState(ctx context.Context, ref Ref) (StateView, int64, error
 	if err != nil {
 		return StateView{}, 0, err
 	}
-	return protocolView(record, fields[4] == "1"), now, nil
+	worker, err := textAt(values, 7)
+	if err != nil || worker != "" && !dispatchWorkerPattern.MatchString(worker) {
+		return StateView{}, 0, ErrCorrupt
+	}
+	view := protocolView(record, fields[4] == "1")
+	view.TimerWorker = worker
+	return view, now, nil
 }
 
 func (m *MemoryStore) ReadState(ctx context.Context, ref Ref) (StateView, int64, error) {
@@ -75,5 +82,7 @@ func (m *MemoryStore) ReadState(ctx context.Context, ref Ref) (StateView, int64,
 	if err != nil {
 		return StateView{}, 0, err
 	}
-	return protocolView(record, false), now, nil
+	view := protocolView(record, false)
+	view.TimerWorker = group.timerWorker
+	return view, now, nil
 }

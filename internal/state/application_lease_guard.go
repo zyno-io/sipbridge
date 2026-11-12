@@ -151,6 +151,9 @@ local function planApplicationLeases(before,after,fences,now)
    change.references=change.saved.references+change.delta
    if change.references<0 or change.references>9007199254740991 then return nil,'CORRUPT' end
    if change.references>0 and not redis.acl_check_cmd('PERSIST',prefix..id) then return nil,'AUTHORITY' end
+   local expiry,problem=planApplicationExpiry(id,change.saved.expires,change.references,'',change.saved.references==0 and change.references>0)
+   if problem then return nil,problem end
+   change.expiry=expiry
   end
  end
  return {changes=changes,ids=seen,prefix=prefix},nil
@@ -162,6 +165,7 @@ local function applyApplicationLeases(plan)
    local key=plan.prefix..id
    redis.call('HSET',key,'references',integer(change.references),'sealed',(change.seal or change.saved.sealed) and '1' or '0')
    if change.references>0 then redis.call('PERSIST',key) else redis.call('PEXPIRE',key,120000) end
+   applyApplicationExpiry(change.expiry)
   end
  end
 end

@@ -41,7 +41,7 @@ type StateEngine struct {
 	closed         bool
 	dispatchMu     sync.Mutex
 	dispatching    map[string]bool
-	waiters        map[string]map[chan struct{}]struct{}
+	waiters        map[string]map[<-chan struct{}]*stateOperationWaiter
 	scheduler      schedulerStatistics
 }
 
@@ -187,7 +187,7 @@ func (e *StateEngine) applyCommitted(ctx context.Context, ref state.Ref, id stri
 		input.Proof, input.ReceiptUntilMS = true, input.DeadlineMS
 	}
 	switch in.Kind {
-	case "effect-start", "effect-result", "owner-result", "owner-control", "digest-result", "reserve", "complete", "timer", "reject", "native-ingest":
+	case "effect-start", "effect-result", "owner-result", "owner-control", "owner-check", "digest-result", "reserve", "complete", "timer", "reject", "native-ingest":
 		input.Proof = true
 		input.ReceiptUntilMS = input.DeadlineMS
 	}
@@ -281,6 +281,7 @@ func (e *StateEngine) applyCommitted(ctx context.Context, ref state.Ref, id stri
 	if len(receipt.Outcome) > 0 && json.Unmarshal(receipt.Outcome, &result) != nil {
 		return nil, nil, errors.Join(state.ErrUnknown, state.ErrCorrupt)
 	}
+	e.publishLocalObservations(applied.Committed)
 	if in.Kind == "complete" || in.Kind == "ingest" || in.Kind == "native-ingest" {
 		e.signalOperation(ref)
 	}
@@ -608,7 +609,7 @@ func (e *StateEngine) handle(ctx context.Context, peer *control.Peer, envelope *
 	if err == nil && in.Command != nil && result.Certainty == pb.OperationResult_ACCEPTED {
 		wait := in.Command.GetRespond() != nil || in.Command.GetDialogRequest() != nil || in.Command.GetOpenUac() != nil && in.Command.GetOpenUac().Method != "" && in.Command.GetOpenUac().Method != "INVITE"
 		if wait {
-			signal, stop := e.watchOperation(group)
+			signal, stop := e.watchOperation(group, stateOperationIdentity{ref.Id, envelope.CorrelationId})
 			defer stop()
 			e.dispatchCommitted(group, committed, "", "")
 			return e.awaitOperationSignal(ctx, group, ref.Id, envelope.CorrelationId, result, in.Command.GetRespond() != nil, signal, committed != nil)

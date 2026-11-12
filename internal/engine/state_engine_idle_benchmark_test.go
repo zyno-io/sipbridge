@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"testing"
 
@@ -27,9 +28,13 @@ type idleProfileFixture struct {
 // reservation, write and receiver-settlement paths outside the timed loop.
 // The minimum is SUBSCRIBE plus its initial NOTIFY; that next transition also
 // collects the preceding response's settled physical intent.
-func idleSubscriptionOwnerFixture(t testing.TB, transactions int) idleProfileFixture {
+func idleSubscriptionOwnerFixture(t testing.TB, transactions int, backend ...string) idleProfileFixture {
 	t.Helper()
-	f := newNativeOwnerFixtureBackend(t, state.MemoryBackend)
+	selected := state.MemoryBackend
+	if len(backend) > 0 {
+		selected = backend[0]
+	}
+	f := newNativeOwnerFixtureBackend(t, selected)
 	ref := migrationSubscribe(t, f, 3600)
 	settle := func() {
 		t.Helper()
@@ -94,15 +99,13 @@ func idleSubscriptionOwnerFixture(t testing.TB, transactions int) idleProfileFix
 		}
 		settle()
 	}
-	record, g := stateTestLoad(t, f.engine, ref)
-	c := g.Contexts[ref.Id]
-	now := c.OwnerProbeAtMS
+	record, _ := stateTestLoad(t, f.engine, ref)
 	id := f.engine.applicationLeaseID(f.app)
 	lease := record.ApplicationLeases[id]
+	now := lease.CheckedAtMS
 	lease.CheckedAtMS, lease.ExpiresAtMS = now, now+30000
 	record.ApplicationLeases[id] = lease
-	reduction := &stateReduction{engine: f.engine}
-	in := stateEngineInput{Kind: "timer", Timer: reduction.timerID(ref.Id, "owner", "probe", ""), Generation: strconv.FormatInt(now, 10), Operation: "profile-owner-timer"}
+	in := stateEngineInput{Kind: "owner-check", Operation: "profile-owner-check"}
 	encoded, err := in.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +115,7 @@ func idleSubscriptionOwnerFixture(t testing.TB, transactions int) idleProfileFix
 		t.Fatal(err)
 	}
 	capture := idleProfileFixture{Leases: record.ApplicationLeases, Record: record, Payload: payload, Config: f.config, Process: f.engine.cfg.Process, Authority: f.engine.store.Authority(), Now: now,
-		Input: state.Input{ID: "profile-owner-timer", Kind: "timer", Fingerprint: "profile-owner-timer", Proof: true, Payload: encoded, DeadlineMS: now + 2000, ReceiptUntilMS: now + 122000}}
+		Input: state.Input{ID: "profile-owner-check", Kind: "owner-check", Fingerprint: "profile-owner-check", Proof: true, Payload: encoded, DeadlineMS: now + 2000, ReceiptUntilMS: now + 122000}}
 	capture.Record.Payload = state.Payload{}
 	return capture
 }
@@ -126,7 +129,8 @@ func (s idleProfileStore) Authority() state.Authority { return s.authority }
 
 var idleProfileResult state.Payload
 
-// Includes fresh outer-payload decode, pure native reduction and group encode.
+// Includes fresh outer-payload/group decode and a validated healthy-owner no-op.
+// Normal operation does not schedule this check per healthy context.
 // Excludes Redis, CAS, dispatch, physical I/O and fixture construction; it is not
 // an application workload, fleet capacity or staging CPU measurement.
 func BenchmarkIdleSubscriptionOwnerTransition(b *testing.B) {
@@ -160,7 +164,7 @@ func benchmarkIdleSubscriptionOwnerTransition(b *testing.B, capture idleProfileF
 		b.Fatal(err)
 	}
 	checked, outcome, err := e.reduce(record, capture.Input, capture.Now)
-	if err != nil {
+	if !errors.Is(err, execution.ErrReadOnly) {
 		b.Fatal(err)
 	}
 	var result pb.OperationResult
@@ -173,7 +177,7 @@ func benchmarkIdleSubscriptionOwnerTransition(b *testing.B, capture idleProfileF
 	}
 	for id, c := range before.Contexts {
 		next := after.Contexts[id]
-		if next == nil || next.OwnerProbeAtMS != capture.Now+30000 || next.OwnerLost || next.Snapshot.CommandSequence != c.Snapshot.CommandSequence || len(next.Transactions) != len(c.Transactions) || len(checked.Effects) != len(record.Payload.Effects) {
+		if next == nil || next.OwnerProbeAtMS != c.OwnerProbeAtMS || next.OwnerLost || next.Snapshot.CommandSequence != c.Snapshot.CommandSequence || len(next.Transactions) != len(c.Transactions) || len(checked.Effects) != len(record.Payload.Effects) {
 			b.Fatal("profile fixture changed more than healthy owner maintenance")
 		}
 	}
@@ -184,7 +188,7 @@ func benchmarkIdleSubscriptionOwnerTransition(b *testing.B, capture idleProfileF
 			b.Fatal(err)
 		}
 		result, _, err := e.reduce(record, capture.Input, capture.Now)
-		if err != nil {
+		if !errors.Is(err, execution.ErrReadOnly) {
 			b.Fatal(err)
 		}
 		idleProfileResult = result

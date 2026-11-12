@@ -103,19 +103,24 @@ Controller                                   sipbridge
     |                                            |  SIP request arrives
     | <--- ingress ----------------------------- |
     | ---- ingest -----------------------------> |  controller admits the request
-    | <--- result ------------------------------ |
-    | ---- routeResult (ACCEPTED) -------------> |
-    | <--- request ----------------------------- |  presented to the owning controller
+    | <--- request ----------------------------- |  handle while ingest is pending
     | ---- command (respond) ------------------> |
-    | <--- result ------------------------------ |
+    | <--- result ------------------------------ |  response command outcome
+    | ---- result (ACCEPTED) ------------------> |  presentation acknowledgement
+    | <--- result ------------------------------ |  original ingest outcome
+    | ---- routeResult (ACCEPTED) -------------> |
     | <--- dialogEvent ------------------------- |
 ```
 
 In words: sipbridge asks what to do with a new request (`ingress`). The
-controller admits it into sipbridge's SIP state (`ingest`) and confirms the
-routing decision (`routeResult`). sipbridge then hands the request to the
-controller that owns it (`request`), the controller answers (`command` with
-`respond`), and sipbridge reports how the dialog progresses (`dialogEvent`).
+controller admits it into sipbridge's SIP state (`ingest`). A definite fresh
+commit can present the request directly to its controller before returning the
+ingest result. The controller handles that nested `request`, selects a response
+with `command`/`respond`, and acknowledges presentation independently of physical
+SIP delivery. It confirms routing with `routeResult` after ingest returns.
+Presentation acknowledgement can precede the response command, and deferred flow
+publication can change this example's ordering; neither creates a presentation
+retry queue. sipbridge reports dialog progress separately through `dialogEvent`.
 
 Two things to keep in mind when you implement this. Many operations are in
 flight on one session at once, so match replies to requests by `correlationId`

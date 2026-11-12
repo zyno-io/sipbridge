@@ -70,6 +70,13 @@ source address or a Call-ID does not prove an account.
 message. Answer with a `command` carrying `respond`, quoting the request's
 handle.
 
+Process `request` while an `ingest` RPC is still pending: direct presentation
+waits for the controller's acceptance result before returning that ingest result.
+Reply to the presentation with an accepted/completed `result`; this acknowledges
+application handling, not a physical SIP write. The response command has its own
+correlation ID and write outcome. Presentation is one-shot under the original
+deadline, without a durable queue or cross-worker retry after process loss.
+
 **Originate requests.** Use `openUac` for a new INVITE or a standalone OPTIONS,
 MESSAGE or NOTIFY, and `dialogRequest` for requests inside a dialog such as BYE
 or re-INVITE. You must name where the request goes: either a registration you

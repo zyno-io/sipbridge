@@ -9,7 +9,6 @@ import (
 	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	pb "sipbridge/internal/controlpb"
-	"sipbridge/internal/state"
 )
 
 func ownerRegistrationRequest(t *testing.T, sequence int, branch string) *pb.SipMessage {
@@ -41,28 +40,21 @@ func ownerFinalRegistration(t *testing.T) (*StateEngine, *StateEngine, *pb.Conte
 	if result := stateTestApply(t, b, ref, "registration-owner-proof", stateEngineInput{Kind: "owner-result", Effect: c.OwnerProbeEffect, Reply: &pb.Envelope{Payload: &pb.Envelope_ApplicationStatus{ApplicationStatus: proof}}}); result.Error != "" {
 		t.Fatal(result.Error)
 	}
-	record, group := stateTestLoad(t, a, ref)
-	var presentation state.Effect
-	var body stateEngineEffect
-	for _, effect := range record.Payload.Effects {
-		if effect.Kind == "present" {
-			presentation = effect
-			if err := unmarshalRetainedFixture(effect.Payload, &body); err != nil {
-				t.Fatal(err)
-			}
+	_, group = stateTestLoad(t, a, ref)
+	c = group.Contexts[ref.Id]
+	var tx *stateTransaction
+	for _, candidate := range c.Transactions {
+		if candidate.RequestID != "" {
+			tx = candidate
+			break
 		}
 	}
-	if presentation.ID == "" {
-		t.Fatal("initial registration not presented after exact owner proof")
+	if tx == nil || tx.OwnerDeferred || !tx.OwnerValidated {
+		t.Fatal("registration owner proof did not complete")
 	}
-	stateTestApply(t, a, ref, "registration-handler-start", stateEngineInput{Kind: "effect-start", Effect: presentation.ID})
-	c = group.Contexts[ref.Id]
-	tx := c.Transactions[body.Transaction]
 	if result := stateTestApply(t, a, ref, "registration-accepted", stateEngineInput{Kind: "command", Application: application, Command: &pb.Command{Context: ref, Sequence: 1, Action: &pb.Command_Respond{Respond: &pb.Respond{RequestId: tx.RequestID, Status: 200}}}}); result.Error != "" {
 		t.Fatal(result.Error)
 	}
-	// The exact Respond itself consumes the presentation receipt before the
-	// handler's later transport acknowledgement, matching the live path.
 	return a, b, ref, application, flow, message
 }
 
@@ -145,7 +137,7 @@ func TestStateOwnerIdleRegistrationRequiresFreshProofAndReplaysCachedResponse(t 
 				}
 			}
 			if ownerLive {
-				if c.OwnerLost || presented != 1 || !c.Transactions[fresh.Native.Key].OwnerValidated {
+				if c.OwnerLost || presented != 0 || !c.Transactions[fresh.Native.Key].OwnerValidated {
 					t.Fatal("fresh live proof did not admit exactly one policy presentation")
 				}
 				check := &stateReduction{engine: a, group: group, payload: record.Payload, now: time.Now().UnixMilli()}

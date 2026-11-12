@@ -174,7 +174,14 @@ type Payload struct {
 	LocalDrain *LocalDrainObservation `json:"-"`
 	// LocalResult is a bounded transient return DTO for definite fresh CAS only.
 	// It contains no native aggregate and is never persisted or replayed.
-	LocalResult *pb.OperationResult `json:"-"`
+	LocalResult        *pb.OperationResult `json:"-"`
+	LocalPresentations []LocalPresentation `json:"-"`
+}
+
+type LocalPresentation struct {
+	Application *pb.ProcessRef
+	Request     *pb.RequestPresented
+	DeadlineMS  int64
 }
 
 type LocalDrainObservation struct {

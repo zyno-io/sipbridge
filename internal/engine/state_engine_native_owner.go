@@ -246,7 +246,7 @@ func (r *stateReduction) autonomousProtocolInput() bool {
 		return false
 	}
 	switch r.in.Kind {
-	case "timer", "complete", "native-ingest", "owner-check":
+	case "timer", "complete", "native-ingest", "owner-check", "presentation-failed":
 		return true
 	case "ingest":
 		in := r.in.Ingest

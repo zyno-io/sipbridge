@@ -84,6 +84,7 @@ type stateTransaction struct {
 	DigestAttempts       uint32                   `json:"digestAttempts,omitempty"`
 	DigestEffect         string                   `json:"digestEffect,omitempty"`
 	PendingResponse      *pb.Respond              `json:"pendingResponse,omitempty"`
+	PresentDeadlineMS    int64                    `json:"presentDeadlineMs,omitempty"`
 	DeferredPresent      bool                     `json:"deferredPresent,omitempty"`
 	RespondDeadlineMS    int64                    `json:"respondDeadlineMs,omitempty"`
 	RespondStatus        uint32                   `json:"respondStatus,omitempty"`
@@ -270,6 +271,7 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 	}
 	r.payload.Effects = append([]state.Effect(nil), record.Payload.Effects...)
 	r.payload.CommitLeaseGuards = nil
+	r.payload.LocalPresentations = nil
 	if err := r.protectRequestFence(); err != nil {
 		return record.Payload, nil, err
 	}
@@ -298,6 +300,8 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 			err = r.ingestNativeCompletion()
 		case "reject":
 			err = r.reject()
+		case "presentation-failed":
+			err = r.presentationFailed()
 		case "command":
 			err = r.command()
 		case "reserve":
@@ -329,6 +333,7 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 		r.clearSelectorMemo()
 		r.group, _ = decodeStateGroup(record)
 		r.payload = record.Payload
+		r.payload.LocalPresentations = nil
 		r.payload.Effects = append([]state.Effect(nil), record.Payload.Effects...)
 		r.payload.CommitLeaseGuards = nil
 		if expiryErr := r.expireNativeOwners(); expiryErr != nil {
@@ -1179,19 +1184,7 @@ func (r *stateReduction) command() error {
 			}
 			r.index(c, m, true)
 		}
-		for i, effect := range r.payload.Effects {
-			if effect.Kind != "present" {
-				continue
-			}
-			var body stateEngineEffect
-			if body.unmarshalMetadata(effect.Payload) == nil && body.Transaction == tx.Native.Key && body.Context == c.Snapshot.Context.Id {
-				effect.Status = state.EffectWritten
-				if effect.AttemptID == "" {
-					effect.AttemptID = "consumed-" + r.engine.id(effect.ID)[:32]
-				}
-				r.payload.Effects[i] = effect
-			}
-		}
+
 		tx.Command = r.in.Operation
 		emissions := tx.Emissions
 		if err := r.stepTransaction(c, tx, portable.Input{Kind: portable.SendResponse, Now: r.now, Message: m}); err != nil {
@@ -1561,7 +1554,7 @@ func (r *stateReduction) projectDispatchWorkers() error {
 		if !stateDispatchableEffect(*effect, r.now) || effect.Kind == "open" && (effect.Status != state.EffectPending || effect.DeadlineMS <= r.now) {
 			continue
 		}
-		if effect.Kind == "present" || effect.Kind == "event" || effect.Kind == "adopt" || effect.Kind == "credential" || effect.Kind == "open" {
+		if effect.Kind == "event" || effect.Kind == "adopt" || effect.Kind == "credential" || effect.Kind == "open" {
 			effect.Worker = state.AnyDispatchWorker
 			continue
 		}

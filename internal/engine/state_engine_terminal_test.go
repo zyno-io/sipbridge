@@ -192,3 +192,55 @@ func TestStateRejectedRemoteReinviteReleasesOfferWithoutChangingAcceptedState(t 
 		})
 	}
 }
+
+func TestPresentationFailureReleasesRemoteReinvite(t *testing.T) {
+	for _, status := range []uint32{503} {
+		t.Run(strconv.Itoa(int(status)), func(t *testing.T) {
+			r, c, initial := forkFixture(t)
+			if _, err := r.forkResponse(c, initial, forkReply(t, initial, 200, "winner")); err != nil {
+				t.Fatal(err)
+			}
+			local, remote, target := append([]byte(nil), c.Snapshot.LocalSdp...), append([]byte(nil), c.Snapshot.RemoteSdp...), c.Snapshot.RemoteTarget
+			request := func(seq uint32) portable.Message {
+				m, err := portable.BuildInitialRequest(portable.InitialRequest{Method: sip.INVITE, URI: "sip:controller@example.test", From: "<sip:phone@example.test>", To: "<sip:controller@example.test>", CallID: "fork-call", LocalTag: "winner", CSeq: seq, Branch: fmt.Sprintf("z9hG4bK-remote-%d", seq), Advertise: "192.0.2.10:5061", Contact: "sip:phone@new.example.test:5061;transport=tls", Transport: "tls", Body: []byte("v=0\r\na=sendonly\r\n")})
+				if err != nil {
+					t.Fatal(err)
+				}
+				parsed, err := m.Parse()
+				if err != nil {
+					t.Fatal(err)
+				}
+				parsed.To().Params.Add("tag", "local")
+				m.Wire = []byte(parsed.String())
+				return m
+			}
+			m := request(20)
+			d, _, err := portable.StepDialog(c.Dialogs[c.Dialog], portable.DialogInput{Kind: portable.DialogReceiveRequest, Now: r.now, Message: m, Offer: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.Dialogs[c.Dialog] = d
+			native, err := portable.NewTransaction(portable.InviteServer, m, portable.DefaultTimers(), c.Tag)
+			if err != nil {
+				t.Fatal(err)
+			}
+			native, _, err = portable.StepTransaction(native, portable.Input{Kind: portable.Start, Now: r.now})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tx := &stateTransaction{Native: native, Flow: c.Flow, RequestID: "remote-reinvite"}
+			c.Transactions[native.Key], c.Requests[tx.RequestID] = tx, native.Key
+			r.in = stateEngineInput{Kind: "presentation-failed", Context: c.Snapshot.Context, Operation: tx.RequestID}
+			if err := r.presentationFailed(); err != nil {
+				t.Fatal(err)
+			}
+			d = c.Dialogs[c.Dialog]
+			if d.RemoteInvite.State != portable.InviteRejected || d.Offer != portable.NoOffer || c.Snapshot.Ended || !bytes.Equal(c.Snapshot.LocalSdp, local) || !bytes.Equal(c.Snapshot.RemoteSdp, remote) || c.Snapshot.RemoteTarget != target {
+				t.Fatal("rejected offer changed accepted dialog or remained pending")
+			}
+			if _, _, err = portable.StepDialog(d, portable.DialogInput{Kind: portable.DialogReceiveRequest, Now: r.now, Message: request(21), Offer: true}); err != nil {
+				t.Fatalf("next reINVITE still blocked: %v", err)
+			}
+		})
+	}
+}

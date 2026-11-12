@@ -1,8 +1,9 @@
 # Execution, storage and physical effects
 
-This chapter maps implemented execution at source revision
-`f8cbce847d29e53d686e1add6e0a2ba12ac816c2`. It describes the service's schema 1 /
-reducer 1 / timers 1 CAS path, with either the Memory or Redis adapter. It does
+This chapter maps implemented execution, including direct one-shot request
+presentation. Its traversal baseline is source revision
+`f8cbce847d29e53d686e1add6e0a2ba12ac816c2`, updated with the source in this checkout.
+It describes the service's schema 1 / reducer 1 / timers 1 CAS path, with either the Memory or Redis adapter. It does
 not treat the historical claimed fixture driver as a second service mode.
 
 [Architecture](../../ARCHITECTURE.md) owns component boundaries;
@@ -98,6 +99,7 @@ the common execution graph unless an explicit early observation returns read-onl
 | `digest-result` | Credential lookup plus local digest builder | Validate constructed retry against retained challenge; never persist the clear credential reply |
 | `effect-start` | Nonphysical dispatcher | Commit executor/start selection where required; unavailable/non-startable effect can be read-only |
 | `effect-result` | Nonphysical callback or settlement | Apply matching receiver result; an absent effect can be read-only |
+| `presentation-failed` | One-shot request presentation failed or expired | Select a native refusal only if that exact admitted request is still unanswered; never replay the controller call |
 | `timer` | Scheduling driver | Validate exact timer identity/generation and due time; absent/not-due timer can be read-only |
 
 Sources: [switch and shared preparation](../../internal/engine/state_engine_reduce.go),
@@ -198,11 +200,21 @@ proof that a write never happened. See [runtime physical writes](../runtime.md).
 
 ## Nonphysical effects and callback inputs
 
+Incoming request presentation is a direct controller exchange rather than a
+retained effect. Only a definite fresh commit returns its bounded presentation
+DTO. The request path calls the controller after releasing state gates, under
+the original deadline. There is no presentation queue, scheduler replay,
+cross-worker fallback or successful-acknowledgement CAS. Replayed and uncertain
+commit results cannot recreate it. Deferred flow adoption/owner proof returns the
+same transient output from its completing transition. Process failure in this
+exchange may fail the in-flight request; retained dialog state and physical
+obligations have independent lifetimes.
+
 ```mermaid
 flowchart TD
   A[Committed effect projection or discovery read] --> B[Decode effect metadata and local dispatch gate]
   B --> C{Effect kind}
-  C -->|present / event| D[Stable receiver RPC; CAS skips start mutation]
+  C -->|event| D[Stable receiver RPC; CAS skips start mutation]
   C -->|adopt| M[Start CAS; stable adoption RPC]
   M --> H
   C -->|credential| E[Pure lookup; build digest retry locally]
@@ -220,7 +232,8 @@ flowchart TD
 
 | Effect category | Fresh service-path start and external work | Result and retained state |
 | --- | --- | --- |
-| `present`, `event` | CAS skips `effect-start`; controller deduplicates stable receiver identity. Envelope projection is materialized at the send boundary | `effect-result` commits receiver outcome. Event recovery is bounded from the original effect deadline |
+| Request presentation | One direct RPC from a transient definite-commit DTO, never discovered from retained state | No success result CAS, retained presentation or recovery queue |
+| `event` | CAS skips `effect-start`; controller deduplicates stable receiver identity. Envelope projection is materialized at the send boundary | `effect-result` commits receiver outcome. Event recovery is bounded from the original effect deadline |
 | `adopt` | Fresh `effect-start` selects executor before the stable-identity controller publication RPC | `effect-result` validates the receipt before publishing accepted delivery and any pending response |
 | `credential` | CAS skips start selection because lookup/digest construction is repeatable; raw credentials remain transient | `digest-result` carries constructed SIP message or failure and validates against the retained challenge |
 | `open` | Fresh `effect-start` selects executor before local network dial; recovering an already-started open does not dial again | `effect-result` carries flow/failure, then native procedure may emit its request |
@@ -390,7 +403,7 @@ to execute again. Full guarantees and quotas are in [Runtime](../runtime.md).
 | --- | --- | --- |
 | CAS stripes and execution slots | Process-local admission; no stored group lock or resident authoritative graph | [CAS runtime](../../internal/execution/cas.go) |
 | MemoryStore gate | One in-process adapter gate around record/index/lease operations; serializes that adapter's atomic work | [Memory adapter](../../internal/state/memory.go) |
-| Engine work/background slots, lifecycle mutex, dispatch mutex/maps | 64 foreground and 48 background slots; protect transient waiters/dispatch bookkeeping | [engine](../../internal/engine/state_engine.go) |
+| Engine work/background slots, lifecycle mutex, dispatch mutex/maps | 48 ingress slots separate from 64 command/completion slots; at most 48 background tasks use the latter pool. Direct presentation cannot consume the command pool while waiting for a nested Respond | [engine](../../internal/engine/state_engine.go) |
 | Per-flow write lock and physical-attempt map | Serialize one socket's framing/syscall; retain exact local attempt evidence under a bound, never another SIP FSM | [writer](../../internal/engine/state_writer.go) |
 | Control server/session locks, correlation waiters and write gate | Authenticated session claims, pending RPC replies and bounded serialized WebSocket writes | [server](../../internal/control/server.go), [peer](../../internal/control/peer.go) |
 | Owner term / optional attachment generation | Redis-backed business-ownership fencing across processes; not a per-dialog mutex | [lease guards](../../internal/state/application_lease_guard.go) |

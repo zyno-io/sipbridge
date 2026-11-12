@@ -173,7 +173,7 @@ func (r *stateReduction) startEffect() error {
 	if effect.Kind == "deliver" || effect.Status != state.EffectPending {
 		return errors.New("RPC effect cannot start")
 	}
-	business := effect.Kind == "present" || effect.Kind == "event" || effect.Kind == "adopt" || effect.Kind == "open" || effect.Kind == "credential" ||
+	business := effect.Kind == "event" || effect.Kind == "adopt" || effect.Kind == "open" || effect.Kind == "credential" ||
 		effect.Kind == "wire" && body.Authorization.GetAuthorityClass() == pb.EffectAuthorization_APPLICATION
 	if r.engine.autonomousCompletion() && business {
 		if _, err := r.effectNativeOwner(body); err != nil {

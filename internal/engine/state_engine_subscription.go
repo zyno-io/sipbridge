@@ -48,6 +48,10 @@ func (r *stateReduction) validateSubscription(c *stateContext, request *sip.Requ
 	return nil
 }
 func (r *stateReduction) presentRequest(c *stateContext, tx *stateTransaction) error {
+	tx.PresentDeadlineMS = r.now + 2000
+	if r.deadline > 0 {
+		tx.PresentDeadlineMS = min(tx.PresentDeadlineMS, r.deadline)
+	}
 	request, _ := tx.Native.Origin.Parse()
 	if request.CSeq().MethodName == sip.SUBSCRIBE {
 		if c.Subscription != nil {
@@ -75,8 +79,9 @@ func (r *stateReduction) presentNow(c *stateContext, tx *stateTransaction) error
 	if c.Subscription != nil {
 		snapshot.Application = application
 	}
-	r.addEffect("present", c, stateEngineEffect{Application: application, Transaction: tx.Native.Key, Envelope: &pb.Envelope{Payload: &pb.Envelope_Request{Request: &pb.RequestPresented{Snapshot: snapshot, RequestId: tx.RequestID, Message: message, Flow: tx.Flow}}}}, r.now+2000)
+	r.payload.LocalPresentations = append(r.payload.LocalPresentations, state.LocalPresentation{Application: application, Request: &pb.RequestPresented{Snapshot: snapshot, RequestId: tx.RequestID, Message: message, Flow: tx.Flow}, DeadlineMS: tx.PresentDeadlineMS})
 	tx.DeferredPresent = false
+	tx.PresentDeadlineMS = 0
 	return nil
 }
 func (r *stateReduction) proposeFlow(c *stateContext, tx *stateTransaction, flow *pb.FlowRef, application *pb.ProcessRef, subscription bool) error {
@@ -113,6 +118,7 @@ func (r *stateReduction) finishFlowAdoption(index int, effect state.Effect, body
 		r.setEffect(index, effect, body)
 		if tx != nil {
 			tx.DeferredPresent = false
+			tx.PresentDeadlineMS = 0
 			tx.PendingResponse = nil
 			if c.Subscription != nil {
 				c.Subscription.Pending = ""

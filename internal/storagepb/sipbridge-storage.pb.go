@@ -3014,6 +3014,7 @@ type EngineStateTransaction struct {
 	DigestAttempts          uint32                          `protobuf:"varint,18,opt,name=digest_attempts,json=digestAttempts,proto3" json:"digest_attempts,omitempty"`                            // DigestAttempts
 	DigestEffect            string                          `protobuf:"bytes,19,opt,name=digest_effect,json=digestEffect,proto3" json:"digest_effect,omitempty"`                                   // DigestEffect
 	PendingResponse         *controlpb.Respond              `protobuf:"bytes,20,opt,name=pending_response,json=pendingResponse,proto3" json:"pending_response,omitempty"`                          // PendingResponse
+	PresentDeadlineMs       int64                           `protobuf:"varint,25,opt,name=present_deadline_ms,json=presentDeadlineMs,proto3" json:"present_deadline_ms,omitempty"`                 // PresentDeadlineMS
 	DeferredPresent         bool                            `protobuf:"varint,21,opt,name=deferred_present,json=deferredPresent,proto3" json:"deferred_present,omitempty"`                         // DeferredPresent
 	RespondDeadlineMs       int64                           `protobuf:"varint,22,opt,name=respond_deadline_ms,json=respondDeadlineMs,proto3" json:"respond_deadline_ms,omitempty"`                 // RespondDeadlineMS
 	RespondStatus           uint32                          `protobuf:"varint,23,opt,name=respond_status,json=respondStatus,proto3" json:"respond_status,omitempty"`                               // RespondStatus
@@ -3190,6 +3191,13 @@ func (x *EngineStateTransaction) GetPendingResponse() *controlpb.Respond {
 		return x.PendingResponse
 	}
 	return nil
+}
+
+func (x *EngineStateTransaction) GetPresentDeadlineMs() int64 {
+	if x != nil {
+		return x.PresentDeadlineMs
+	}
+	return 0
 }
 
 func (x *EngineStateTransaction) GetDeferredPresent() bool {
@@ -4153,7 +4161,8 @@ const file_sipbridge_storage_proto_rawDesc = "" +
 	"\x05final\x18\n" +
 	" \x01(\bR\x05final\"=\n" +
 	"#EngineStateSubscriptionRoutesValues\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\tR\x06values\"\xe3\t\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values\"\x93\n" +
+	"\n" +
 	"\x16EngineStateTransaction\x12o\n" +
 	"\x19state_request_disposition\x18\x01 \x01(\v23.sipbridge.storage.v1.EngineStateRequestDispositionR\x17stateRequestDisposition\x12H\n" +
 	"\x06policy\x18\x02 \x01(\v20.sipbridge.storage.v1.EngineStatePolicyAdmissionR\x06policy\x12'\n" +
@@ -4176,7 +4185,8 @@ const file_sipbridge_storage_proto_rawDesc = "" +
 	"\acleanup\x18\x11 \x01(\bR\acleanup\x12'\n" +
 	"\x0fdigest_attempts\x18\x12 \x01(\rR\x0edigestAttempts\x12#\n" +
 	"\rdigest_effect\x18\x13 \x01(\tR\fdigestEffect\x12H\n" +
-	"\x10pending_response\x18\x14 \x01(\v2\x1d.sipbridge.control.v1.RespondR\x0fpendingResponse\x12)\n" +
+	"\x10pending_response\x18\x14 \x01(\v2\x1d.sipbridge.control.v1.RespondR\x0fpendingResponse\x12.\n" +
+	"\x13present_deadline_ms\x18\x19 \x01(\x03R\x11presentDeadlineMs\x12)\n" +
 	"\x10deferred_present\x18\x15 \x01(\bR\x0fdeferredPresent\x12.\n" +
 	"\x13respond_deadline_ms\x18\x16 \x01(\x03R\x11respondDeadlineMs\x12%\n" +
 	"\x0erespond_status\x18\x17 \x01(\rR\rrespondStatus\x12S\n" +

@@ -268,9 +268,23 @@ projection is meaningful. Replay, refusal and uncertain-commit inspection use th
 fresh-read fallback. Physical Complete dispatches its commit projection once before
 releasing its local guard; lost replies leave durable scheduler recovery intact.
 
-Presentation, lifecycle and pure credential effects can dispatch directly from
-Pending without effect-start/executor claim. Fixed receiver/envelope/deadline and
-controller receiver deduplication remain mandatory. Result commit checks the exact
+A fresh proven inbound transition projects one transient presentation DTO to its
+executing worker, which calls the selected controller within the original two-second
+control deadline before returning from ingress. A deferred owner proof or flow
+adoption can produce that DTO on its completing worker, without extending the
+original deadline. Presentation is never stored, indexed, replayed, recovered or
+retried after an uncertain commit; process loss may lose the in-flight request.
+No successful presentation result transition is recorded. A failed or expired
+one-shot call attempts a bounded request-scoped native 503 transition; it can
+select a final only if the same admitted server transaction is still unanswered.
+A concurrent selected final wins through the same CAS guard. An older retained
+deferred transaction without the original presentation deadline is refused; it
+never receives a fresh budget. Inbound control handlers have their own bounded
+48-slot admission so callback waits do not occupy the 64 execution slots needed
+by controller commands and native completion. Lifecycle and pure
+credential effects can dispatch directly from Pending without effect-start/executor
+claim. Fixed receiver/envelope/deadline and controller receiver deduplication
+remain mandatory for those effects. Result commit checks the exact
 context/application/lease term and live native-owner guard; historical executor-bearing
 results retain their recorded executor check. Network opens, send authorization and
 physical writes keep their separate start/reservation boundaries. A collected effect

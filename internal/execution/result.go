@@ -17,12 +17,13 @@ type Result struct {
 // protocol aggregate. Local observations are optional bounded public result DTOs.
 // Its presence with zero effects is different from absent dispatch evidence.
 type Committed struct {
-	Ref               state.Ref
-	Revision          string
-	Effects           []state.Effect
-	LocalObservations []state.LocalObservation
-	LocalDrain        *state.LocalDrainObservation
-	LocalResult       *pb.OperationResult
+	Ref                state.Ref
+	Revision           string
+	Effects            []state.Effect
+	LocalObservations  []state.LocalObservation
+	LocalDrain         *state.LocalDrainObservation
+	LocalPresentations []state.LocalPresentation
+	LocalResult        *pb.OperationResult
 }
 
 func committedEffects(ref state.Ref, revision string, payload state.Payload) *Committed {
@@ -34,6 +35,11 @@ func committedEffects(ref state.Ref, revision string, payload state.Payload) *Co
 	}
 	if payload.LocalResult != nil && proto.Size(payload.LocalResult) <= 1<<20 {
 		projection.LocalResult = proto.Clone(payload.LocalResult).(*pb.OperationResult)
+	}
+	for _, presentation := range payload.LocalPresentations {
+		if presentation.Application != nil && presentation.Request != nil && proto.Size(presentation.Request) <= 1<<20 {
+			projection.LocalPresentations = append(projection.LocalPresentations, state.LocalPresentation{Application: proto.Clone(presentation.Application).(*pb.ProcessRef), Request: proto.Clone(presentation.Request).(*pb.RequestPresented), DeadlineMS: presentation.DeadlineMS})
+		}
 	}
 	for n := range projection.Effects {
 		effect := &projection.Effects[n]

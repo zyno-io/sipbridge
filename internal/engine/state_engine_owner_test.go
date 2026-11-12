@@ -154,8 +154,8 @@ func TestStateInitialPresentationWaitsForLiveOwnerProofInRedis(t *testing.T) {
 			queries++
 		}
 	}
-	if !c.OwnerValidated || c.OwnerDirectoryEpoch != "directory" || presented != 1 || queries != 0 {
-		t.Fatal("positive proof did not atomically admit one presentation and reclaim query")
+	if !c.OwnerValidated || c.OwnerDirectoryEpoch != "directory" || presented != 0 || queries != 0 {
+		t.Fatal("positive proof did not reclaim query without persisting presentation")
 	}
 }
 

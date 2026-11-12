@@ -2,6 +2,7 @@ package execution
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	pb "sipbridge/internal/controlpb"
@@ -22,5 +23,34 @@ func TestCommittedResultDTOIsIndependentAndBounded(t *testing.T) {
 	result.Request.Wire = bytes.Repeat([]byte{'a'}, 1<<20)
 	if committedEffects(state.Ref{}, "2", state.Payload{LocalResult: result}).LocalResult != nil {
 		t.Fatal("oversized DTO bypassed retained-receipt fallback")
+	}
+}
+
+func TestPresentationProjectionFreshCommitOnly(t *testing.T) {
+	in := state.Input{ID: "ingest", Fingerprint: "fingerprint"}
+	p := state.LocalPresentation{Application: &pb.ProcessRef{InstanceId: "controller"}, Request: &pb.RequestPresented{RequestId: "request", Message: &pb.SipMessage{Wire: []byte("original")}}, DeadlineMS: 100}
+	makeDriver := func(store *casScriptedStore) *CASRuntime {
+		driver, err := NewCAS(store, ReducerFunc(func(state.Record, state.Input, int64) (state.Payload, []byte, error) {
+			return state.Payload{LocalPresentations: []state.LocalPresentation{p}}, []byte("done"), nil
+		}), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return driver
+	}
+	store := &casScriptedStore{reads: []casRead{updateRead(in, true)}}
+	fresh, err := makeDriver(store).ApplyCommitted(context.Background(), state.Ref{ID: "group"}, in)
+	if err != nil || fresh.Committed == nil || len(fresh.Committed.LocalPresentations) != 1 {
+		t.Fatalf("fresh: %+v %v", fresh, err)
+	}
+	p.Request.Message.Wire[0] = 'X'
+	if string(fresh.Committed.LocalPresentations[0].Request.Message.Wire) != "original" {
+		t.Fatal("projection aliases reducer input")
+	}
+	receipt := state.Receipt{OperationID: in.ID, Fingerprint: in.Fingerprint, Outcome: []byte("done")}
+	store = &casScriptedStore{reads: []casRead{updateRead(in, true)}, casErrors: []error{state.ErrUnknown}, inspection: state.Inspection{Receipt: &receipt}}
+	uncertain, err := makeDriver(store).ApplyCommitted(context.Background(), state.Ref{ID: "group"}, in)
+	if err != nil || uncertain.Committed != nil {
+		t.Fatalf("uncertain commit projected: %+v %v", uncertain, err)
 	}
 }

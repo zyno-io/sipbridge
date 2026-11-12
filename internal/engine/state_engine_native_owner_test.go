@@ -424,8 +424,8 @@ func TestNativeOwnerAdmissionPinsLeaseWithoutControllerProbe(t *testing.T) {
 			}
 		}
 	}
-	if !response || !presentation {
-		t.Fatalf("admission omitted its protocol response or business presentation: response=%v presentation=%v effects=%d", response, presentation, len(record.Payload.Effects))
+	if !response || presentation {
+		t.Fatalf("admission omitted its response or retained a presentation: response=%v presentation=%v effects=%d", response, presentation, len(record.Payload.Effects))
 	}
 }
 

@@ -32,6 +32,7 @@ type StateEngine struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	work            chan struct{}
+	ingressWork     chan struct{}
 	background      chan struct{}
 	scheduled       map[string]bool
 	physicalGroups  map[string]bool
@@ -106,7 +107,7 @@ func NewState(ctx context.Context, cfg Config, store state.Backend, server *cont
 		}
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	e := &StateEngine{cfg: cfg, store: store, control: server, ctx: ctx, cancel: cancel, work: make(chan struct{}, 64), background: make(chan struct{}, 48), scheduled: make(map[string]bool), dispatching: make(map[string]bool)}
+	e := &StateEngine{cfg: cfg, store: store, control: server, ctx: ctx, cancel: cancel, work: make(chan struct{}, 64), ingressWork: make(chan struct{}, 48), background: make(chan struct{}, 48), scheduled: make(map[string]bool), dispatching: make(map[string]bool)}
 	e.cfg.StateIdentityKey = append([]byte(nil), cfg.StateIdentityKey...)
 	var err error
 	e.runtime, err = execution.NewCAS(store, execution.ReducerFunc(e.reduce), 64)
@@ -187,7 +188,7 @@ func (e *StateEngine) applyCommitted(ctx context.Context, ref state.Ref, id stri
 		input.Proof, input.ReceiptUntilMS = true, input.DeadlineMS
 	}
 	switch in.Kind {
-	case "effect-start", "effect-result", "owner-result", "owner-control", "owner-check", "digest-result", "reserve", "complete", "timer", "reject", "native-ingest":
+	case "effect-start", "effect-result", "owner-result", "owner-control", "owner-check", "digest-result", "reserve", "complete", "timer", "reject", "native-ingest", "presentation-failed":
 		input.Proof = true
 		input.ReceiptUntilMS = input.DeadlineMS
 	}
@@ -540,8 +541,15 @@ func (e *StateEngine) Handle(peer *control.Peer, envelope *pb.Envelope) error {
 		e.lifecycleMu.Unlock()
 		return errors.New("state engine closed")
 	}
+	work := e.work
+	if envelope.GetIngest() != nil {
+		if e.ingressWork == nil {
+			e.ingressWork = make(chan struct{}, 48)
+		}
+		work = e.ingressWork
+	}
 	select {
-	case e.work <- struct{}{}:
+	case work <- struct{}{}:
 	default:
 		e.lifecycleMu.Unlock()
 		return peer.Send(&pb.Envelope{CorrelationId: envelope.CorrelationId, Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "state execution capacity"}}})
@@ -550,7 +558,7 @@ func (e *StateEngine) Handle(peer *control.Peer, envelope *pb.Envelope) error {
 	e.lifecycleMu.Unlock()
 	go func() {
 		defer e.wg.Done()
-		defer func() { <-e.work }()
+		defer func() { <-work }()
 		ctx, cancel := context.WithDeadline(e.ctx, deadline)
 		defer cancel()
 		ctx, timing := execution.WithTiming(ctx)
@@ -640,6 +648,7 @@ func (e *StateEngine) handle(ctx context.Context, peer *control.Peer, envelope *
 	}
 	if err == nil {
 		e.dispatchCommitted(group, committed, "", "")
+		e.presentCommitted(ctx, committed, callbackFresh)
 	}
 	return e.resultForExecutor(result), err
 }
@@ -834,6 +843,9 @@ func (e *StateEngine) dispatchCommitted(ref state.Ref, committed *execution.Comm
 		e.dispatchAfterEffect(ref, effectID, previousKind)
 		return
 	}
+	if effectID != "" {
+		e.presentCommitted(e.ctx, committed, callbackContinuation)
+	}
 	if effectID != "" && !stateRPCProgressed(effectID, previousKind, committed.Effects) {
 		return
 	}
@@ -940,7 +952,7 @@ func stateTrustedRelayEffect(effect state.Effect) bool {
 
 func stateSupportedEffectKind(kind string) bool {
 	switch kind {
-	case "present", "event", "adopt", "open", "credential", "owner", "wire", "deliver":
+	case "event", "adopt", "open", "credential", "owner", "wire", "deliver":
 		return true
 	default:
 		return false
@@ -1213,7 +1225,7 @@ func (e *StateEngine) dispatchEffectWithinSource(parent context.Context, ref sta
 		release()
 		return
 	}
-	// Presentation and lifecycle effects use stable IDs. The result receipt is a
+	// Lifecycle effects use stable IDs. The result receipt is a
 	// separate transition; the Controller receiver must reconcile that same operation.
 	if body.Envelope == nil {
 		return

@@ -135,11 +135,20 @@ silently describe that branch as removed.
 [takeover](../../internal/state/timer_workers.go) (`TakeoverTimers`),
 [scheduling contract](../runtime.md#owned-scheduling).
 
-## Receiver callback discovery can race across workers
+## Direct request presentation and retained lifecycle events
+
+Incoming request presentation is a one-shot controller call from a definite fresh
+commit result. It has no retained effect, work index or recovery timer. Another
+worker cannot replay it after a pod failure. The original request may fail in
+that window, while shared native dialog state remains available for subsequent
+requests. Deferred publication/proof completion can return a fresh presentation
+DTO, but never creates a presentation retry queue.
+
+Lifecycle events remain separately retained. Their current discovery can race:
 
 ```mermaid
 flowchart TD
-    A[Commit pending presentation or lifecycle event] --> B[Index group for all registered workers]
+    A[Commit pending lifecycle event] --> B[Index group for all registered workers]
     B --> C[Worker A reads eligible effect]
     B --> D[Worker B may read it before collection]
     C --> E[Each local gate can issue same stable receiver RPC]
@@ -151,16 +160,16 @@ flowchart TD
 ```
 
 This is a reachable race, not a claim that every callback is duplicated. The
-`present`/`event` paths deliberately omit a fresh effect-start selection and rely
+`event` path deliberately omits a fresh effect-start selection and relies
 on receiver deduplication. A local dispatcher gate excludes only the same process.
 A second result can therefore still require ReadUpdate even when its early
 observation avoids decoding the native group. Open/adoption retain separate
 start/executor selection; physical writes retain their exact ingress target.
 
-The broadcast protects availability when one worker lacks the required controller
-connection. Any future preferred-executor policy must preserve that fallback,
-original deadlines and receiver identity. Neither the current race nor a proposed
-callback hedge permits a second uncertain physical write.
+The event broadcast protects availability when one worker lacks the required
+controller connection. Event recovery retains original deadlines and receiver
+identity. Neither lifecycle event delivery nor direct request presentation
+permits a second uncertain physical write.
 
 **Source:** [dispatch projections](../../internal/engine/state_engine_reduce.go)
 (`projectDispatchWorkers`), [index expansion](../../internal/state/dispatch.go),

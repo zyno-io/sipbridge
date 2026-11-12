@@ -112,9 +112,10 @@ func (r *stateReduction) lifecycleTimer() (bool, error) {
 					r.touch(c)
 					r.event(c, pb.DialogEvent_FAILED, nil, c.Operation)
 				}
-				if effect.Kind == "present" || effect.Kind == "adopt" {
+				if effect.Kind == "adopt" {
 					if tx := c.Transactions[body.Transaction]; tx != nil {
 						tx.DeferredPresent = false
+						tx.PresentDeadlineMS = 0
 						tx.PendingResponse = nil
 						if c.Subscription != nil {
 							c.Subscription.Pending = ""

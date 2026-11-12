@@ -386,15 +386,13 @@ func TestStateEngineReconnectPublicationDefersPresentation(t *testing.T) {
 	if !proto.Equal(g.Contexts[ref.Id].Flow, flowB) {
 		t.Fatal("accepted publication did not replace future route")
 	}
-	found := false
-	for _, effect := range record.Payload.Effects {
-		var candidate stateEngineEffect
-		if unmarshalRetainedFixture(effect.Payload, &candidate) == nil && effect.Kind == "present" && candidate.Transaction == body.Transaction {
-			found = true
-		}
+	if g.Contexts[ref.Id].Transactions[body.Transaction].DeferredPresent {
+		t.Fatal("accepted publication did not release deferred request")
 	}
-	if !found {
-		t.Fatal("accepted publication did not release request presentation")
+	for _, effect := range record.Payload.Effects {
+		if effect.Kind == "present" {
+			t.Fatal("accepted publication persisted presentation")
+		}
 	}
 }
 

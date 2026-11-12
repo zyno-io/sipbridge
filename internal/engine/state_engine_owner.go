@@ -189,6 +189,7 @@ func (r *stateReduction) deferForOwnerProof(c *stateContext, tx *stateTransactio
 
 func (r *stateReduction) ownerRefuseRequest(c *stateContext, tx *stateTransaction) error {
 	tx.OwnerDeferred, tx.DeferredPresent, tx.PendingResponse = false, false, nil
+	tx.PresentDeadlineMS = 0
 	if c.Subscription != nil && c.Subscription.Pending == tx.Native.Key {
 		c.Subscription.Pending = ""
 	}
@@ -278,7 +279,7 @@ func (r *stateReduction) ownerPendingWork() (map[string]bool, error) {
 		}
 	}
 	for _, effect := range r.payload.Effects {
-		if effect.Kind != "present" && effect.Kind != "event" && effect.Kind != "adopt" && effect.Kind != "open" && effect.Kind != "credential" {
+		if effect.Kind != "event" && effect.Kind != "adopt" && effect.Kind != "open" && effect.Kind != "credential" {
 			continue
 		}
 		if effect.Status != state.EffectPending && effect.Status != state.EffectDispatching && effect.Status != state.EffectUnknown {

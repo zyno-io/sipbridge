@@ -85,7 +85,7 @@ flowchart TD
     A[Initial request] --> B[Locate: reserve one bounded context identity]
     B --> C[Controller chooses account and application policy]
     C --> D[Ingest CAS creates server transaction]
-    D --> E[Committed request-presentation callback]
+    D --> E[Direct one-shot controller presentation]
     E --> F[Controller Respond command]
     F --> G[Reduce selects response and prepares permit]
     G --> N[CAS commits response and physical effect]
@@ -99,6 +99,12 @@ ordering and publication are controller responsibilities. The callback and
 Respond command are separate operations; a selected response does not establish
 a completed socket write. Automatic native output, such as applicable transaction
 responses, uses the same committed physical-effect path.
+
+Presentation is returned only with definite fresh commit evidence and is called
+directly on the request path. It has no durable queue, callback acknowledgement
+transition or cross-worker retry. A pod failure during presentation can fail that
+in-flight request. A repeated SIP packet can use retained native transaction
+evidence; it does not authorize replaying the controller presentation.
 
 For reliable non-INVITE servers, the portable transaction can enter Terminated
 when a final response is selected. That does not erase its request-disposition

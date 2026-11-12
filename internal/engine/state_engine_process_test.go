@@ -185,6 +185,11 @@ func newProcessHarnessForProfile(t *testing.T, autonomous bool, budget time.Dura
 	roots.AppendCertsFromPEM(certPEM)
 	h := &processHarness{t: t, ctx: ctx, store: engine.store.(*state.Store), application: &pb.ProcessRef{InstanceId: "controller-fixture", Epoch: "original-owner"}, directoryEpoch: "fixture-directory", workers: make(map[string]*processWorker), refs: make(map[string]*pb.ContextRef), permits: make(map[string]*pb.SendPermit), notify: make(chan struct{}, 1), clientTLS: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{pair}}}
 	h.cfg = stateProcessConfig{Certificate: certPath, Key: keyPath, Execution: os.Getenv("SIPBRIDGE_TEST_EXECUTION_MODE"), Store: state.Config{Redis: state.RedisOptions{Address: os.Getenv("SIPBRIDGE_STATE_TEST_REDIS")}, Prefix: "sipstate:engine-test", Namespace: engine.store.Namespace(), NamespaceKey: bytes.Repeat([]byte{17}, 32), Partitions: 1, Generation: "generation", Versions: state.Versions{Schema: "1", Reducer: "7", Timers: "1"}, Limits: engine.store.Limits(), ClaimTTL: 500 * time.Millisecond}}
+	if h.cfg.Execution == "" {
+		// Process fixtures exercise the current one-shot presentation handoff;
+		// the claimed-input driver intentionally has no committed projection.
+		h.cfg.Execution = "cas"
+	}
 	if autonomous {
 		h.cfg.PlainSIP = true
 		h.cfg.Store.Prefix = "sipstate:process-test"

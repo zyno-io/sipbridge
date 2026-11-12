@@ -319,6 +319,7 @@ message EngineStateTransaction {
   uint32 digest_attempts = 18; // DigestAttempts
   string digest_effect = 19; // DigestEffect
   .sipbridge.control.v1.Respond pending_response = 20; // PendingResponse
+  int64 present_deadline_ms = 25; // PresentDeadlineMS
   bool deferred_present = 21; // DeferredPresent
   int64 respond_deadline_ms = 22; // RespondDeadlineMS
   uint32 respond_status = 23; // RespondStatus

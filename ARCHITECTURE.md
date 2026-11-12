@@ -128,6 +128,19 @@ live-context lookup can use one validated read without a new revision; new inbou
 contexts require a committed single-use reservation. Neither lookup nor an
 internal redirect grants ownership, send permission or account authentication.
 
+After native admission commits, request presentation is a one-shot controller
+RPC on the worker handling that request. The bounded presentation DTO exists only
+in the definite fresh commit result; it is not a retained effect, queue entry or
+recovery timer. The worker calls the controller directly after releasing state
+gates. A successful presentation acknowledgement requires no state mutation.
+Controller-selected SIP responses still use Respond and the committed native
+write path. Replay, uncertain commit inspection and a replacement worker cannot
+recreate the presentation. Losing this in-flight exchange during a process failure
+can fail the request; it does not discard already-established dialog state.
+Deferred flow publication or owner proof can produce a one-shot presentation from
+their completing transition. Lifecycle events and physical delivery obligations
+retain their independently bounded recovery rules.
+
 The native worker loads one bounded Call-ID group, reduces in Go and atomically
 commits its next value and finite effects. It retains no authoritative snapshot
 between operations or across external I/O. Store CAS, incarnation, revision,

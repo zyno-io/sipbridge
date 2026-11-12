@@ -288,7 +288,7 @@ func TestStatePendingEventStartUsesOriginalRecoveryBoundaryOnly(t *testing.T) {
 			}
 		})
 	}
-	for _, kind := range []string{"wire", "open", "credential", "present", "adopt"} {
+	for _, kind := range []string{"wire", "open", "credential", "adopt"} {
 		t.Run(kind, func(t *testing.T) {
 			r, c, _ := forkFixture(t)
 			r.result = &pb.OperationResult{}

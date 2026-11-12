@@ -134,7 +134,7 @@ func TestRequestFenceRecoveredCommitCancellationIsNotReadFailure(t *testing.T) {
 				t.Fatalf("committed prior native input became a read-only failure: committed=%v err=%v", store.committed, err)
 			}
 			record, retained := stateTestLoad(t, f.engine, ref)
-			if len(record.Payload.Effects) == 0 || path == "locate" && retained.Contexts[ref.Id] == nil {
+			if path == "locate" && (retained.Contexts[ref.Id] == nil || len(retained.Contexts[ref.Id].Transactions) == 0) || path != "locate" && len(record.Payload.Effects) == 0 {
 				t.Fatal("fixture did not retain the prior committed SIP work")
 			}
 		})

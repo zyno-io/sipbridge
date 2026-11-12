@@ -28,25 +28,6 @@ func nativeUnreservedRegisterResponse(t *testing.T) (nativeOwnerFixture, *pb.Con
 		t.Fatal(result.Error)
 	}
 	record, group := stateTestLoad(t, f.engine, ref)
-	var presented string
-	for _, effect := range record.Payload.Effects {
-		if effect.Kind == "present" {
-			presented = effect.ID
-		}
-	}
-	if presented == "" {
-		t.Fatal("REGISTER was not presented to its application")
-	}
-	// Admit the actual receiver acknowledgement before selecting its response.
-	// The only unstarted work left in this fixture is the native response write.
-	if result = f.apply(t, ref, "start-register-presentation", stateEngineInput{Kind: "effect-start", Effect: presented}); result.Error != "" {
-		t.Fatal(result.Error)
-	}
-	result = f.apply(t, ref, "accept-register-presentation", stateEngineInput{Kind: "effect-result", Effect: presented, Executor: f.engine.cfg.Process,
-		Reply: &pb.Envelope{Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}}}})
-	if result.Error != "" {
-		t.Fatal(result.Error)
-	}
 	var requestID string
 	for id := range group.Contexts[ref.Id].Requests {
 		requestID = id

@@ -178,17 +178,8 @@ func TestStateCASDuplicateRPCStartDoesNotChurnRevisionOrResumeLegacyInput(t *tes
 		t.Run(fmt.Sprintf("legacyPending=%t", legacyPending), func(t *testing.T) {
 			f, _, _ := casOptionsFixture(t)
 			ref := f.admit(t)
-			record, _ := stateTestLoad(t, f.engine, ref)
-			var effectID string
-			for _, effect := range record.Payload.Effects {
-				if effect.Kind == "present" {
-					effectID = effect.ID
-					break
-				}
-			}
-			if effectID == "" {
-				t.Fatal("fixture has no presentation intent")
-			}
+			effect, _ := receiverEvent(t, f, ref)
+			effectID := effect.ID
 			in := stateEngineInput{Kind: "effect-start", Effect: effectID}
 			if result := f.apply(t, ref, "start-present", in); result.Snapshot == nil {
 				t.Fatal("original RPC did not start")

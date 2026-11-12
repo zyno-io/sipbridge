@@ -770,6 +770,8 @@ func storageReadEngineStateTransaction(data []byte) (out stateTransaction, err e
 			if err := (proto.UnmarshalOptions{RecursionLimit: storagecodec.MaxDepth}).Unmarshal(field.bytes, out.PendingResponse); err != nil {
 				return out, err
 			}
+		case 25: // PresentDeadlineMS
+			out.PresentDeadlineMS = int64(field.value)
 		case 21: // DeferredPresent
 			out.DeferredPresent = bool(field.value != 0)
 		case 22: // RespondDeadlineMS

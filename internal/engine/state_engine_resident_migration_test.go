@@ -180,7 +180,7 @@ func TestStateMigratedReplacementPublicationOrdersApplicationWork(t *testing.T) 
 					}
 				}
 				if accept {
-					if !proto.Equal(g.Contexts[ref.Id].Flow, flow) || !proto.Equal(g.Contexts[ref.Id].Delivery, receipt) || presented != 1 {
+					if !proto.Equal(g.Contexts[ref.Id].Flow, flow) || !proto.Equal(g.Contexts[ref.Id].Delivery, receipt) || presented != 0 || g.Contexts[ref.Id].Transactions[body.Transaction].DeferredPresent {
 						t.Fatal("receipt did not atomically publish route and release application work")
 					}
 					return

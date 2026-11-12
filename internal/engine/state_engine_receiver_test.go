@@ -45,12 +45,27 @@ func receiverIntent(t *testing.T, f nativeOwnerFixture, ref *pb.ContextRef, kind
 	return state.Effect{}, stateEngineEffect{}
 }
 
+func receiverEvent(t *testing.T, f nativeOwnerFixture, ref *pb.ContextRef) (state.Effect, stateEngineEffect) {
+	t.Helper()
+	_, group := stateTestLoad(t, f.engine, ref)
+	cancel, err := portable.BuildCancel(group.Contexts[ref.Id].Origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := f.apply(t, ref, "receiver-event-cancel", stateEngineInput{Kind: "ingest", Application: f.app, ApplicationLeaseTerm: f.term,
+		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: cancel.Wire, Admission: pb.OwnerIngest_EXISTING_FLOW}})
+	if result.Error != "" {
+		t.Fatal(result.Error)
+	}
+	return receiverIntent(t, f, ref, "event")
+}
+
 func receiverAccepted(effect string) stateEngineInput {
 	return stateEngineInput{Kind: "effect-result", Effect: effect, Reply: &pb.Envelope{Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}}}}
 }
 
 func TestNativeReceiverPendingAndUnknownCrossExecutionModes(t *testing.T) {
-	for _, kind := range []string{"present", "event"} {
+	for _, kind := range []string{"event"} {
 		for _, casReader := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/CASReader=%t", kind, casReader), func(t *testing.T) {
 				writer := newNativeOwnerFixture(t)
@@ -99,7 +114,7 @@ func TestNativeReceiverPendingAndUnknownCrossExecutionModes(t *testing.T) {
 func TestNativeReceiverLegacyStartKeepsOriginalExecutor(t *testing.T) {
 	writer := newNativeOwnerFixture(t)
 	ref := writer.admit(t)
-	effect, _ := receiverIntent(t, writer, ref, "present")
+	effect, _ := receiverEvent(t, writer, ref)
 	if result := writer.apply(t, ref, "old-start", stateEngineInput{Kind: "effect-start", Effect: effect.ID}); result.Error != "" {
 		t.Fatal(result.Error)
 	}
@@ -121,7 +136,7 @@ func TestNativeReceiverResultRequiresOriginalScopeAndLiveTerm(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			f := newNativeOwnerFixture(t)
 			ref := f.admit(t)
-			effect, body := receiverIntent(t, f, ref, "present")
+			effect, body := receiverEvent(t, f, ref)
 			if change == "lease" {
 				f.expire(t, f.app, -1)
 				successor, err := f.engine.ApplicationLease(context.Background(), f.app, "")
@@ -131,7 +146,7 @@ func TestNativeReceiverResultRequiresOriginalScopeAndLiveTerm(t *testing.T) {
 			}
 			record, group := stateTestLoad(t, f.engine, ref)
 			c := group.Contexts[ref.Id]
-			snapshot := body.Envelope.GetRequest().Snapshot
+			snapshot := body.Envelope.GetDialogEvent().Snapshot
 			switch change {
 			case "term":
 				snapshot.ApplicationLeaseTerm = "different-term"
@@ -170,7 +185,7 @@ func TestNativeReceiverDispatcherStartsOnlyLegacyAndRecordsAcceptance(t *testing
 			f := newNativeOwnerFixture(t)
 			receiverMode(t, f, cas)
 			ref := f.admit(t)
-			effect, _ := receiverIntent(t, f, ref, "present")
+			effect, _ := receiverEvent(t, f, ref)
 			conn, _, ctx, _ := stateControllerPair(t, f.engine, f.app, &pb.ProcessRef{InstanceId: "draining", Epoch: "other"})
 			f.engine.ctx, f.engine.cancel = context.WithCancel(ctx)
 			f.engine.work, f.engine.background = make(chan struct{}, 64), make(chan struct{}, 48)
@@ -187,8 +202,8 @@ func TestNativeReceiverDispatcherStartsOnlyLegacyAndRecordsAcceptance(t *testing
 					replyErrors <- err
 					return
 				}
-				if request.GetRequest() == nil {
-					replyErrors <- errors.New("expected retained presentation")
+				if request.GetDialogEvent() == nil {
+					replyErrors <- errors.New("expected retained lifecycle event")
 					return
 				}
 				group, _ := f.engine.group(ref)
@@ -241,7 +256,7 @@ func TestNativeReceiverDispatcherStartsOnlyLegacyAndRecordsAcceptance(t *testing
 			callbacks, _ := f.engine.CallbackStatistics()
 			observed := map[string]uint64{}
 			for _, statistic := range callbacks {
-				if statistic.Kind == "present" && statistic.Source == "index" {
+				if statistic.Kind == "event" && statistic.Source == "index" {
 					observed[statistic.Event] += statistic.Count
 				}
 			}

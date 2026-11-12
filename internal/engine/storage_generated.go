@@ -866,6 +866,7 @@ func storageEncodeEngineStateTransaction(v stateTransaction) *storagepb.EngineSt
 	out.DigestAttempts = v.DigestAttempts
 	out.DigestEffect = v.DigestEffect
 	out.PendingResponse = v.PendingResponse
+	out.PresentDeadlineMs = v.PresentDeadlineMS
 	out.DeferredPresent = v.DeferredPresent
 	out.RespondDeadlineMs = v.RespondDeadlineMS
 	out.RespondStatus = v.RespondStatus
@@ -903,6 +904,7 @@ func storageDecodeEngineStateTransaction(v *storagepb.EngineStateTransaction) st
 	out.DigestAttempts = v.DigestAttempts
 	out.DigestEffect = v.DigestEffect
 	out.PendingResponse = v.PendingResponse
+	out.PresentDeadlineMS = v.PresentDeadlineMs
 	out.DeferredPresent = v.DeferredPresent
 	out.RespondDeadlineMS = v.RespondDeadlineMs
 	out.RespondStatus = v.RespondStatus

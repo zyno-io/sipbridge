@@ -25,7 +25,7 @@ files = [
     'internal/engine/state_engine_selectors.go', 'internal/engine/wire.go',
     'internal/engine/state_engine_effects.go', 'internal/engine/state_engine_native_completion.go',
     'internal/engine/state_engine_lifecycle.go', 'internal/engine/state_engine_owner.go',
-    'internal/engine/state_engine_inspect.go',
+    'internal/engine/state_engine_inspect.go', 'internal/engine/state_engine_presentation.go',
     'internal/engine/state_engine_capacity.go', 'internal/engine/state_engine_causality.go',
     'internal/engine/state_engine_admission.go', 'internal/engine/state_engine_subscription.go',
     'internal/engine/state_engine_auth.go', 'internal/engine/state_engine_response.go',

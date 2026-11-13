@@ -82,6 +82,9 @@ shared native state do not imply that this capability is enabled.
 Messages are opaque wire where exact emission, replay or recovery needs bytes.
 Parsed mutable SIP objects live within an operation. Persist reusable semantic
 facts rather than retaining a parsed request as a quiet dialog's source of truth.
+Classification and selector lookup reuse one transient parse at each received
+boundary. Construct rich SIP control DTOs only when delivering them publicly;
+receipt storage accepts immutable wire directly without building a DTO first.
 Exact replay policy and cutoffs belong to [runtime](docs/runtime.md); terminating
 a reliable transaction is not by itself permission to erase its unsettled output.
 All records, packets, results, queues and transient work have explicit bounds.

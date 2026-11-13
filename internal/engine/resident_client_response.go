@@ -15,11 +15,7 @@ func (e *ResidentMemory) completeResidentClient(ctx context.Context, flow *pb.Fl
 	if flow == nil || received == nil {
 		return false, nil
 	}
-	observed, err := Observe(received.Wire, false)
-	if err != nil {
-		return false, err
-	}
-	parsed, err := sip.ParseMessage(received.Wire)
+	parsed, err := parseObservedMessage(received.Wire)
 	if err != nil {
 		return false, err
 	}
@@ -27,9 +23,14 @@ func (e *ResidentMemory) completeResidentClient(ctx context.Context, flow *pb.Fl
 	if !ok {
 		return false, nil
 	}
+	return e.completeResidentClientParsed(ctx, flow, received.Wire, response)
+}
+
+func (e *ResidentMemory) completeResidentClientParsed(ctx context.Context, flow *pb.FlowRef, wire []byte, response *sip.Response) (bool, error) {
+	selectors := observedMessageSelectors(response, false)
 	e.mu.Lock()
 	var c *residentContext
-	for _, selector := range observed.Selectors {
+	for _, selector := range selectors {
 		if c = e.transactions[selector]; c != nil {
 			break
 		}
@@ -38,7 +39,7 @@ func (e *ResidentMemory) completeResidentClient(ctx context.Context, flow *pb.Fl
 	if c == nil {
 		return false, nil
 	}
-	message := portable.Message{Wire: received.Wire, Transport: flow.Transport}
+	message := portable.Message{Wire: wire, Transport: flow.Transport}
 	c.mu.Lock()
 	if c.snapshot == nil || !e.residentContextCurrentLocked(c, c.snapshot.Context) {
 		c.mu.Unlock()
@@ -61,6 +62,7 @@ func (e *ResidentMemory) completeResidentClient(ctx context.Context, flow *pb.Fl
 		return handled, err
 	}
 	if tx.native.Family == portable.InviteClient {
+		observed := &pb.SipMessage{Wire: wire, Selectors: selectors}
 		writes, event, err := e.residentInviteResponseLocked(c, tx, message, observed, response)
 		c.mu.Unlock()
 		if err != nil {
@@ -140,6 +142,7 @@ func (e *ResidentMemory) completeResidentClient(ctx context.Context, flow *pb.Fl
 			if effect.Kind == portable.Ended && dialogKey == c.selectedDialog {
 				c.snapshot = proto.Clone(c.snapshot).(*pb.ContextSnapshot)
 				c.snapshot.Ended = true
+				observed := &pb.SipMessage{Wire: wire, Selectors: selectors}
 				event, err = e.stageResidentEventLocked(c, pb.DialogEvent_ENDED, observed, "", time.Now().Add(2*time.Minute), dialog.budget)
 				if err != nil {
 					c.snapshot = oldSnapshot
@@ -183,7 +186,7 @@ func (e *ResidentMemory) completeResidentClient(ctx context.Context, flow *pb.Fl
 	}
 	_ = e.scheduleResidentTransactionLocked(c, tx, effects)
 	if response.StatusCode >= 200 {
-		finishResidentCommandLocked(c, tx.command, &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, SipStatus: uint32(response.StatusCode), Request: mustObserve(tx.native.Origin.Wire, true), Response: observed})
+		finishResidentCommandWireLocked(c, tx.command, pb.OperationResult_COMPLETED, uint32(response.StatusCode), "", tx.native.Origin.Wire, wire)
 	}
 	e.retireResidentTransactionLocked(c, tx)
 	c.mu.Unlock()

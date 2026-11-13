@@ -99,12 +99,19 @@ func TestResidentClientNonInviteResponseCompletesExactReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handled, err := e.completeResidentClient(context.Background(), c.flow, observed)
+	// Caller projections are untrusted; classification and selector lookup must
+	// come from the actual response wire, even when every supplied hint is false.
+	observed.Method, observed.Status, observed.Selectors = "REGISTER", 0, []string{"forged"}
+	handled, err := e.tryNativeCompletion(context.Background(), c.flow, observed)
 	if err != nil || !handled {
 		t.Fatalf("response not handled: %v", err)
 	}
 	if !receipt.finished || receipt.certainty != pb.OperationResult_COMPLETED || receipt.status != 200 || c.command.finished {
 		t.Fatal("response did not settle its own receipt independently")
+	}
+	result := residentCommandResultLocked(c, receipt)
+	if result.GetResponse().GetStatus() != 200 || result.GetResponse().GetMethod() != "OPTIONS" || !bytes.Equal(result.GetResponse().GetWire(), response.Wire) {
+		t.Fatal("public receipt used forged metadata")
 	}
 }
 

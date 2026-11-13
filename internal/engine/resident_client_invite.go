@@ -465,7 +465,7 @@ func (e *ResidentMemory) residentReinviteResponseLocked(c *residentContext, tx *
 	_ = e.scheduleResidentTransactionLocked(c, tx, txEffects)
 	_ = e.scheduleResidentDialogLocked(c, key, append(dialogEffects, ackEffects...))
 	if response.StatusCode >= 200 {
-		finishResidentCommandLocked(c, tx.command, &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, SipStatus: uint32(response.StatusCode), Request: mustObserve(tx.native.Origin.Wire, true), Response: observed})
+		finishResidentCommandWireLocked(c, tx.command, pb.OperationResult_COMPLETED, uint32(response.StatusCode), "", tx.native.Origin.Wire, message.Wire)
 	}
 	return writes, nil, nil
 }

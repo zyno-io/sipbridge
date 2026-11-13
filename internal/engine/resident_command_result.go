@@ -168,20 +168,24 @@ func residentCommandResultLocked(c *residentContext, command *residentCommand) *
 }
 
 func finishResidentCommandLocked(c *residentContext, command *residentCommand, result *pb.OperationResult) {
+	finishResidentCommandWireLocked(c, command, result.GetCertainty(), result.GetSipStatus(), result.GetError(), result.GetRequest().GetWire(), result.GetResponse().GetWire())
+}
+
+// finishResidentCommandWireLocked retains only immutable wire evidence; rich
+// DTOs are materialized later when a public result is actually requested.
+func finishResidentCommandWireLocked(c *residentContext, command *residentCommand, certainty pb.OperationResult_Certainty, status uint32, failure string, requestWire, responseWire []byte) {
 	if command == nil {
 		return
 	}
 	if command.finished {
-		before, after := command.certainty, result.Certainty
+		before, after := command.certainty, certainty
 		upgrade := before == pb.OperationResult_UNKNOWN && (after == pb.OperationResult_ACCEPTED || after == pb.OperationResult_COMPLETED) || before == pb.OperationResult_ACCEPTED && after == pb.OperationResult_COMPLETED
 		if !upgrade {
 			return
 		}
 	}
-	var requestWire, responseWire []byte
-	if residentCommandVisible(c, command) {
-		requestWire = result.GetRequest().GetWire()
-		responseWire = result.GetResponse().GetWire()
+	if !residentCommandVisible(c, command) {
+		requestWire, responseWire = nil, nil
 	}
 	oldBytes := int64(len(command.requestWire) + len(command.responseWire))
 	newBytes := int64(len(requestWire) + len(responseWire))
@@ -196,7 +200,7 @@ func finishResidentCommandLocked(c *residentContext, command *residentCommand, r
 			}
 			// Do not assert a known result when its required replay evidence could
 			// not be retained. Admission should reserve this continuation space.
-			result = &pb.OperationResult{Certainty: pb.OperationResult_UNKNOWN, Error: "command evidence capacity unavailable"}
+			certainty, status, failure = pb.OperationResult_UNKNOWN, 0, "command evidence capacity unavailable"
 			requestWire, responseWire, newBytes, delta = nil, nil, 0, -oldBytes
 		} else {
 			command.borrowed += borrowed
@@ -210,7 +214,7 @@ func finishResidentCommandLocked(c *residentContext, command *residentCommand, r
 	}
 	errText := ""
 	if residentCommandVisible(c, command) {
-		errText = residentCommandError(result.Error)
+		errText = residentCommandError(failure)
 	}
 	errorDelta := int64(len(errText) - len(command.err))
 	if command.registered && errorDelta != 0 {
@@ -221,7 +225,7 @@ func finishResidentCommandLocked(c *residentContext, command *residentCommand, r
 	}
 	command.requestWire = append([]byte(nil), requestWire...)
 	command.responseWire = append([]byte(nil), responseWire...)
-	command.certainty, command.status, command.err = result.Certainty, result.SipStatus, errText
+	command.certainty, command.status, command.err = certainty, status, errText
 	wasFinished := command.finished
 	command.finished = true
 	if !wasFinished {

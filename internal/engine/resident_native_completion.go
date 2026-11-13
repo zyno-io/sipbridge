@@ -17,29 +17,26 @@ func (e *ResidentMemory) tryNativeCompletion(ctx context.Context, flow *pb.FlowR
 	if flow == nil || received == nil {
 		return false, nil
 	}
-	observed, err := Observe(received.Wire, false)
+	parsed, err := parseObservedMessage(received.Wire)
 	if err != nil {
 		return false, err
 	}
-	if observed.Status != 0 {
-		return e.completeResidentClient(ctx, flow, received)
-	}
-	if observed.Method == "BYE" {
-		return e.completeResidentRemoteBye(ctx, flow, received, observed)
-	}
-	if observed.Method == "CANCEL" {
-		return e.completeResidentCancel(ctx, flow, received, observed)
-	}
-	if observed.Method != "ACK" {
-		return false, nil
-	}
-	parsed, err := sip.ParseMessage(received.Wire)
-	if err != nil {
-		return false, err
+	if response, ok := parsed.(*sip.Response); ok {
+		return e.completeResidentClientParsed(ctx, flow, received.Wire, response)
 	}
 	request, ok := parsed.(*sip.Request)
 	if !ok {
 		return false, nil
+	}
+	if !request.IsAck() && !request.IsCancel() && request.Method != sip.BYE {
+		return false, nil
+	}
+	observed := &pb.SipMessage{Selectors: observedMessageSelectors(parsed, false)}
+	if request.Method == sip.BYE {
+		return e.completeResidentRemoteBye(ctx, flow, received, observed)
+	}
+	if request.IsCancel() {
+		return e.completeResidentCancel(ctx, flow, received, observed)
 	}
 	key, err := sip.ServerTxKeyMake(request)
 	if err != nil {

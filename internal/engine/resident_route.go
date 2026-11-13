@@ -22,14 +22,11 @@ func (e *ResidentMemory) locate(ctx context.Context, message *pb.SipMessage) (*p
 	if message == nil {
 		return nil, errors.New("SIP message required")
 	}
-	observed, err := Observe(message.Wire, false)
+	parsed, err := parseObservedMessage(message.Wire)
 	if err != nil {
 		return nil, err
 	}
-	parsed, err := sip.ParseMessage(message.Wire)
-	if err != nil || parsed.CallID() == nil {
-		return nil, errors.New("valid Call-ID required")
-	}
+	selectors := observedMessageSelectors(parsed, false)
 	callID := parsed.CallID().Value()
 	now := time.Now()
 	e.mu.Lock()
@@ -38,7 +35,7 @@ func (e *ResidentMemory) locate(ctx context.Context, message *pb.SipMessage) (*p
 		return nil, errors.New("resident engine closed")
 	}
 	var selected *residentContext
-	for _, key := range observed.Selectors {
+	for _, key := range selectors {
 		selected = e.transactions[key]
 		if selected == nil {
 			selected = e.dialogs[key]

@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/emiago/sipgo/sip"
@@ -195,6 +194,12 @@ func (e *ResidentMemory) command(ctx context.Context, peer *control.Peer, cmd *p
 			}
 		}
 	}
+	var dialogSelector string
+	if dialog != nil || subscription != nil {
+		if parsed, parseErr := parseObservedMessage(message.Wire); parseErr == nil {
+			dialogSelector = observedDialogSelector(parsed)
+		}
+	}
 	next, effects, err := portable.StepTransaction(tx.native, portable.Input{Kind: portable.SendResponse, Now: time.Now().UnixMilli(), Message: message})
 	if err != nil {
 		return refuse(err)
@@ -295,14 +300,9 @@ func (e *ResidentMemory) command(ctx context.Context, peer *control.Peer, cmd *p
 		c.selectedDialog = dialogKey
 		c.revision++
 		c.snapshot.Revision++
-		observed, observeErr := Observe(message.Wire, true)
-		if observeErr == nil {
+		if dialogSelector != "" {
 			e.mu.Lock()
-			for _, selector := range observed.Selectors {
-				if strings.HasPrefix(selector, "dlg:") {
-					e.dialogs[selector] = c
-				}
-			}
+			e.dialogs[dialogSelector] = c
 			e.mu.Unlock()
 		}
 		_ = e.scheduleResidentDialogLocked(c, dialogKey, dialogEffects)
@@ -327,14 +327,9 @@ func (e *ResidentMemory) command(ctx context.Context, peer *control.Peer, cmd *p
 		c.revision++
 		c.snapshot.Revision++
 		e.scheduleResidentSubscriptionLocked(c)
-		observed, observeErr := Observe(message.Wire, true)
-		if observeErr == nil {
+		if dialogSelector != "" {
 			e.mu.Lock()
-			for _, selector := range observed.Selectors {
-				if strings.HasPrefix(selector, "dlg:") {
-					e.dialogs[selector] = c
-				}
-			}
+			e.dialogs[dialogSelector] = c
 			e.mu.Unlock()
 		}
 	}

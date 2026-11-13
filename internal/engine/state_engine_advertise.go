@@ -13,18 +13,22 @@ import (
 // advertisement selects public SIP routing fields for one retained transport.
 // It never derives routing from the peer socket or a private control address.
 func (e *StateEngine) advertisement(transport string) (contact, sentBy string, err error) {
+	return advertisement(e.cfg, transport)
+}
+
+func advertisement(cfg Config, transport string) (contact, sentBy string, err error) {
 	if transport != "tls" && transport != "udp" && transport != "tcp" {
 		return "", "", errors.New("unsupported advertisement transport")
 	}
 	var uri sip.Uri
-	if err = sip.ParseUri(e.cfg.ContactURI, &uri); err != nil || uri.Host == "" || uri.Scheme != "sip" && uri.Scheme != "sips" {
+	if err = sip.ParseUri(cfg.ContactURI, &uri); err != nil || uri.Host == "" || uri.Scheme != "sip" && uri.Scheme != "sips" {
 		return "", "", errors.New("invalid public SIP Contact URI")
 	}
-	sentBy = e.cfg.AdvertiseAddress
+	sentBy = cfg.AdvertiseAddress
 	if transport != "tls" {
-		sentBy = e.cfg.PlainAdvertiseAddress
+		sentBy = cfg.PlainAdvertiseAddress
 		if sentBy == "" {
-			host, _, splitErr := net.SplitHostPort(e.cfg.AdvertiseAddress)
+			host, _, splitErr := net.SplitHostPort(cfg.AdvertiseAddress)
 			if splitErr != nil {
 				return "", "", splitErr
 			}

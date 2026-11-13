@@ -53,12 +53,16 @@ func (s *callbackStatistics) callback(kind string, source callbackSource, event 
 }
 
 func (e *StateEngine) CallbackStatistics() ([]CallbackStatistic, []PhysicalLocalityStatistic) {
+	return e.callbackMetrics.snapshot()
+}
+
+func (s *callbackStatistics) snapshot() ([]CallbackStatistic, []PhysicalLocalityStatistic) {
 	var callbacks []CallbackStatistic
 	var physical []PhysicalLocalityStatistic
 	for kind, name := range callbackKindNames {
 		for source, sourceName := range callbackSourceNames {
 			for event, eventName := range callbackEventNames {
-				if count := e.callbackMetrics.callbacks[kind][source][event].Load(); count != 0 {
+				if count := s.callbacks[kind][source][event].Load(); count != 0 {
 					callbacks = append(callbacks, CallbackStatistic{Kind: name, Source: sourceName, Event: eventName, Count: count})
 				}
 			}
@@ -66,7 +70,7 @@ func (e *StateEngine) CallbackStatistics() ([]CallbackStatistic, []PhysicalLocal
 	}
 	for source, sourceName := range callbackSourceNames {
 		for locality, name := range physicalLocalityNames {
-			if count := e.callbackMetrics.physical[source][locality].Load(); count != 0 {
+			if count := s.physical[source][locality].Load(); count != 0 {
 				physical = append(physical, PhysicalLocalityStatistic{Source: sourceName, Locality: name, Count: count})
 			}
 		}

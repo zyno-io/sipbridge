@@ -1,9 +1,11 @@
 # Service runtime contract
 
-This is the normative execution and bounds supplement to
-[ARCHITECTURE.md](../ARCHITECTURE.md). It describes the schema 1 / reducer 1 /
-timers 1 CAS service. Historical claimed/relay execution is restricted to
-[test fixtures](fixtures.md); it is not a service configuration or recovery path.
+This is the normative checkpoint execution and bounds supplement to
+[ARCHITECTURE.md](../ARCHITECTURE.md), covering the schema 1 / reducer 1 /
+timers 1 Redis service and explicit checkpoint fixtures. The resident Memory
+service follows [Resident Memory core](memory-core.md); read/reduce/CAS and
+shared scheduling descriptions below apply to checkpoint execution.
+Historical claimed/relay execution is restricted to [test fixtures](fixtures.md).
 [PROTOCOL.md](../PROTOCOL.md) owns wire and business-admission semantics.
 
 ## Configuration, identity and loss
@@ -11,35 +13,20 @@ timers 1 CAS service. Historical claimed/relay execution is restricted to
 `SIPBRIDGE_STATE_BACKEND` defaults to `memory`; `redis` must be explicit. Unknown
 values fail startup. Selection is fixed for the process lifetime. Redis settings
 without explicit Redis selection are rejected as inconsistent configuration.
-Both adapters implement the same read/reduce/CAS, lease, effect and retirement
-contract. Historical claimed execution remains fixture-only.
+Both services expose the same logical control state capability. Their
+execution and storage mechanisms differ; Memory never opens `state.MemoryStore`
+or enters checkpoint read/reduce/CAS execution.
 
-Memory requires no Redis connection or credentials. An omitted identity key is
-randomly generated for that process; an explicitly supplied key uses normal key
-validation. Each memory store also has a fresh authority identity, even when its
-configuration/key matches another store. Independent processes and restarts cannot
-execute old references. A controller remains required for business policy. Memory readiness
-checks local lifecycle/clock health, not Redis; signaling readiness still requires
-an eligible controller. Closing the store fences operations and releases records.
-
-Memory uses independent snapshots and a context-cancellable mutex around store
-operations; pure reduction and external I/O occur outside it. Group commit, lease
-reference updates/sealing and scheduling indexes change atomically. Time is sampled
-inside that operation; wall/monotonic discontinuities fail the affected operation.
-Memory indexes are maintained atomically, so schedule repair is a bounded no-op.
-Lease expiry, recovery grace, sealing and idle reclamation match the Redis profile.
-
-Memory uses the native profile’s 64-MiB per-group encoded bound, a 128-group
-ceiling and 1 GiB of reserved group capacity. The default byte reservation therefore
-admits at most 16 concurrently retained groups; a group may contain multiple native
-contexts. The full per-group bound is required before outbound INVITE admission
-so all mandatory fork/transaction completion paths retain space. `SIPBRIDGE_MEMORY_MAX_GROUPS` and `SIPBRIDGE_MEMORY_MAX_BYTES` may
-lower or raise the total reservation bounds. Every newly committed group reserves
-its full group bound until exact retirement. This is encoded-state accounting,
-not an RSS guarantee; Go objects and transient snapshots add overhead. Capacity
-refuses new groups without eviction and cannot consume an existing group's reserved
-completion capacity. Existing per-group admission/reserved-completion checks remain.
-Active records never expire merely to recover capacity.
+Memory's process-local authority, native retention, deadline heap and failure
+behavior are defined in [Resident Memory core](memory-core.md).
+`SIPBRIDGE_MEMORY_MAX_GROUPS` limits resident contexts (default 128), and
+`SIPBRIDGE_MEMORY_MAX_BYTES` limits accounted resident bytes plus admitted
+completion headroom (default 1 GiB). Admission also reserves finite output slots.
+The former encoded per-group reservation does not apply. These bounds are not an
+RSS promise; runtime metadata and transient transport/codec values add overhead.
+The encoded `state.MemoryStore` remains an explicit checkpoint test fixture.
+Resident command-result error detail is limited to 4 KiB of UTF-8; longer detail
+is truncated at a character boundary with an explicit suffix.
 
 The `sip.state.v1` capability negotiates these logical state semantics for both
 adapters. Controllers must negotiate this capability before state admission.

@@ -1,0 +1,9 @@
+<drachtio>
+  <admin port="9022" secret="performance-only">0.0.0.0</admin>
+  <sip>
+    <contacts><contact>sips:*:5061;transport=tls</contact></contacts>
+    <tls><key-file>/certs/server.key</key-file><cert-file>/certs/server.crt</cert-file><chain-file>/certs/ca.crt</chain-file></tls>
+  </sip>
+  <cdrs>false</cdrs>
+  <logging><console/><sofia-loglevel>0</sofia-loglevel><loglevel>error</loglevel></logging>
+</drachtio>

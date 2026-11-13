@@ -81,11 +81,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	stateStore, err := state.OpenBackend(*stateConfig)
-	if err != nil {
-		return err
+	var stateStore state.Backend
+	var authority *pb.StateAuthority
+	if stateConfig.Backend == state.RedisBackend {
+		stateStore, err = state.OpenBackend(*stateConfig)
+		if err != nil {
+			return err
+		}
+		defer stateStore.Close()
+		a := stateStore.Authority()
+		authority = &pb.StateAuthority{Service: stateStore.Namespace(), Generation: a.Generation, PrimaryId: a.RunID, SchemaVersion: 1}
+	} else {
+		authority = engine.NewResidentMemoryAuthority(stateConfig.Namespace, stateConfig.Generation)
 	}
-	defer stateStore.Close()
 
 	var sourceIP net.IP
 	if *sipInterface != "" {
@@ -162,15 +170,16 @@ func run() error {
 			}
 		}()
 	}
-	var stateNative *engine.StateEngine
+	var stateNative nativeRuntime
 	var ingress *engine.Ingress
 	capabilities := []string{engine.Capability, control.CommandBudgetCapability, engine.DialogContinuityCapability,
-		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ControllerReattachCapability}
+		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability}
+	if stateConfig.Backend == state.RedisBackend {
+		capabilities = append(capabilities, control.ControllerReattachCapability)
+	}
 	if authPolicy != nil {
 		capabilities = append(capabilities, engine.LocalChallengeCapability)
 	}
-	a := stateStore.Authority()
-	authority := &pb.StateAuthority{Service: stateStore.Namespace(), Generation: a.Generation, PrimaryId: a.RunID, SchemaVersion: 1}
 	server, err := control.NewServer(control.Config{Process: process, TLS: controlSecurity.TLS, Authenticator: controlSecurity.Authenticator, AllowPlain: controlSecurity.AllowPlain, AllowedURIs: controlSecurity.AllowedURIs, Capabilities: capabilities, StateAuthority: authority, InboundAuthPolicy: authPolicy, OnMessage: func(peer *control.Peer, envelope *pb.Envelope) error {
 		if envelope.GetWrite() != nil {
 			return ingress.Write(peer, envelope)
@@ -217,7 +226,13 @@ func run() error {
 		MethodPolicy: methodPolicy, AuthPolicy: authPolicy})
 	engineConfig := engine.Config{Process: process, AdvertiseAddress: *advertise, PlainAdvertiseAddress: plainAdvertisement, ContactURI: *contact, OpenNetwork: ingress.OpenNetwork, LiveFlow: ingress.LiveFlow, StateIdentityKey: stateConfig.NamespaceKey}
 	engineConfig.WriteCommitted, engineConfig.InspectCommitted = ingress.WriteCommitted, ingress.InspectCommitted
-	stateNative, err = engine.NewState(ctx, engineConfig, stateStore, server)
+	if stateConfig.Backend == state.RedisBackend {
+		stateNative, err = engine.NewState(ctx, engineConfig, stateStore, server)
+	} else {
+		stateNative, err = engine.NewResidentMemory(ctx, engineConfig, engine.ResidentMemoryOptions{
+			Authority: authority, MaxContexts: stateConfig.Memory.MaxGroups, MaxBytes: stateConfig.Memory.MaxBytes,
+		}, server)
+	}
 	if err != nil {
 		return err
 	}
@@ -259,6 +274,12 @@ func run() error {
 				scheduler.WorkerHeadReads, scheduler.WorkerBatches, scheduler.WorkerWakeups, scheduler.OwnedGroups)
 			for _, statistic := range stateNative.ExecutionStatistics() {
 				fmt.Fprintf(w, "zt_sipbridge_execution_total{input=%q,event=%q} %d\n", statistic.Kind, statistic.Event, statistic.Count)
+			}
+			if resident, ok := stateNative.(interface {
+				ResidentStatistics() engine.ResidentStatistics
+			}); ok {
+				statistics := resident.ResidentStatistics()
+				fmt.Fprintf(w, "zt_sipbridge_resident_contexts %d\nzt_sipbridge_resident_retained_bytes %d\nzt_sipbridge_resident_completion_reserved_bytes %d\n", statistics.Contexts, statistics.RetainedBytes, statistics.CompletionReservedBytes)
 			}
 			localObservations, storeObservations := stateNative.OperationObservationStatistics()
 			fmt.Fprintf(w, "zt_sipbridge_operation_observations_total{source=\"local\"} %d\nzt_sipbridge_operation_observations_total{source=\"store\"} %d\n", localObservations, storeObservations)

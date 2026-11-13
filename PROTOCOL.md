@@ -661,10 +661,15 @@ command budget, with public AD BYE known-written acceptance described below.
 Each context has a monotonic observation revision. Events carry it; snapshots
 report the current native phase, identity, pending request handles, initial-answer
 ACK state, accepted target/lease, terminal state and latest command outcome as
-applicable. A UAC transaction and each forked dialog have distinct references and
-an explicit parent relationship. Completing a transaction does not remove its
-live dialogs or application route; every later final/child dialog remains
-observable for controller's winner/loser cleanup.
+applicable. A UAC transaction and its directional fork dialogs remain distinct
+native records within one `ContextRef`; the snapshot exposes the selected
+application dialog. Completing a transaction does not erase retained branch
+ACK/fork/cleanup duties. Sipbridge performs losing-branch ACK and cleanup BYE,
+with positive local ACK-write evidence required before that BYE.
+For a selected branch with an offer in its successful INVITE response, the
+controller supplies the ACK answer. Automatic answer generation for a losing
+late-offer branch is not supported; the pinned reducer requires an ACK answer
+and sipbridge does not fabricate one.
 
 Control reconnect reconciles current snapshots and outstanding native requests;
 it does not replay a general event history. Preserve a bounded terminal outcome

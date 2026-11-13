@@ -10,7 +10,8 @@ then ship with the code that implements them.
 
 | Document | Owns |
 | --- | --- |
-| [Runtime](docs/runtime.md) | State lifetimes, atomic operations, physical evidence, scheduling, bounds and shutdown |
+| [Resident Memory](docs/memory-core.md) | Typed process-local authority, local deadlines and Memory delivery gate |
+| [Checkpoint runtime](docs/runtime.md) | Redis checkpoints, atomic operations, physical evidence, scheduling, bounds and shutdown |
 | [Protocol](PROTOCOL.md) | Canonical control messages, capabilities, controller decisions and result meanings |
 | [Controller recovery](docs/controller-recovery.md) | Optional controller checkpoint/attachment recovery only |
 | [Operation flows](docs/operations/index.md) | End-to-end flowcharts and current implementation work accounting |
@@ -20,6 +21,11 @@ then ship with the code that implements them.
 Go/TypeScript codecs, distribution copy and schema receipt ship together.
 Consumers pin the full receipt and an immutable image; major `1` alone does not
 establish compatibility. Native retained storage has its own schema identity.
+
+The replacement Memory runtime follows [Resident Memory core](docs/memory-core.md).
+That target is approved and locked before its implementation. The deployed
+checkpoint runtime below remains the serving implementation until the replacement
+passes its protocol and CPU gates. Redis implementation follows that Memory gate.
 
 ## Components and authority
 
@@ -33,8 +39,8 @@ establish compatibility. Native retained storage has its own schema identity.
 
 SIP transaction, dialog and timer decisions belong to the pinned sipgo reducers.
 Subscription metadata and coordination with physical output belong to the adapter.
-The execution driver reads a current checkpoint, computes an affected transition
-and commits atomically. A whole-Call-ID graph is a storage implementation choice,
+Resident Memory publishes touched typed records directly; Redis execution reads
+a current checkpoint, computes an affected transition and commits atomically. A whole-Call-ID graph is a storage implementation choice,
 not permission to require every future bookkeeping operation to rebuild it.
 
 The selected backend is the sole protocol authority. Memory is process-local and

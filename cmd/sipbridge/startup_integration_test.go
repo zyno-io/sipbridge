@@ -98,6 +98,10 @@ func testStateStartupWithSecurity(t *testing.T, backend string, offline, partial
 	testStateStartupWithShutdown(t, backend, offline, partial, securityMode, false, erase...)
 }
 func testStateStartupWithShutdown(t *testing.T, backend string, offline, partial bool, securityMode string, observeDrain bool, erase ...bool) {
+	testStateStartupWithHook(t, backend, offline, partial, securityMode, observeDrain, nil, erase...)
+}
+
+func testStateStartupWithHook(t *testing.T, backend string, offline, partial bool, securityMode string, observeDrain bool, hook func(*testing.T, *websocket.Conn, *pb.SessionHelloAck, string, *tls.Config), erase ...bool) {
 	endpoint := os.Getenv("SIPBRIDGE_STATE_TEST_REDIS")
 	if endpoint == "" && backend == "redis" {
 		t.Skip("disposable Redis required")
@@ -208,6 +212,11 @@ func testStateStartupWithShutdown(t *testing.T, backend string, offline, partial
 	}
 	command.Env = append(command.Env, "SIPBRIDGE_DEGRADED_HELPER=true", "SIPBRIDGE_DEGRADED_ARGS="+string(args))
 	var logs bytes.Buffer
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("startup process logs: %s", logs.String())
+		}
+	})
 	command.Stdout, command.Stderr = &logs, &logs
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
@@ -334,6 +343,9 @@ func testStateStartupWithShutdown(t *testing.T, backend string, offline, partial
 	var controller *websocket.Conn
 	recoveryDeadline := time.Now().Add(8 * time.Second)
 	hello := &pb.Envelope{CorrelationId: "recover-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "surviving-controller", Epoch: "same-process"}, ConnectionAttempt: 1, Major: 1, Capabilities: []string{"sip.v1", controlpkg.StateCapability, controlpkg.NativeCompletionCapability}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
+	if hook != nil {
+		hello.GetHello().Capabilities = append(hello.GetHello().Capabilities, controlpkg.DialogContinuityCapability)
+	}
 	if securityMode != "mtls" {
 		hello.GetHello().Capabilities = append(hello.GetHello().Capabilities, controlpkg.ControllerReattachCapability)
 	}
@@ -369,8 +381,11 @@ func testStateStartupWithShutdown(t *testing.T, backend string, offline, partial
 	if ack.StateAuthority == nil || ack.StateAuthority.Generation != settings["SIPBRIDGE_STATE_GENERATION"] {
 		t.Fatal("offline startup changed the configuration-derived logical authority")
 	}
-	if securityMode != "mtls" && (ack.ApplicationLease.GetRecoveryToken() == "" || ack.ApplicationLease.GetAttachmentGeneration() != 1 || ack.ApplicationLease.GetLeaseLifetimeMs() != 5000) {
+	if backend == "redis" && securityMode != "mtls" && (ack.ApplicationLease.GetRecoveryToken() == "" || ack.ApplicationLease.GetAttachmentGeneration() != 1 || ack.ApplicationLease.GetLeaseLifetimeMs() != 5000) {
 		t.Fatal("real service did not negotiate a recoverable bearer owner")
+	}
+	if backend == "memory" && (ack.ApplicationLease.GetTerm() == "" || ack.ApplicationLease.GetRecoveryToken() != "" || slices.Contains(ack.Capabilities, controlpkg.ControllerReattachCapability)) {
+		t.Fatal("memory must negotiate an ordinary owner without checkpoint recovery")
 	}
 	frame := &pb.Envelope{SessionId: ack.SessionId, CorrelationId: "recovered-status", Payload: &pb.Envelope_Status{Status: &pb.SessionStatus{RetainedReady: true, BindingsReady: true}}}
 	encoded, _ := protojson.Marshal(frame)
@@ -386,6 +401,9 @@ func testStateStartupWithShutdown(t *testing.T, backend string, offline, partial
 			if ready.StatusCode == 200 {
 				if len(erase) > 0 && erase[0] {
 					testStartupStateLoss(t, redisClient, prefix+":"+namespace+":", controller, ack, hello, transport, control)
+				}
+				if hook != nil {
+					hook(t, controller, ack, public, transport.TLSClientConfig)
 				}
 				if observeDrain {
 					testStartupDrain(t, command, client, admin, public, transport.TLSClientConfig, exited, &processError)

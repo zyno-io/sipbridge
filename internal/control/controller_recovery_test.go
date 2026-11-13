@@ -59,6 +59,14 @@ func TestControllerRecoveryHooksBindStableOwnerAndGateFreshWork(t *testing.T) {
 	if !proto.Equal(ack.GetHelloAck().ApplicationLease, lease) {
 		t.Fatal("recovery receipt changed")
 	}
+	// The client can receive hello acknowledgement before the server finishes
+	// installing its peer. An allowed inspection round trip observes that setup
+	// boundary without assuming the two processes run in lockstep.
+	send(t, connection, &pb.Envelope{CorrelationId: "inspect", SessionId: ack.SessionId, RemainingBudgetMs: 1000, Payload: &pb.Envelope_Inspect{Inspect: &pb.ContextInspect{Context: &pb.ContextRef{Owner: server.cfg.Process, Id: "context"}}}})
+	inspection, err := receive(connection)
+	if err != nil || inspection.GetResult().GetCertainty() != pb.OperationResult_COMPLETED {
+		t.Fatal("inspection was blocked during recovery")
+	}
 	peer, err := server.Peer(stable)
 	if err != nil || !proto.Equal(peer.Process(), actual) || peer.ApplicationGeneration() != 7 {
 		t.Fatal("routing cannot find reattached stable application")
@@ -73,11 +81,6 @@ func TestControllerRecoveryHooksBindStableOwnerAndGateFreshWork(t *testing.T) {
 	refused, err := receive(connection)
 	if err != nil || refused.GetResult().GetCertainty() != pb.OperationResult_NOT_ACCEPTED || commands.Load() != 0 {
 		t.Fatal("fresh mutation ran before restored readiness")
-	}
-	send(t, connection, &pb.Envelope{CorrelationId: "inspect", SessionId: ack.SessionId, RemainingBudgetMs: 1000, Payload: &pb.Envelope_Inspect{Inspect: &pb.ContextInspect{Context: &pb.ContextRef{Owner: server.cfg.Process, Id: "context"}}}})
-	inspection, err := receive(connection)
-	if err != nil || inspection.GetResult().GetCertainty() != pb.OperationResult_COMPLETED {
-		t.Fatal("inspection was blocked during recovery")
 	}
 	send(t, connection, &pb.Envelope{CorrelationId: "ready", SessionId: ack.SessionId, Payload: &pb.Envelope_Status{Status: &pb.SessionStatus{RetainedReady: true, BindingsReady: true}}})
 	send(t, connection, command)

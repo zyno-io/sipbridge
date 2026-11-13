@@ -1285,7 +1285,7 @@ func (r *stateReduction) receivedResponse(c *stateContext, tx *stateTransaction,
 		}
 		break
 	}
-	if tx.Command != "" && !response.IsProvisional() && !tx.Cleanup {
+	if tx.Command != "" && tx.Command == c.Operation && !response.IsProvisional() && !tx.Cleanup {
 		c.Result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: mustObserve(tx.Native.Origin.Wire, true), Response: mustObserve(m.Wire, false), Snapshot: stateSnapshot(c, r.engine.cfg.Process)}
 	}
 	return nil
@@ -1551,7 +1551,16 @@ func (r *stateReduction) projectDispatchWorkers() error {
 	for index := range r.payload.Effects {
 		effect := &r.payload.Effects[index]
 		effect.Worker = ""
-		if !stateDispatchableEffect(*effect, r.now) || effect.Kind == "open" && (effect.Status != state.EffectPending || effect.DeadlineMS <= r.now) {
+		var body stateEngineEffect
+		known := effect.Kind == "deliver" && (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten)
+		if known {
+			if body.unmarshalMetadata(effect.Payload) != nil || body.Settled {
+				continue
+			}
+		} else if !stateDispatchableEffect(*effect, r.now) {
+			continue
+		}
+		if effect.Kind == "open" && (effect.Status != state.EffectPending || effect.DeadlineMS <= r.now) {
 			continue
 		}
 		if effect.Kind == "event" || effect.Kind == "adopt" || effect.Kind == "credential" || effect.Kind == "open" {
@@ -1561,9 +1570,10 @@ func (r *stateReduction) projectDispatchWorkers() error {
 		if effect.Kind != "deliver" {
 			continue
 		}
-		var body stateEngineEffect
-		if err := body.unmarshalMetadata(effect.Payload); err != nil {
-			return err
+		if !known {
+			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+				return err
+			}
 		}
 		if body.Native && !body.Settled && body.Permit.GetFlow().GetIngress() != nil {
 			process := body.Permit.Flow.Ingress

@@ -307,6 +307,13 @@ is two decoding passes, and ordinary native group encoding still constructs a
 storage DTO graph. The direct group decoder and reserve exception remove specific
 passes; they do not remove all encoding/decoding from the operation.
 
+Lifecycle and dispatch classification each reuse one validated body within their
+current effect iteration. The eligible reservation path passes its owned selected
+body and drain observation through the same reservation authority checks used by
+ordinary reduction. There is no effect-body cache across iterations or operations.
+Native preparation does not re-encode an already-settled physical result; its
+second pass remains necessary for obligations emitted by lifecycle continuation.
+
 ## Read projections and healthy single-attempt counts
 
 The following counts assume a validated primary observation, an already connected

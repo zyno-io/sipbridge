@@ -13,7 +13,7 @@ const AnyDispatchWorker = "*"
 var dispatchWorkerPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 const dispatchIndexLua = `
-local function planDispatch(before,after)
+local function planDispatch(before,after,executor,now)
  local prefix=string.sub(KEYS[4],1,#KEYS[4]-#'scheduler:heads')..'dispatch:'
  local function decode(value,wildcard)
   if #value>280000 or string.sub(value,1,1)~='[' then return nil,'CORRUPT' end
@@ -34,8 +34,8 @@ local function planDispatch(before,after)
   next['*']=nil
   local registry=string.sub(KEYS[4],1,#KEYS[4]-#'scheduler:heads')..'scheduler:workers'
   if not keytype(registry,'zset') then return nil,'CORRUPT' end
-  if not redis.acl_check_cmd('ZRANGEBYSCORE',registry,'('..integer(nowms()),'+inf','LIMIT',0,256) then return nil,'AUTHORITY' end
-  local live=redis.call('ZRANGEBYSCORE',registry,'('..integer(nowms()),'+inf','LIMIT',0,256)
+  if not redis.acl_check_cmd('ZRANGEBYSCORE',registry,'('..integer(now),'+inf','LIMIT',0,256) then return nil,'AUTHORITY' end
+  local live=redis.call('ZRANGEBYSCORE',registry,'('..integer(now),'+inf','LIMIT',0,256)
   for _,worker in ipairs(live) do
    if #worker~=64 or not string.match(worker,'^[a-f0-9]+$') then return nil,'CORRUPT' end
    next[worker]=prefix..worker
@@ -49,22 +49,40 @@ local function planDispatch(before,after)
   if not keytype(key,'zset') then return nil,'CORRUPT' end
   if not redis.acl_check_cmd('ZREM',key,KEYS[1]) then return nil,'AUTHORITY' end
  end
- for _,key in pairs(next) do
+ local scores={}; local wake={}
+ for worker,key in pairs(next) do
   if not keytype(key,'zset') then return nil,'CORRUPT' end
-  if not redis.acl_check_cmd('ZADD',key,1,KEYS[1]) then return nil,'AUTHORITY' end
+  if not redis.acl_check_cmd('ZADD',key,1,KEYS[1]) or
+     not redis.acl_check_cmd('ZSCORE',key,KEYS[1]) or
+     not redis.acl_check_cmd('ZRANGE',key,0,0,'WITHSCORES') then return nil,'AUTHORITY' end
   if not keytype(key..':wake','stream') then return nil,'CORRUPT' end
   if not redis.acl_check_cmd('XADD',key..':wake','MAXLEN','=',1,'*','changed','1') or
      not redis.acl_check_cmd('PEXPIRE',key..':wake',120000) then return nil,'AUTHORITY' end
+  local proposal=now
+  if worker==executor then proposal=now+100 end
+  if proposal>9007199254740991 then return nil,'CORRUPT' end
+  local existing=redis.call('ZSCORE',key,KEYS[1])
+  if existing then
+   local score=tonumber(existing)
+   if not score or score<1 or score>9007199254740991 or score~=math.floor(score) then return nil,'CORRUPT' end
+   proposal=math.min(proposal,score)
+  end
+  local head=redis.call('ZRANGE',key,0,0,'WITHSCORES')
+  if #head>0 then
+   local score=tonumber(head[2])
+   if not score or score<1 or score>9007199254740991 or score~=math.floor(score) then return nil,'CORRUPT' end
+   wake[worker]=proposal<score
+  else wake[worker]=true end
+  scores[worker]=proposal
  end
- return {prior=prior,next=next,encoded=encoded},nil
+ return {prior=prior,next=next,encoded=encoded,scores=scores,wake=wake},nil
 end
-local function applyDispatch(plan,now)
+local function applyDispatch(plan)
  for worker,key in pairs(plan.prior) do if not plan.next[worker] then redis.call('ZREM',key,KEYS[1]) end end
  local changed=false
- for _,key in pairs(plan.next) do
-  local previous=redis.call('ZRANGE',key,0,0,'WITHSCORES')
-  redis.call('ZADD',key,now,KEYS[1]); changed=true
-  if #previous==0 or now<tonumber(previous[2]) then
+ for worker,key in pairs(plan.next) do
+  redis.call('ZADD',key,plan.scores[worker],KEYS[1]); changed=true
+  if plan.wake[worker] then
    redis.call('XADD',key..':wake','MAXLEN','=',1,'*','changed','1')
    redis.call('PEXPIRE',key..':wake',120000)
   end

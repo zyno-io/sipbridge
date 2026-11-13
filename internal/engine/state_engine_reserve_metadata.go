@@ -52,7 +52,8 @@ func (e *StateEngine) reserveMetadata(record state.Record, input state.Input, in
 			return state.Payload{}, nil, false
 		}
 	}
-	_, _, body, err := r.findEffect(in.Effect)
+	var drain state.LocalDrainObservation
+	index, effect, body, err := r.findEffect(in.Effect, &drain)
 	if err != nil || !body.Native || body.Settled || len(body.Wire) == 0 || body.Permit == nil || body.Authorization == nil || group.Contexts[body.Context] == nil {
 		return state.Payload{}, nil, false
 	}
@@ -62,7 +63,7 @@ func (e *StateEngine) reserveMetadata(record state.Record, input state.Input, in
 	r.payload.TimerWorker = e.dispatchWorker(e.cfg.Process)
 	// Keep the single reservation authority implementation, including selected
 	// policy/owner guards, ACK dependency, exact permit/flow/attempt and deadline.
-	if err := r.reserve(); err != nil || r.result.Response != nil || len(r.result.GetRequest().GetWire()) == 0 {
+	if err := r.reserveSelected(index, effect, body, drain); err != nil || r.result.Response != nil || len(r.result.GetRequest().GetWire()) == 0 {
 		return state.Payload{}, nil, false
 	}
 	if err := r.projectDispatchWorkers(); err != nil {

@@ -12,7 +12,7 @@ import (
 )
 
 func TestSchedulerRequiredPermissionsFailBeforeProtocolMutation(t *testing.T) {
-	for _, denied := range []string{"zrange", "xadd", "xread", "xrevrange"} {
+	for _, denied := range []string{"zrange", "zscore", "xadd", "xread", "xrevrange"} {
 		t.Run(denied, func(t *testing.T) {
 			s := testStore(t, nil)
 			ctx := context.Background()

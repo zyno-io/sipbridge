@@ -67,8 +67,12 @@ func (m *MemoryStore) wakeSchedule() {
 	m.schedulerWake = make(chan struct{})
 }
 
-func (m *MemoryStore) scheduleDispatch(g *memoryGroup, workers []string, now int64) {
+func (m *MemoryStore) scheduleDispatch(g *memoryGroup, workers []string, now int64, executor string) {
 	for _, worker := range g.workers {
+		index := sort.SearchStrings(workers, worker)
+		if index < len(workers) && workers[index] == worker {
+			continue
+		}
 		if queue := m.dispatchQueues[worker]; queue != nil {
 			queue.set(g.ref, 0)
 			if queue.Len() == 0 {
@@ -90,7 +94,14 @@ func (m *MemoryStore) scheduleDispatch(g *memoryGroup, workers []string, now int
 		if queue.Len() > 0 {
 			previous = queue.items[0].due
 		}
-		queue.set(g.ref, max(1, now))
+		due := max(1, now)
+		if worker == executor {
+			due += 100
+		}
+		if item := queue.byID[g.ref.ID]; item != nil {
+			due = min(due, item.due)
+		}
+		queue.set(g.ref, due)
 		if previous == 0 || queue.items[0].due < previous {
 			m.wakeDispatch(worker)
 		}

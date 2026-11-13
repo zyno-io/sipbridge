@@ -210,6 +210,16 @@ func (r *stateReduction) reserve() error {
 	if err != nil {
 		return err
 	}
+	return r.reserveSelected(index, effect, body, drain)
+}
+
+// The selected body and drain observation belong to this reduction. Both the
+// ordinary path and metadata reservation use these same authority checks.
+func (r *stateReduction) reserveSelected(index int, effect state.Effect, body stateEngineEffect, drain state.LocalDrainObservation) error {
+	write := r.in.Write
+	if write == nil || write.Effect == nil || write.Permit == nil || write.Permit.Authorization == nil {
+		return errors.New("effect permit required")
+	}
 	if effect.Kind != "deliver" || body.Permit == nil || body.Authorization == nil || !proto.Equal(body.Permit, write.Permit) ||
 		!stateSameContext(write.Effect.Context, body.Authorization.Effect.Context) || write.Effect.AttemptId != body.Authorization.Effect.AttemptId ||
 		!proto.Equal(write.Flow, body.Permit.Flow) || !sameProcess(write.Flow.Ingress, r.in.Executor) {

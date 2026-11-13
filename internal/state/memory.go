@@ -494,7 +494,7 @@ func (m *MemoryStore) CompareAndSwap(ctx context.Context, update Update, next Pa
 	g.ready, g.due, g.retire = ready, due, retire
 	m.groups[g.ref.ID] = g
 	m.schedule(g)
-	m.scheduleDispatch(g, workers, now)
+	m.scheduleDispatch(g, workers, now, next.TimerWorker)
 	return copyReceipt(receipt), nil
 }
 
@@ -579,7 +579,7 @@ func (m *MemoryStore) Retire(ctx context.Context, ref Ref) error {
 			delete(m.timerQueues, g.timerWorker)
 		}
 	}
-	m.scheduleDispatch(g, nil, now)
+	m.scheduleDispatch(g, nil, now, "")
 	m.schedules[ref.Partition].ready.set(ref, 0)
 	m.schedules[ref.Partition].due.set(ref, 0)
 	return nil

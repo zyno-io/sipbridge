@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"time"
 
 	"sipbridge/internal/state"
 )
@@ -24,6 +25,13 @@ func TestFollowerIndexedPhysicalDeliveryUsesRetainedWorkerWithoutTimerLeadership
 				t.Fatal(err)
 			}
 			worker := f.engine.dispatchWorker(f.engine.cfg.Process)
+			// This fixture deliberately drops direct commit dispatch. Observe the
+			// indexed backup after its own head deadline, without timer leadership.
+			head, err := f.engine.store.DispatchHead(ctx, worker)
+			if err != nil || head.DueMS <= 0 || head.After > time.Second {
+				t.Fatal("native response did not retain a bounded backup head", head, err)
+			}
+			time.Sleep(head.After + time.Millisecond)
 			hints, err := f.engine.store.DispatchHints(ctx, worker, 8)
 			if err != nil || len(hints) != 1 || hints[0].Ref.ID != ref.ID {
 				t.Fatal("native response did not index the exact physical worker", err)

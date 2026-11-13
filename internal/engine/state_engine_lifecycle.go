@@ -241,12 +241,28 @@ func (r *stateReduction) appendLifecycleTimers() error {
 		if !stateSupportedEffectKind(effect.Kind) {
 			return state.ErrCorrupt
 		}
-		if r.engine.autonomousCompletion() && stateTrustedRelayEffect(effect) {
-			continue
+		var body stateEngineEffect
+		decoded := false
+		decode := func() error {
+			if decoded {
+				return nil
+			}
+			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+				return err
+			}
+			decoded = true
+			return nil
+		}
+		if r.engine.autonomousCompletion() {
+			if effect.Kind == "wire" {
+				continue
+			}
+			if effect.Kind == "deliver" && (decode() != nil || !body.Native) {
+				continue
+			}
 		}
 		if len(coldNative) > 0 && stateHistoricalDelivery(effect) {
-			var body stateEngineEffect
-			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+			if err := decode(); err != nil {
 				return err
 			}
 			if coldNative[body.Context] {
@@ -255,8 +271,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 		}
 		knownUnsettled := false
 		if effect.Kind == "deliver" && (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten) {
-			var body stateEngineEffect
-			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+			if err := decode(); err != nil {
 				return err
 			}
 			knownUnsettled = !body.Settled

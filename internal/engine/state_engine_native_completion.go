@@ -97,7 +97,7 @@ func (r *stateReduction) prepareAutonomousEffects() error {
 			}
 			continue
 		}
-		if effect.Kind == "deliver" && (body.Native || c.OwnerLost && c.Snapshot.Ended) &&
+		if effect.Kind == "deliver" && !body.Settled && (body.Native || c.OwnerLost && c.Snapshot.Ended) &&
 			(effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten) {
 			// This acknowledges native physical evidence only. Trusted application
 			// bookkeeping remains explicit deferred debt until Controller removes it.

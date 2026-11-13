@@ -125,6 +125,12 @@ message headers, addresses or digest fields. Full message projections are
 materialized only for native wire-fingerprint admission and outgoing controller
 RPCs. Neither representation is cached across operations. Non-SIP effect wire
 (such as a network-open target) keeps its existing typed decoding rules.
+Within one classification loop, lifecycle and dispatch selection reuse the same
+validated effect body. Native reservation likewise passes its owned selected body
+and drain observation to the common authority checks rather than decoding it a
+second time. These local values never survive the operation or bypass validation.
+Already-settled physical evidence is not serialized again merely to set the same
+settlement bit; lifecycle continuation still receives both preparation passes.
 
 Effect encoding constructs only the envelope metadata that is retained. Its
 request/egress/event projection omits the parsed SIP message before any copy;
@@ -714,6 +720,19 @@ Targeted bounded wake streams notify only the affected worker. Scheduling metada
 never grants SIP, socket or application authority: store CAS, timer generations,
 application lease guards and exact physical reservation/settlement remain required.
 
+Fresh definite commits dispatch local effects directly. The same commit indexes
+its executing worker's backup discovery for Redis time plus 100 ms, allowing the
+direct path to finish without a concurrent redundant group read. Other workers'
+targets remain immediately eligible. A continuing group/target keeps the earlier
+of its existing score and the new proposal, so subsequent commits cannot postpone
+unfinished backup work. Use the commit's transient executor, not the group's
+persisted timer executor. Repair without a fresh executor remains immediate.
+Revision-guarded acknowledgement and settlement remove the index normally.
+This is discovery eligibility, not an execution deadline or a new timer: earlier
+native timers still win, and original permit/deadline and UNKNOWN rules remain.
+A dropped direct dispatch near its original expiry has less time for backup;
+the grace never renews permission or authorizes another uncertain write.
+
 A bounded coordinator transfers expired workers' timer queues and repairs missing
 projections. Transfers change scheduling metadata only. An old acknowledgement
 cannot erase a transferred timer. A previously admitted old-worker timer may still
@@ -971,8 +990,12 @@ matching waiter one compact result DTO containing exact message wire and the
 committed snapshot. This transient projection is restricted to the exact group,
 incarnation, context and operation; lower store revisions cannot replace higher
 ones. Only completed outcomes or the existing proven written-public-BYE result
-qualify. Uncertain CAS, replay and read-only paths cannot publish it. The reducer
-builds it only for active local waiters; it is never persisted, is removed with the
+qualify. Uncertain CAS, replay and read-only paths cannot publish it. An ordinary
+non-INVITE client final updates the current command result only when that
+transaction's command identity still matches the current command. A final for an
+older transaction still completes its native transaction and dialog duties; it
+cannot populate a newer command's result slot. The reducer builds the projection
+only for active local waiters; it is never persisted, is removed with the
 waiter, and contains no authoritative protocol aggregate. Public message fields
 are reconstructed only when returning it. The optional DTO is capped at 1 MiB;
 larger replies use the store-read fallback. Missing local evidence, sibling-worker
@@ -982,7 +1005,8 @@ projections read immediately. Subsequent fallback waits back off from 100 to
 200 to at most 250 ms. Exact local results wake immediately at every interval;
 remote or oversized results may wait up to the current fallback interval.
 Each wait starts after read/decode, avoiding catch-up reads.
-In the last 100 ms of original deadline, waits cap at 10 ms and remaining budget.
+When the remaining original budget is no greater than the planned pause plus
+100 ms, waits cap at 10 ms and remaining budget.
 No Pub/Sub/background state copy exists; only latest bounded result survives. Cancel/
 completion unregisters. An unstarted OpenUac allocated before sequence admission is
 retired on budget expiry; expired queued commands never advance sequence or retire

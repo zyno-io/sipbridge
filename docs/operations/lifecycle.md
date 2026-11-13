@@ -58,6 +58,13 @@ that applications enable it. Exact values and fencing behavior remain in
 
 ## Owned timer and physical dispatch loop
 
+A definite fresh commit dispatches local effects directly. Its local backup
+index becomes eligible after 100 ms; remote targets and repair remain immediate.
+An existing earlier score for the same group/target is preserved across commits.
+The worker still wakes for the earliest independent native timer. This prevents
+healthy direct dispatch from routinely racing its own whole-group discovery read;
+it does not add a queue, extend physical authority or promise completion by 100 ms.
+
 ```mermaid
 flowchart TD
     A[Worker starts its dispatch session] --> B[Read own earliest timer/physical head and cursor]
@@ -214,15 +221,16 @@ separate policy-approved path.
 
 ```mermaid
 flowchart TD
-    A[Admitted command awaiting outcome] --> B[Register bounded local waiter]
-    B --> C{Exact local post-CAS result available?}
+    A[Resolve command group and context] --> B[Register bounded exact local waiter]
+    B --> P[Read/reduce/CAS producer input]
+    P --> C{Exact local post-CAS result available?}
     C -- Yes --> D[Materialize public result and return]
     C -- No --> E[ReadState: protocol view]
     E --> F[Decode group; match exact context and operation]
     F --> G{Result complete or written public BYE observable?}
     G -- Yes --> D
     G -- No --> H[Drop record, group and context]
-    H --> I[Wait for local signal or 10/20/40 ms backoff]
+    H --> I[Wait for local signal or 100/200/250 ms backoff]
     I --> J{Original caller deadline remains?}
     J -- Yes --> C
     J -- No --> K[Return bounded expiry or uncertainty result]
@@ -231,8 +239,9 @@ flowchart TD
 This is **in-flight RPC observation**, not idle scanning of phones. It is still a
 source of repeated group reads/decodes when the relevant update occurs on another
 worker or no exact local projection is available. The normal backoff caps at
-40 ms; the selected wait-before-read path starts at 40 ms. Near the original
-RPC deadline the implementation can shorten the pause. Slow store work does not
+250 ms; a fresh-commit wait-before-read path starts at 100 ms. When the remaining
+original budget is no greater than the planned pause plus 100 ms, the pause caps
+at 10 ms and the remaining budget. Slow store work does not
 accumulate ticker events.
 
 A local successful CAS can publish a bounded exact result for a currently waiting
@@ -364,7 +373,7 @@ that every tick sends the same number of Redis packets.
 | Shared queue watch | Notification or remembered head deadline | Blocking wake read; full protocol read only for selected work |
 | Owned worker watch | Targeted notification or remembered deadline | Own queue/head; no namespace-wide dialog enumeration |
 | Repair traversal | Bounded pages, at most one per second while a pass is active | Metadata scan; stops at pass end |
-| In-flight command observation | Local wake or bounded 10/20/40 ms pacing | May read and decode whole protocol group again |
+| In-flight command observation | Exact local wake or bounded 100/200/250 ms pacing, with a 10 ms deadline tail | May read and decode whole protocol group again |
 | Native effect recovery | Projected earliest group deadline | Reconcile the retained pending/uncertain obligation; no blanket permission to resend |
 | Protocol/subscription/retirement timer | Actual indexed deadline/generation | Normal read/reduce/CAS for that group |
 | Certificate/trust reload and health | Configured process checks | Separate control/transport work; see health/configuration guides |

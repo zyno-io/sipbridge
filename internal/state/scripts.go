@@ -259,7 +259,7 @@ if leaseProblem then
 end
 local contextPlan,contextProblem=planApplicationContexts(redis.call('HGET',KEYS[1],'applicationContexts') or '[]',ARGV[#ARGV-4])
 if contextProblem then return fail(contextProblem) end
-local dispatchPlan,dispatchProblem=planDispatch(redis.call('HGET',KEYS[1],'dispatchWorkers') or '[]',ARGV[#ARGV-3])
+local dispatchPlan,dispatchProblem=planDispatch(redis.call('HGET',KEYS[1],'dispatchWorkers') or '[]',ARGV[#ARGV-3],ARGV[#ARGV-5],now)
 if dispatchProblem then return fail(dispatchProblem) end
 local timerOwner=redis.call('HGET',KEYS[1],'timerOwner') or ''
 if timerOwner=='' then timerOwner=ARGV[#ARGV-5] end
@@ -298,7 +298,7 @@ end
 redis.call('HSET',KEYS[1],'revision',ARGV[8],'data',ARGV[12],'receipts',encodedReceipts,'proof',proof,
  'pending','','pendingDigest','','claimId','','claimant','','claimUntilMs','0',
  'readyAtMs',ARGV[15],'dueAtMs',integer(due),'retireAtMs',integer(retire),'reservedBytes',ARGV[18],'applicationLeaseIds',ARGV[23],'applicationContexts',ARGV[#ARGV-4],'dispatchWorkers',dispatchPlan.encoded,'dispatchTargets',ARGV[#ARGV-3],'timerOwner',timerOwner)
-local physical=applyDispatch(dispatchPlan,now)
+local physical=applyDispatch(dispatchPlan)
 schedule(KEYS[1],tonumber(ARGV[15]),due,physical)
 return {'RECEIPT',ARGV[14]}
 `
@@ -330,8 +330,8 @@ local ready=tonumber(redis.call('HGET',KEYS[1],'readyAtMs') or '0')
 if (redis.call('HGET',KEYS[1],'pending') or '')~='' then ready=math.max(nowms(),tonumber(redis.call('HGET',KEYS[1],'claimUntilMs') or '0')) end
 local saved=redis.call('HGET',KEYS[1],'dispatchWorkers') or '[]'
 local targets=redis.call('HGET',KEYS[1],'dispatchTargets') or '[]'
-local plan,problem=planDispatch(saved,targets); if problem then return fail(problem) end
-local physical=applyDispatch(plan,nowms())
+local plan,problem=planDispatch(saved,targets,'',nowms()); if problem then return fail(problem) end
+local physical=applyDispatch(plan)
 redis.call('HSET',KEYS[1],'dispatchWorkers',plan.encoded)
 schedule(KEYS[1],ready,tonumber(redis.call('HGET',KEYS[1],'dueAtMs') or '0'),physical)
 return {'OK'}
@@ -349,11 +349,11 @@ local plan,problem=planApplicationLeases(redis.call('HGET',KEYS[1],'applicationL
 if problem then return fail(problem) end
 local contexts,problem=planApplicationContexts(redis.call('HGET',KEYS[1],'applicationContexts') or '[]','[]')
 if problem then return fail(problem) end
-local dispatch,problem=planDispatch(redis.call('HGET',KEYS[1],'dispatchWorkers') or '[]','[]')
+local dispatch,problem=planDispatch(redis.call('HGET',KEYS[1],'dispatchWorkers') or '[]','[]','',nowms())
 if problem then return fail(problem) end
 applyApplicationLeases(plan)
 applyApplicationContexts(contexts)
-applyDispatch(dispatch,nowms())
+applyDispatch(dispatch)
 projectTimerSchedule(KEYS[1],0,redis.call('HGET',KEYS[1],'timerOwner') or '')
 redis.call('DEL',KEYS[1]); schedule(KEYS[1],0,0); return {'OK'}
 `)

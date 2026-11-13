@@ -27,6 +27,10 @@ func (e *ResidentMemory) completeResidentClient(ctx context.Context, flow *pb.Fl
 }
 
 func (e *ResidentMemory) completeResidentClientParsed(ctx context.Context, flow *pb.FlowRef, wire []byte, response *sip.Response, projected ...[]string) (bool, error) {
+	key, err := sip.ClientTxKeyMake(response)
+	if err != nil {
+		return false, nil
+	}
 	var selectors []string
 	if len(projected) > 0 {
 		selectors = projected[0]
@@ -50,14 +54,8 @@ func (e *ResidentMemory) completeResidentClientParsed(ctx context.Context, flow 
 		c.mu.Unlock()
 		return false, nil
 	}
-	var tx *residentTransaction
-	for _, candidate := range c.transactions {
-		if (candidate.native.Family == portable.NonInviteClient || candidate.native.Family == portable.InviteClient) && proto.Equal(candidate.flow, flow) && portable.MatchResponse(candidate.native.Origin, message) {
-			tx = candidate
-			break
-		}
-	}
-	if tx == nil {
+	tx := c.transactions[key]
+	if tx == nil || tx.native.Family != portable.NonInviteClient && tx.native.Family != portable.InviteClient || !proto.Equal(tx.flow, flow) || !portable.MatchResponse(tx.native.Origin, message) {
 		c.mu.Unlock()
 		return false, nil
 	}

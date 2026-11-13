@@ -61,7 +61,6 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 	var requiredNotify *residentBudget
 	var notifyTx *residentTransaction
 	var notifyEffects []portable.Effect
-	var notifyPolicy *pb.CommandAdmission
 	var directScopeGrowth residentClientGrowth
 	var directSnapshot *pb.ContextSnapshot
 	var directFlow *pb.FlowRef
@@ -227,9 +226,6 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 			notifyTx.charged += extra
 			notifyTx.borrowed += extraBorrowed
 		}
-		notifyPolicy = proto.Clone(policy).(*pb.CommandAdmission)
-		notifyPolicy.SelectedFlow = proto.Clone(view.flow).(*pb.FlowRef)
-		notifyPolicy.ExpectedDelivery = cloneResidentDelivery(snapshot.Delivery)
 	}
 	var dialog *residentDialog
 	var dialogEffects []portable.Effect
@@ -360,7 +356,7 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 			directSnapshot.PrincipalId, directSnapshot.BindingId = direct.value.PrincipalId, direct.value.BindingId
 		}
 		if direct.value.Delivery != nil {
-			directSnapshot.Delivery = cloneResidentDelivery(direct.value.Delivery)
+			// Subscription/dialog preparation already owns the ordered receipt.
 			directFlow = tx.flow
 		}
 		delta := int64(0)
@@ -392,7 +388,7 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 	}
 	groups := []residentOutputGroup{{tx: tx, effects: effects, policy: policy}}
 	if notifyTx != nil {
-		groups = append(groups, residentOutputGroup{tx: notifyTx, effects: notifyEffects, policy: notifyPolicy, nativeCompletion: true})
+		groups = append(groups, residentOutputGroup{tx: notifyTx, effects: notifyEffects, policy: policy, nativeCompletion: true})
 	}
 	var writes []*pb.FlowWrite
 	if direct != nil {
@@ -475,7 +471,11 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 		c.subscription = subscription
 		c.snapshot = snapshot
 		if snapshot.Delivery != nil {
-			c.flow = proto.Clone(tx.flow).(*pb.FlowRef)
+			if direct != nil {
+				c.flow = directFlow
+			} else {
+				c.flow = proto.Clone(tx.flow).(*pb.FlowRef)
+			}
 			c.snapshot.Application = proto.Clone(tx.application).(*pb.ProcessRef)
 			c.ownerLost = false
 			e.mu.Lock()
@@ -503,12 +503,8 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 	if direct != nil {
 		e.commitResidentClientGrowth(c, directScopeGrowth, &c.borrowed)
 		c.snapshot = directSnapshot
-		c.flow = proto.Clone(directFlow).(*pb.FlowRef)
+		c.flow = directFlow
 		e.clearResidentDecisionLocked(c, tx)
-		if direct.value.Delivery != nil {
-			c.snapshot.Delivery = proto.Clone(direct.value.Delivery).(*pb.ContextDelivery)
-			c.flow = proto.Clone(tx.flow).(*pb.FlowRef)
-		}
 		if notifyTx != nil {
 			c.transactions[notifyTx.native.Key] = notifyTx
 			e.mu.Lock()

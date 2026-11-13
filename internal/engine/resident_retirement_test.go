@@ -21,6 +21,10 @@ func TestResidentTerminalRegisterRetainsCompactDisposition(t *testing.T) {
 	tx.native = native
 	tx.selectors = []string{"selector"}
 	tx.charged = 2048
+	tx.policy = &pb.CommandAdmission{DirectoryEpoch: "dead-policy"}
+	tx.credential = &pb.CredentialRef{Id: "dead-reference", Version: "one"}
+	tx.presentDeadline = time.Now().Add(time.Second)
+	flow, requestID, presentDeadline := tx.flow, tx.requestID, tx.presentDeadline
 	c.snapshot.Kind = pb.ContextSnapshot_TRANSACTION
 	c.transactions = map[string]*residentTransaction{native.Key: tx}
 	c.requests = map[string]string{"request": native.Key}
@@ -35,6 +39,9 @@ func TestResidentTerminalRegisterRetainsCompactDisposition(t *testing.T) {
 	e.retireResidentTransactionLocked(c, tx)
 	if !tx.retired || len(tx.native.Origin.Wire) != 0 || tx.wireHash != sha256.Sum256(request.Wire) || e.transactions["selector"] != c {
 		t.Fatal("terminal request did not retain compact exact disposition")
+	}
+	if tx.policy != nil || tx.application != nil || tx.credential != nil || tx.flow != flow || tx.requestID != requestID || tx.presentDeadline != presentDeadline {
+		t.Fatal("retirement retained dead references or cleared admitted-notification/replay fields")
 	}
 	if e.contexts[c.snapshot.Context.Id] != c {
 		t.Fatal("retired context while physical proof exists")

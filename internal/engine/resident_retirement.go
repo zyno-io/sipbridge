@@ -45,6 +45,7 @@ func (e *ResidentMemory) retireResidentTransactionLocked(c *residentContext, tx 
 	releaseResidentCommandLocked(c, command)
 	tx.wireHash = sha256.Sum256(tx.native.Origin.Wire)
 	tx.native = portable.Transaction{Key: tx.native.Key}
+	tx.policy, tx.application, tx.credential = nil, nil, nil
 	tx.retired = true
 	tx.retireAt = time.Now().Add(2 * time.Minute)
 	e.mu.Lock()

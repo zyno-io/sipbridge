@@ -40,14 +40,14 @@ func (e *ResidentMemory) fireResidentOutputDeadline(item residentDeadline) bool 
 		outcome = pb.DeliveryResult_NOT_WRITTEN
 	}
 	terminal := output.state == residentOutputWritten || output.state == residentOutputNotWritten
-	retireAt := output.deadline.Add(2 * time.Minute)
+	if terminal && output.settled {
+		e.scheduleResidentOutputCutoffLocked(c, output)
+	}
 	c.mu.Unlock()
 	if !terminal {
 		_ = e.Complete(e.ctx, write, &pb.DeliveryResult{Effect: write.Effect, Outcome: outcome, Error: "physical start/completion deadline elapsed"})
 	}
-	e.mu.Lock()
-	e.deadlines.set(item.key, 2, retireAt)
-	e.mu.Unlock()
-	e.wakeDeadline()
+	// Late Complete owns any newly definite cutoff. Never reinsert a popped
+	// deadline after unlocking: the dispatcher may have released this proof.
 	return true
 }

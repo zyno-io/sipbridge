@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/state"
 )
 
 // stageResidentOutputsLocked validates the complete output batch before
@@ -167,7 +168,7 @@ func (e *ResidentMemory) stageResidentOutputGroupsLocked(c *residentContext, gro
 				output.ackSequence = parsed.CSeq().SeqNo
 			}
 			output.bytes = int64(unsafe.Sizeof(*output)) + int64(len(message.Wire)) + residentFlowBytes(flow) + residentProofBytes(output.write) + 512
-			if policy != nil && policy.ExpectedDelivery != nil {
+			if class == pb.EffectAuthorization_APPLICATION && policy != nil && policy.ExpectedDelivery != nil {
 				output.expectedDelivery = proto.Clone(policy.ExpectedDelivery).(*pb.ContextDelivery)
 			}
 			output.budget = budget
@@ -257,16 +258,29 @@ func (e *ResidentMemory) Reserve(ctx context.Context, write *pb.FlowWrite) (*Com
 	}
 	c, err := e.findContext(write.Effect.Context)
 	if err != nil {
+		if errors.Is(err, state.ErrNotFound) {
+			return &CommittedWrite{Known: true, Outcome: pb.DeliveryResult_UNKNOWN}, nil
+		}
 		return nil, err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return e.reserveResidentOutputLocked(c, write)
+}
+
+func (e *ResidentMemory) reserveResidentOutputLocked(c *residentContext, write *pb.FlowWrite) (*CommittedWrite, error) {
 	if !e.residentContextCurrentLocked(c, write.Effect.Context) {
+		e.mu.Lock()
+		retired := e.contexts[write.Effect.Context.Id] != c
+		e.mu.Unlock()
+		if retired || c.outputs[write.Effect.Id] == nil {
+			return &CommittedWrite{Known: true, Outcome: pb.DeliveryResult_UNKNOWN}, nil
+		}
 		return nil, errors.New("output context changed")
 	}
 	output := c.outputs[write.Effect.Id]
 	if output == nil {
-		return nil, errors.New("output not found")
+		return &CommittedWrite{Known: true, Outcome: pb.DeliveryResult_UNKNOWN}, nil
 	}
 	if !proto.Equal(c.snapshot.GetContext().GetState(), write.Effect.Context.State) {
 		return nil, errors.New("output context changed")
@@ -334,10 +348,11 @@ func (e *ResidentMemory) Complete(ctx context.Context, write *pb.FlowWrite, resu
 		command := output.command
 		output.command = nil
 		releaseResidentCommandLocked(c, command)
-		e.mu.Lock()
-		e.deadlines.set(residentDeadlineKey{kind: residentOutputDeadline, contextID: c.snapshot.Context.Id, record: output.write.Effect.Id}, 2, output.deadline.Add(2*time.Minute))
-		e.mu.Unlock()
-		e.wakeDeadline()
+		// The original start deadline provides the unacknowledged fallback.
+		// A late settlement must install it here if that deadline already fired.
+		if !time.Now().Before(output.deadline) {
+			e.scheduleResidentOutputCutoffLocked(c, output)
+		}
 	}
 	if err == nil {
 		e.finishResidentOwnerCleanupLocked(c)
@@ -348,6 +363,13 @@ func (e *ResidentMemory) Complete(ctx context.Context, write *pb.FlowWrite, resu
 	}
 	e.dispatchResident(e.ctx, writes)
 	return nil
+}
+
+func (e *ResidentMemory) scheduleResidentOutputCutoffLocked(c *residentContext, output *residentOutput) {
+	e.mu.Lock()
+	e.deadlines.set(residentDeadlineKey{kind: residentOutputDeadline, contextID: c.snapshot.Context.Id, record: output.write.Effect.Id}, 2, output.deadline.Add(2*time.Minute))
+	e.mu.Unlock()
+	e.wakeDeadline()
 }
 
 func (e *ResidentMemory) InspectWrite(ctx context.Context, write *pb.FlowWrite) (*pb.DeliveryResult, error) {
@@ -384,6 +406,7 @@ func (e *ResidentMemory) dispatchResident(ctx context.Context, writes []*pb.Flow
 	for _, write := range writes {
 		if e.cfg.WriteCommitted == nil {
 			_ = e.Complete(ctx, write, &pb.DeliveryResult{Effect: write.Effect, Outcome: pb.DeliveryResult_NOT_WRITTEN, Error: "socket writer unavailable"})
+			e.acknowledgeResidentOutput(write)
 			continue
 		}
 		// The ingress reserves this exact immutable proof, writes at most once,
@@ -395,6 +418,32 @@ func (e *ResidentMemory) dispatchResident(ctx context.Context, writes []*pb.Flow
 		if !result.Recorded && (result.Outcome == pb.DeliveryResult_WRITTEN || result.Outcome == pb.DeliveryResult_NOT_WRITTEN) {
 			_ = e.Complete(ctx, write, result)
 		}
+		e.acknowledgeResidentOutput(write)
+	}
+}
+
+// A dispatcher return acknowledges this exact internal instruction. Native
+// settlement and independent command receipts must already be complete before
+// definite output evidence can be forgotten. Uncertain/unacknowledged work stays.
+func (e *ResidentMemory) acknowledgeResidentOutput(write *pb.FlowWrite) {
+	if write == nil || write.Effect == nil {
+		return
+	}
+	c, err := e.findContext(write.Effect.Context)
+	if err != nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !e.residentContextCurrentLocked(c, write.Effect.Context) {
+		return
+	}
+	output := c.outputs[write.Effect.Id]
+	if output == nil || !output.matches(write) || !output.settled || output.state != residentOutputWritten && output.state != residentOutputNotWritten {
+		return
+	}
+	if e.releaseResidentOutputLocked(c, output) == nil {
+		e.afterResidentOutputReleaseLocked(c)
 	}
 }
 

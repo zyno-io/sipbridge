@@ -85,6 +85,23 @@ record operations. Successful INVITE finals, ACK/fork handling and ACK-before-BY
 remain native duties. Every accepted SUBSCRIBE still requires its NOTIFY. Direct
 controller lifecycle delivery retains bounded deduplication and its original bound.
 
+Resident outputs are internal instructions, not historical controller receipts.
+Once the physical dispatcher has returned and dependent native settlement has
+recorded a definite outcome, release that output and its deadline immediately.
+The transaction/dialog retains any remaining SIP obligation, including required
+NOTIFY and positive ACK-write evidence. Keep started/UNKNOWN outputs, unsuccessful
+settlement and outputs whose dispatch completion has not been acknowledged;
+the existing bounded terminal-proof cutoff covers an unacknowledged completion.
+A forgotten output cannot be reserved again: report UNKNOWN without granting
+permission to write or claiming that the original attempt did not write.
+Independent command results and active waiters keep their documented lifetimes.
+
+Retired transaction dispositions retain only the fields still needed for exact
+request/flow matching, selectors, cutoff, accounting and outstanding-output
+fencing. Release dead policy, application and credential references. Do not
+clear values still read by an admitted notification after its state lock is
+released.
+
 Readiness and the existing bounded drain remain separate from liveness. Memory
 restart loses its authority and requires fresh registration/setup. Do not advertise
 controller checkpoint recovery. Initial setup can fail during a process outage.

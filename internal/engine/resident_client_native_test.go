@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -83,6 +84,21 @@ func TestResidentClientNonInviteResponseCompletesExactReceipt(t *testing.T) {
 	}
 	c.command = newResidentCommand("newer", 2)
 	c.transactions[tx.native.Key] = tx
+	// Compact dispositions and unrelated live procedures share the context.
+	// Completion must select the exact native key without changing either.
+	for index := range 256 {
+		key := fmt.Sprintf("retired-%d", index)
+		c.transactions[key] = &residentTransaction{retired: true, native: portable.Transaction{Key: key}}
+	}
+	var unrelated []*residentTransaction
+	for index := range 8 {
+		other, _, err := e.prepareResidentClientStart(open, c.snapshot.Context, c.snapshot.Application, c.flow, fmt.Sprintf("other-%d", index), time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.transactions[other.native.Key] = other
+		unrelated = append(unrelated, other)
+	}
 	e.contexts[c.snapshot.Context.Id] = c
 	request, err := Observe(tx.native.Origin.Wire, true)
 	if err != nil {
@@ -102,6 +118,11 @@ func TestResidentClientNonInviteResponseCompletesExactReceipt(t *testing.T) {
 	// Caller projections are untrusted; classification and selector lookup must
 	// come from the actual response wire, even when every supplied hint is false.
 	observed.Method, observed.Status, observed.Selectors = "REGISTER", 0, []string{"forged"}
+	wrongFlow := proto.Clone(c.flow).(*pb.FlowRef)
+	wrongFlow.ConnectionId = "different-connection"
+	if handled, err := e.tryNativeCompletion(context.Background(), wrongFlow, observed); err != nil || handled {
+		t.Fatal("response bypassed exact transaction flow", handled, err)
+	}
 	handled, err := e.tryNativeCompletion(context.Background(), c.flow, observed)
 	if err != nil || !handled {
 		t.Fatalf("response not handled: %v", err)
@@ -112,6 +133,11 @@ func TestResidentClientNonInviteResponseCompletesExactReceipt(t *testing.T) {
 	result := residentCommandResultLocked(c, receipt)
 	if result.GetResponse().GetStatus() != 200 || result.GetResponse().GetMethod() != "OPTIONS" || !bytes.Equal(result.GetResponse().GetWire(), response.Wire) {
 		t.Fatal("public receipt used forged metadata")
+	}
+	for _, other := range unrelated {
+		if other.native.Phase != portable.Trying {
+			t.Fatal("response changed an unrelated live procedure")
+		}
 	}
 }
 

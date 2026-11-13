@@ -98,8 +98,8 @@ func TestResidentOutboundBareIDReuseFencesOldIncarnation(t *testing.T) {
 	if _, err = e.commandResidentClient(ctx, peer, staleCommand, "stale-cancel", time.Now().Add(2*time.Second)); err == nil {
 		t.Fatal("old command addressed new context")
 	}
-	if _, err = e.Reserve(ctx, firstProof); err == nil {
-		t.Fatal("old write reserved against new context")
+	if forgotten, reserveErr := e.Reserve(ctx, firstProof); reserveErr != nil || forgotten == nil || !forgotten.Known || forgotten.Outcome != pb.DeliveryResult_UNKNOWN || len(forgotten.Wire) != 0 {
+		t.Fatal("old write granted permission against new context", forgotten, reserveErr)
 	}
 	if err = e.Complete(ctx, firstProof, &pb.DeliveryResult{Effect: firstProof.Effect, Outcome: pb.DeliveryResult_WRITTEN}); err == nil {
 		t.Fatal("old write completed against new context")

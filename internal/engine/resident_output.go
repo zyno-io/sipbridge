@@ -50,9 +50,11 @@ func newResidentOutput(write *pb.FlowWrite, wire []byte, deadline time.Time) (*r
 		!proto.Equal(write.Effect, write.Permit.Authorization.Effect) || !proto.Equal(write.Flow, write.Permit.Flow) {
 		return nil, errors.New("invalid physical output authority")
 	}
-	owned := proto.Clone(write).(*pb.FlowWrite)
-	owned.Permit.Flow = owned.Flow
-	owned.Permit.Authorization.Effect = owned.Effect
+	permit := proto.Clone(write.Permit).(*pb.SendPermit)
+	owned := &pb.FlowWrite{Permit: permit, Flow: permit.Flow, Effect: permit.Authorization.Effect}
+	if unknown := write.ProtoReflect().GetUnknown(); len(unknown) > 0 {
+		owned.ProtoReflect().SetUnknown(append([]byte(nil), unknown...))
+	}
 	return &residentOutput{wireBytes: int64(len(wire)), write: owned, wire: append([]byte(nil), wire...), deadline: deadline}, nil
 }
 

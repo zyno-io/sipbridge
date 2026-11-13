@@ -760,7 +760,20 @@ func TestResidentUDPCancelReplayRespectsEmissionQuota(t *testing.T) {
 }
 
 func TestResidentUAS2xxTimerDoesNotReplayUnknownAttempt(t *testing.T) {
-	e, peer, conn, ctx, session, writes, _ := residentControlFixture(t)
+	e, peer, conn, ctx, session, _, _ := residentControlFixture(t)
+	attempted := make(chan struct{}, 1)
+	e.cfg.WriteCommitted = func(ctx context.Context, write *pb.FlowWrite) *pb.DeliveryResult {
+		reserved, err := e.Reserve(ctx, write)
+		if err != nil || reserved == nil || reserved.Known || len(reserved.Wire) == 0 {
+			t.Error("INVITE physical attempt not authorized", reserved, err)
+		}
+		result := &pb.DeliveryResult{Effect: write.Effect, Outcome: pb.DeliveryResult_UNKNOWN, Recorded: true}
+		if err := e.Complete(ctx, write, result); err != nil {
+			t.Error(err)
+		}
+		attempted <- struct{}{}
+		return result
+	}
 	message := stateTestRequest("INVITE", 1, "", "unknown-2xx")
 	route, err := e.LocateRoute(ctx, message)
 	if err != nil {
@@ -778,11 +791,11 @@ func TestResidentUAS2xxTimerDoesNotReplayUnknownAttempt(t *testing.T) {
 	}
 	cmd := &pb.Command{Context: route.Context, Sequence: 1, Admission: &pb.CommandAdmission{DirectoryEpoch: "directory", ExpiresAtMs: uint64(time.Now().Add(2 * time.Second).UnixMilli())}, Action: &pb.Command_Respond{Respond: &pb.Respond{RequestId: presented.GetRequest().RequestId, Status: 200}}}
 	writeControllerEnvelope(t, ctx, conn, &pb.Envelope{SessionId: session, CorrelationId: "unknown-final", RemainingBudgetMs: 2000, Payload: &pb.Envelope_Command{Command: cmd}})
-	if result := readControllerEnvelope(t, ctx, conn).GetResult(); result == nil || result.Certainty != pb.OperationResult_COMPLETED {
+	if result := readControllerEnvelope(t, ctx, conn).GetResult(); result == nil || result.Certainty != pb.OperationResult_UNKNOWN {
 		t.Fatal("INVITE final failed", result)
 	}
 	select {
-	case <-writes:
+	case <-attempted:
 	case <-ctx.Done():
 		t.Fatal("INVITE final missing")
 	}
@@ -805,12 +818,10 @@ func TestResidentUAS2xxTimerDoesNotReplayUnknownAttempt(t *testing.T) {
 			break
 		}
 	}
-	if output == nil {
+	if output == nil || output.state != residentOutputUnknown || output.settled {
 		c.mu.Unlock()
-		t.Fatal("final proof missing")
+		t.Fatal("uncertain final proof missing")
 	}
-	output.state = residentOutputUnknown
-	output.settled = false
 	due := d.native.Timers[portable.Timer2xx]
 	if !due.Active {
 		c.mu.Unlock()

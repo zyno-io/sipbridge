@@ -275,7 +275,7 @@ func TestResidentRequestDecisionRequiredNotifySurvivesOwnerExpiry(t *testing.T) 
 			}
 			<-writes // the response preceded expiry and the NOTIFY attempt
 			known, err := e.Reserve(ctx, notify)
-			if err != nil || known == nil || !known.Known || known.Outcome != outcome || len(known.Wire) != 0 || count.Load() != 2 {
+			if err != nil || known == nil || !known.Known || known.Outcome != pb.DeliveryResult_UNKNOWN || len(known.Wire) != 0 || count.Load() != 2 {
 				t.Fatal("completed or uncertain mandatory NOTIFY granted another attempt", known, err)
 			}
 		})

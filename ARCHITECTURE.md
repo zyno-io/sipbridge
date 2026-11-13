@@ -93,7 +93,7 @@ All records, packets, results, queues and transient work have explicit bounds.
 
 ```mermaid
 flowchart TD
-    A[Observed SIP packet] --> B{Local denial or initial challenge?}
+    A[Observed SIP packet] --> B{Local method reply or initial challenge?}
     B -- Yes --> C[Bounded local response]
     B -- No --> D{Exact retained native completion?}
     D -- Yes --> E[Atomic native transition]
@@ -154,7 +154,8 @@ requires its matching binding/current-flow evidence; TLS continuity still needs
 native context checks and controller policy where that request requires it.
 
 Method policy can reject disabled REGISTER/SUBSCRIBE before state or control
-access. Configured initial digest challenges also run locally, without account
+access. OPTIONS capability probes also finish locally, without native context
+lookup, retained history or a controller exchange. Configured initial digest challenges run locally, without account
 credentials or native context creation. A digest-bearing request still needs
 controller verification. Neither challenge nor native continuity authenticates
 an account. Exact supported methods and challenge rules are in runtime/protocol.

@@ -152,9 +152,9 @@ func TestStateNativeProcessCredentialLookupSurvivesExecutorDeath(t *testing.T) {
 			// Keep the physical writer on B while A executes the credential read.
 			phone := h.phone(b)
 			seedCall := "credential-flow-" + uuid.NewString()
-			phone.send(t, processRequest(t, sip.OPTIONS, seedCall, 1, ""))
+			phone.send(t, processRequest(t, sip.INFO, seedCall, 1, ""))
 			h.respond(b, h.request(seedCall, 1).Envelope.GetRequest(), 200)
-			phone.receive(t, sip.OPTIONS, 200)
+			phone.receive(t, sip.INFO, 200)
 			const target = "sip:phone@example.test;user=phone?Subject=credential-death"
 			opened := h.result(a, &pb.Command{Context: &pb.ContextRef{Owner: a.process, Id: "credential-outbound-" + uuid.NewString()}, Sequence: 1,
 				Action: &pb.Command_OpenUac{OpenUac: &pb.OpenUac{Uri: target, Transport: "tls", BindingId: "fixture-binding", PrincipalId: "fixture-phone",

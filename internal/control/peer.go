@@ -139,6 +139,26 @@ func (s *Server) Peer(process *pb.ProcessRef) (*Peer, error) {
 	return &Peer{selected}, nil
 }
 
+// HasReadyPeer reads the same cached eligibility as ReadyPeers without building
+// a peer list or asking the controller to perform work.
+func (s *Server) HasReadyPeer() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.claims {
+		p := c.current
+		if p == nil || !p.established || p.ctx.Err() != nil {
+			continue
+		}
+		p.mu.Lock()
+		ready := p.status.GetRetainedReady() && p.status.GetBindingsReady()
+		p.mu.Unlock()
+		if ready {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) ReadyPeers() []*Peer {
 	s.mu.Lock()
 	defer s.mu.Unlock()

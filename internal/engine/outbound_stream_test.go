@@ -313,7 +313,7 @@ func TestCompleteOutboundIngressAdoptsBeforeRoutingResult(t *testing.T) {
 				}
 			}})
 			t.Cleanup(func() { once.Do(func() { close(release) }) })
-			if _, err := remote.Write(udpOrderMessage(t, "OPTIONS", "outbound-potential", 1).Wire); err != nil {
+			if _, err := remote.Write(udpOrderMessage(t, "INFO", "outbound-potential", 1).Wire); err != nil {
 				t.Fatal(err)
 			}
 			select {
@@ -357,7 +357,7 @@ func (c *outboundReadGate) Read(buffer []byte) (int, error) {
 func TestOutboundExpiryPreventsBufferedFrameRouting(t *testing.T) {
 	for _, transport := range []string{"tcp", "tls"} {
 		t.Run(transport, func(t *testing.T) {
-			frame := udpOrderMessage(t, "OPTIONS", "expired-buffer", 1).Wire
+			frame := udpOrderMessage(t, "INFO", "expired-buffer", 1).Wire
 			gate := &outboundReadGate{read: make(chan struct{}), release: make(chan struct{}), size: len(frame)}
 			var release sync.Once
 			var routed atomic.Int32

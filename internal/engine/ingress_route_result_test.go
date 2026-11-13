@@ -9,7 +9,7 @@ import (
 )
 
 func TestControllerUnavailableIsAValidFailClosedRoute(t *testing.T) {
-	for _, method := range []string{"OPTIONS", "INVITE"} {
+	for _, method := range []string{"INFO", "INVITE"} {
 		for _, test := range []struct {
 			name       string
 			outcome    pb.RouteResult_Outcome

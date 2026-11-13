@@ -1015,10 +1015,10 @@ func processLostInviteCompletionStillACKsResponseOnB(t *testing.T, harness func(
 	a, b := h.start("sip-a"), h.start("sip-b")
 	phone := h.phone(a)
 	seedCall := "flow-seed-" + uuid.NewString()
-	phone.send(t, processRequest(t, sip.OPTIONS, seedCall, 1, ""))
+	phone.send(t, processRequest(t, sip.INFO, seedCall, 1, ""))
 	seed := h.request(seedCall, 1).Envelope.GetRequest()
 	h.respond(a, seed, 200)
-	phone.receive(t, sip.OPTIONS, 200)
+	phone.receive(t, sip.INFO, 200)
 	rule := stateProcessRule{ID: "invite-written-before-complete", Stage: "complete", Method: "INVITE", Class: pb.EffectAuthorization_APPLICATION}
 	h.arm(a, rule)
 	placeholder := &pb.ContextRef{Owner: a.process, Id: "outbound-" + uuid.NewString()}

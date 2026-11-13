@@ -133,7 +133,7 @@ func TestIngressRedirectConsumesTheOriginalRouteDeadline(t *testing.T) {
 	defer cancel()
 	done := make(chan struct{})
 	go func() {
-		ingress.route(parent, flow, &pb.SipMessage{Method: "OPTIONS", Wire: []byte("OPTIONS sip:test@example.test SIP/2.0\r\n\r\n")})
+		ingress.route(parent, flow, &pb.SipMessage{Method: "INFO", Wire: []byte("INFO sip:test@example.test SIP/2.0\r\n\r\n")})
 		close(done)
 	}()
 	firstEnvelope := readControllerEnvelope(t, first.ctx, first.connection)

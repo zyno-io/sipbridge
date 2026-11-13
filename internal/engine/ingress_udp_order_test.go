@@ -171,9 +171,9 @@ func TestUDPObservedACKOrderWaitsForRouteCommitAndOtherCallIDsProceed(t *testing
 	ack := f.next(t)
 	f.send(t, "INVITE", "Dialog-Case", 3)
 	// Call-ID comparison is case-sensitive, even on the same observed flow.
-	f.send(t, "OPTIONS", "dialog-case", 1)
+	f.send(t, "INFO", "dialog-case", 1)
 	other := f.next(t)
-	if ack.GetIngress().Message.Method != "ACK" || other.GetIngress().Message.Method != "OPTIONS" ||
+	if ack.GetIngress().Message.Method != "ACK" || other.GetIngress().Message.Method != "INFO" ||
 		ack.GetIngress().Flow.ConnectionId != other.GetIngress().Flow.ConnectionId {
 		t.Fatal("a later INVITE overtook ACK or unrelated same-flow Call-ID stalled")
 	}
@@ -183,7 +183,7 @@ func TestUDPObservedACKOrderWaitsForRouteCommitAndOtherCallIDsProceed(t *testing
 		t.Fatal(err)
 	}
 	defer secondFlow.Close()
-	if _, err := secondFlow.WriteTo(udpOrderMessage(t, "OPTIONS", "Dialog-Case", 99).Wire, f.listener.LocalAddr()); err != nil {
+	if _, err := secondFlow.WriteTo(udpOrderMessage(t, "INFO", "Dialog-Case", 99).Wire, f.listener.LocalAddr()); err != nil {
 		t.Fatal(err)
 	}
 	independent := f.next(t)
@@ -210,7 +210,7 @@ func TestUDPObservedACKOrderWaitsForRouteCommitAndOtherCallIDsProceed(t *testing
 func TestUDPObservedACKOrderReleasesFollowingInviteAfterRedisCommit(t *testing.T) {
 	a, b := historicalStateTestEngine(t)
 	f := newUDPOrderFixture(t)
-	f.send(t, "OPTIONS", "seed-flow", 1)
+	f.send(t, "INFO", "seed-flow", 1)
 	seed := f.next(t)
 	flow := seed.GetIngress().Flow
 	f.accept(t, seed)
@@ -338,7 +338,7 @@ func TestUDPOverloadDropsWithoutBlockingReaderOrAllocatingLanes(t *testing.T) {
 
 func TestUDPQueuedParentExpiryPreservesOrderingWithoutFreshRoute(t *testing.T) {
 	f := newUDPOrderFixture(t)
-	f.send(t, "OPTIONS", "seed-flow", 1)
+	f.send(t, "INFO", "seed-flow", 1)
 	seed := f.next(t)
 	f.accept(t, seed)
 	waitUDPOrder(t, func() bool { count, lanes := f.pending(); return count == 0 && lanes == 0 })
@@ -359,7 +359,7 @@ func TestUDPQueuedParentExpiryPreservesOrderingWithoutFreshRoute(t *testing.T) {
 	var locates atomic.Uint64
 	f.ingress.stateLocate = func(ctx context.Context, message *pb.SipMessage) (*pb.ContextSnapshot, error) {
 		locates.Add(1)
-		if message.Method == "OPTIONS" && strings.Contains(string(message.Wire), "natural-expiry") {
+		if message.Method == "INFO" && strings.Contains(string(message.Wire), "natural-expiry") {
 			select {
 			case <-entered:
 			default:
@@ -372,7 +372,7 @@ func TestUDPQueuedParentExpiryPreservesOrderingWithoutFreshRoute(t *testing.T) {
 	}
 	parent, cancel := context.WithTimeout(f.ctx, 100*time.Millisecond)
 	defer cancel()
-	if !f.ingress.routeUDP(parent, flow, udpOrderMessage(t, "OPTIONS", "natural-expiry", 1), "natural-expiry") {
+	if !f.ingress.routeUDP(parent, flow, udpOrderMessage(t, "INFO", "natural-expiry", 1), "natural-expiry") {
 		t.Fatal("predecessor was not admitted")
 	}
 	select {

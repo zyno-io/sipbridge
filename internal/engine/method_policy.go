@@ -1,10 +1,6 @@
 package engine
 
-import (
-	"strings"
-
-	pb "sipbridge/internal/controlpb"
-)
+import pb "sipbridge/internal/controlpb"
 
 // MethodPolicy is immutable for the ingress process lifetime. Zero enables both
 // registration methods, preserving existing consumers and retained transactions.
@@ -19,12 +15,15 @@ func (p MethodPolicy) disabled(message *pb.SipMessage) bool {
 }
 
 func (p MethodPolicy) allow() string {
-	methods := []string{"INVITE", "ACK", "CANCEL", "BYE", "OPTIONS", "INFO", "UPDATE", "PRACK", "REFER", "NOTIFY"}
-	if !p.DisableRegister {
-		methods = append(methods, "REGISTER")
+	const base = "INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, UPDATE, PRACK, REFER, NOTIFY"
+	switch {
+	case p.DisableRegister && p.DisableSubscribe:
+		return base
+	case p.DisableRegister:
+		return base + ", SUBSCRIBE"
+	case p.DisableSubscribe:
+		return base + ", REGISTER"
+	default:
+		return base + ", REGISTER, SUBSCRIBE"
 	}
-	if !p.DisableSubscribe {
-		methods = append(methods, "SUBSCRIBE")
-	}
-	return strings.Join(methods, ", ")
 }

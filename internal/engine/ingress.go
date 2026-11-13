@@ -242,11 +242,11 @@ func (i *Ingress) readStream(ctx context.Context, flow *physicalFlow) {
 				original = original[size:]
 				largeFrame = largeFrame || size > 8192
 				i.capture.Submit(capture.Observation{Timestamp: time.Now(), Direction: "in", Transport: flow.ref.Transport, Source: conn.RemoteAddr().String(), Destination: conn.LocalAddr().String(), Outcome: "received", Wire: wire})
-				message, err := observeFramedMessage(wire, m)
-				if err != nil {
+				if err := validateObservedMessage(m); err != nil {
 					i.invalidMessages.Add(1)
 					return
 				}
+				message := projectIngressMessage(wire, m)
 				flow.write.Lock()
 				usable := flow.admitSIPUse()
 				flow.write.Unlock()
@@ -268,6 +268,15 @@ func (i *Ingress) readStream(ctx context.Context, flow *physicalFlow) {
 			return
 		}
 	}
+}
+
+// Intrinsic OPTIONS needs no controller header/address/authentication DTO. The
+// parsed message and original bytes still belong to this one ingress operation.
+func projectIngressMessage(wire []byte, parsed sip.Message) *pb.SipMessage {
+	if request, ok := parsed.(*sip.Request); ok && request.Method == sip.OPTIONS {
+		return &pb.SipMessage{Wire: wire, Method: "OPTIONS"}
+	}
+	return projectObservedMessage(wire, parsed, false)
 }
 
 func (i *Ingress) route(parent context.Context, flow *physicalFlow, message *pb.SipMessage, observation ...state.LocalDrainObservation) {
@@ -316,6 +325,11 @@ func (i *Ingress) routeWithinParsed(ctx context.Context, flow *physicalFlow, mes
 	}
 	if ctx.Err() != nil {
 		timing.Outcome = "expired"
+		return
+	}
+	if message.GetStatus() == 0 && message.GetMethod() == "OPTIONS" {
+		timing.Outcome = "local-options"
+		timing.SipStatus = i.localOptionsWithin(ctx, flow, message, parsed)
 		return
 	}
 	if !completionOnly && i.methodPolicy.disabled(message) {
@@ -632,7 +646,16 @@ func (i *Ingress) localResponseWithin(ctx context.Context, flow *physicalFlow, m
 		return
 	}
 	req, ok := m.(*sip.Request)
-	if !ok || req.IsAck() || req.To() == nil || req.From() == nil || req.CallID() == nil || req.CSeq() == nil || req.Via() == nil {
+	if !ok {
+		return
+	}
+	i.localResponseParsedWithin(ctx, flow, message, req, status, prefix, headers, tagger...)
+}
+
+// req is the operation-local parsed value, never retained or reused for native
+// admission after this local response.
+func (i *Ingress) localResponseParsedWithin(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, req *sip.Request, status int, prefix string, headers []*pb.Header, tagger ...func(*sip.Request) string) {
+	if ctx.Err() != nil || req == nil || req.IsAck() || req.To() == nil || req.From() == nil || req.CallID() == nil || req.CSeq() == nil || req.Via() == nil {
 		return
 	}
 	via := req.Via()
@@ -655,10 +678,13 @@ func (i *Ingress) localResponseWithin(ctx context.Context, flow *physicalFlow, m
 	for _, header := range headers {
 		response.AppendHeader(sip.NewHeader(header.Name, header.Value))
 	}
+	wire := []byte(response.String())
+	if len(wire) > 65536 {
+		return
+	}
 	flow.write.Lock()
 	defer flow.write.Unlock()
 	if flow.admitSIPUse() {
-		wire := []byte(response.String())
 		if n, err := flow.writeWire(wire); err == nil && n == len(wire) {
 			i.observeDrainLocked(flow, drainMessageObservation(response), true, time.Now())
 		}
@@ -850,14 +876,8 @@ func (i *Ingress) ServeUDP(ctx context.Context, conn net.PacketConn) error {
 			i.invalidMessages.Add(1)
 			continue
 		}
-		message := projectObservedMessage(wire, parsed, false)
-		callID := ""
-		for _, header := range message.Headers {
-			if header.Name == "call-id" {
-				callID = header.Value
-				break
-			}
-		}
+		message := projectIngressMessage(wire, parsed)
+		callID := parsed.CallID().Value()
 		if callID == "" {
 			continue
 		}

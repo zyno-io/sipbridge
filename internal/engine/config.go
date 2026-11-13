@@ -55,6 +55,10 @@ func reason(status uint32) string {
 		return "Forbidden"
 	case 405:
 		return "Method Not Allowed"
+	case 415:
+		return "Unsupported Media Type"
+	case 420:
+		return "Bad Extension"
 	case 481:
 		return "Call/Transaction Does Not Exist"
 	case 487:

@@ -492,9 +492,35 @@ Refusals use the exact observed flow, bounded writes, actual received/rport
 evidence, a deterministic To tag and no extra retention or request history.
 Retransmissions produce the same response. Responses whose CSeq names a disabled
 method are not blocked. No other method changes admission; in particular,
-INVITE, ACK, CANCEL, BYE, OPTIONS and in-dialog REFER/NOTIFY keep their normal
+INVITE, ACK, CANCEL, BYE and in-dialog REFER/NOTIFY keep their normal
 handling. The local 405 Allow header describes this process's enabled native
 methods; it grants no business or account authority.
+
+### Local OPTIONS
+
+Physical ingress answers validated OPTIONS on the observed return flow before
+native completion, context lookup, datastore access or controller dispatch.
+Tagged and untagged requests use the same capability-response path; they do not
+look up or change dialogs, CSeq watermarks, registrations, subscriptions or
+application authority. No native transaction, output proof or reply history is
+retained. This follows the OPTIONS-specific behavior in
+[RFC 3261 sections 11.2 and 12.2.2](https://www.rfc-editor.org/rfc/rfc3261.html#section-11.2).
+
+The ordinary response is 200 with this process's enabled methods in Allow and
+no invented SDP or media capabilities. A draining process or absence of an
+eligible ready control peer produces a local 503 using only cached control
+status; OPTIONS never asks a controller or probes the datastore. This reports
+local signaling availability, not account admission or guaranteed call success.
+Unsupported Require option tags produce 420 with Unsupported; unsupported
+required request content produces the normal 415 rejection. Optional unsupported
+content may be ignored.
+
+Responses preserve an existing To tag or derive a deterministic one, and apply
+observed received/rport evidence. Identical UDP requests regenerate the same
+reply under unchanged operational status, without a retransmission cache.
+Availability changes do not create retained history merely to replay an old
+status. Existing bounded writes and shutdown accounting apply; OPTIONS traffic
+cannot extend the fixed drain bound or enter the stateful refusal path.
 
 ### Configured initial authentication
 

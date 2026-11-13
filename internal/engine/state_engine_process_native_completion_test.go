@@ -169,9 +169,9 @@ type nativeExpiryCall struct {
 func nativeProcessOutgoing(h *processHarness, worker *processWorker, phone *processPhone, transport string) (*pb.ContextRef, *sip.Request) {
 	h.t.Helper()
 	seed := "native-outgoing-seed-" + uuid.NewString()
-	phone.send(h.t, nativeProcessWire(h.t, transport, sip.OPTIONS, seed, 1, ""))
+	phone.send(h.t, nativeProcessWire(h.t, transport, sip.INFO, seed, 1, ""))
 	h.respond(worker, h.request(seed, 1).Envelope.GetRequest(), 200)
-	phone.receive(h.t, sip.OPTIONS, 200)
+	phone.receive(h.t, sip.INFO, 200)
 	opened := h.result(worker, &pb.Command{Context: &pb.ContextRef{Owner: worker.process, Id: "native-outgoing-" + uuid.NewString()}, Sequence: 1,
 		Action: &pb.Command_OpenUac{OpenUac: &pb.OpenUac{Uri: "sip:phone@example.test", Transport: transport, BindingId: "fixture-binding", PrincipalId: "fixture-phone",
 			Headers: []*pb.Header{{Name: "From", Value: "<sip:service@example.test>"}}}}})

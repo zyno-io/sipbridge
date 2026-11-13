@@ -39,7 +39,7 @@ func ingressDiagnosticStatus(status int) uint32 {
 
 func (i *Ingress) reportRouteTiming(ctx context.Context, message *pb.SipMessage, summary IngressRouteTiming, started time.Time) {
 	summary.TotalMS = ingressElapsedMS(started)
-	if summary.TotalMS < 100 && (summary.Outcome == "accepted" || summary.Outcome == "native-completed" || summary.Outcome == "method-disabled" || summary.Outcome == "local-challenge" || summary.Outcome == "local-challenge-ack") {
+	if summary.TotalMS < 100 && (summary.Outcome == "accepted" || summary.Outcome == "native-completed" || summary.Outcome == "method-disabled" || summary.Outcome == "local-options" || summary.Outcome == "local-challenge" || summary.Outcome == "local-challenge-ack") {
 		return
 	}
 	summary.Event = "sipbridge-ingress-route"

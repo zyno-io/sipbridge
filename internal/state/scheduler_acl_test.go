@@ -110,7 +110,7 @@ func TestOwnedSchedulingWorksWithBoundedStateACL(t *testing.T) {
 	if _, err := s.LeaseScheduler(ctx, "acl-coordinator", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.TakeoverTimers(ctx, "acl-coordinator", b, 1); err != nil {
+	if err := s.TakeoverTimers(ctx, "acl-coordinator", b, 1); err != nil {
 		t.Fatal("timer takeover needs an unexpected command", err)
 	}
 	if err := s.AckDispatch(ctx, a, ref, "1"); err != nil {
@@ -157,5 +157,55 @@ func TestSchedulerCorruptProjectionFailsBeforeProtocolMutation(t *testing.T) {
 		if exists := s.client.Exists(ctx, s.keys(ref)...).Val(); exists != 0 {
 			t.Fatal("projection error partially mutated protocol/index state", exists)
 		}
+	}
+}
+
+func TestWorkerRegistrationChecksTimerQueueACLBeforePresenceMutation(t *testing.T) {
+	admin := testStore(t, nil)
+	ctx := context.Background()
+	worker := strings.Repeat("a", 64)
+	expired := strings.Repeat("b", 64)
+	presence := admin.root + "scheduler:workers"
+	owners := admin.root + "timer:workers"
+	if err := admin.client.ZAdd(ctx, presence, redis.Z{Score: 1, Member: expired}).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.client.ZAdd(ctx, owners, redis.Z{Score: 1, Member: worker}).Err(); err != nil {
+		t.Fatal(err)
+	}
+	user := "worker-acl-" + uuid.NewString()
+	// The primary selector grants every command except ZCARD; the second grants
+	// ZCARD only on presence, so checking the timer queue is independently denied.
+	if err := admin.client.ACLSetUser(ctx, user, "reset", "on", ">fixture-only", "~"+admin.root+"*", "+@all", "-zcard", "(+zcard ~"+presence+")").Err(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { admin.client.ACLDelUser(ctx, user) })
+	cfg := admin.cfg
+	cfg.Redis.Username, cfg.Redis.Password = user, "fixture-only"
+	restricted, err := Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { restricted.Close() })
+	if _, err := restricted.client.ZCard(ctx, presence).Result(); err != nil {
+		t.Fatal("fixture must permit presence ZCARD", err)
+	}
+	if _, err := restricted.client.ZCard(ctx, admin.timerKey(worker)).Result(); err == nil {
+		t.Fatal("fixture must deny timer-queue ZCARD")
+	}
+	if err := restricted.RegisterDispatchWorker(ctx, worker); !errors.Is(err, ErrAuthority) {
+		t.Fatal("queue ACL should reject registration", err)
+	}
+	if score, err := admin.client.ZScore(ctx, presence, expired).Result(); err != nil || score != 1 {
+		t.Fatal("expired presence was changed", score, err)
+	}
+	if n, err := admin.client.ZCard(ctx, presence).Result(); err != nil || n != 1 {
+		t.Fatal("worker presence was added", n, err)
+	}
+	if score, err := admin.client.ZScore(ctx, owners, worker).Result(); err != nil || score != 1 {
+		t.Fatal("owner hint changed", score, err)
+	}
+	if n, err := admin.client.Exists(ctx, admin.root+"scheduler:wake").Result(); err != nil || n != 0 {
+		t.Fatal("wake written", n, err)
 	}
 }

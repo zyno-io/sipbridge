@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,10 +17,16 @@ import (
 
 type observedSchedulerStore struct {
 	state.Backend
-	loads        atomic.Uint64
-	repairPasses atomic.Uint64
-	dropRelease  atomic.Bool
-	lastError    atomic.Value
+	loads         atomic.Uint64
+	repairPasses  atomic.Uint64
+	dropRelease   atomic.Bool
+	lastError     atomic.Value
+	acquires      atomic.Uint64
+	renewals      atomic.Uint64
+	registrations atomic.Uint64
+	registered    chan struct{}
+	registerOnce  sync.Once
+	takeovers     atomic.Uint64
 }
 
 type slowSchedulerRepairStore struct {
@@ -42,12 +49,31 @@ func (s *slowSchedulerRepairStore) RepairScheduler(ctx context.Context, token st
 	return s.Backend.RepairScheduler(ctx, token, cursor, count)
 }
 
-func (s *observedSchedulerStore) LeaseScheduler(ctx context.Context, token string, acquire bool) (time.Time, error) {
+func (s *observedSchedulerStore) LeaseScheduler(ctx context.Context, token string, acquire bool) (state.SchedulerLease, error) {
+	if acquire {
+		s.acquires.Add(1)
+	} else {
+		s.renewals.Add(1)
+	}
 	until, err := s.Backend.LeaseScheduler(ctx, token, acquire)
 	if err != nil && !errors.Is(err, state.ErrBusy) {
 		s.lastError.Store("lease: " + err.Error())
 	}
 	return until, err
+}
+
+func (s *observedSchedulerStore) RegisterDispatchWorker(ctx context.Context, worker string) error {
+	s.registrations.Add(1)
+	err := s.Backend.RegisterDispatchWorker(ctx, worker)
+	if err == nil {
+		s.registerOnce.Do(func() { close(s.registered) })
+	}
+	return err
+}
+
+func (s *observedSchedulerStore) TakeoverTimers(ctx context.Context, token, worker string, limit int) error {
+	s.takeovers.Add(1)
+	return s.Backend.TakeoverTimers(ctx, token, worker, limit)
 }
 
 func (s *observedSchedulerStore) WaitSchedule(ctx context.Context, cursor string) (string, error) {
@@ -145,7 +171,7 @@ func schedulerTestStore(t *testing.T, backend string) (state.Backend, state.Back
 // the native/wire suites exercise the unchanged SIP reducer and physical guards.
 func startSchedulerTestEngine(t *testing.T, backend state.Backend) (*StateEngine, *observedSchedulerStore) {
 	t.Helper()
-	s := &observedSchedulerStore{Backend: backend}
+	s := &observedSchedulerStore{Backend: backend, registered: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	e := &StateEngine{ctx: ctx, cancel: cancel, store: s, cfg: Config{StateIdentityKey: []byte("scheduler-fixture-identity-key-32bytes"), Process: &pb.ProcessRef{InstanceId: uuid.NewString(), Epoch: "fixture"}},
 		work: make(chan struct{}, 64), background: make(chan struct{}, 48), scheduled: make(map[string]bool), dispatching: make(map[string]bool)}
@@ -171,6 +197,11 @@ func startSchedulerTestEngine(t *testing.T, backend state.Backend) (*StateEngine
 	e.wg.Add(1)
 	go func() { defer e.wg.Done(); e.schedule() }()
 	t.Cleanup(e.Close)
+	select {
+	case <-s.registered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("scheduler worker failed to register")
+	}
 	return e, s
 }
 
@@ -229,7 +260,25 @@ func TestSchedulerPairIdleWaitsWithoutQueuePollingOrRecordLoads(t *testing.T) {
 			})
 			schedulerAwait(t, time.Now().Add(time.Second), func() bool { return a.SchedulerStatistics().Leader || b.SchedulerStatistics().Leader })
 			schedulerAwait(t, time.Now().Add(5*time.Second), func() bool { return observedA.repairPasses.Load()+observedB.repairPasses.Load() > 0 })
+			beforeAcquire := observedA.acquires.Load() + observedB.acquires.Load()
+			beforeRenew := observedA.renewals.Load() + observedB.renewals.Load()
+			beforeRegister := observedA.registrations.Load() + observedB.registrations.Load()
+			observedAt := time.Now()
 			time.Sleep(2200 * time.Millisecond) // Completed startup repair must stay completed across many lease renewals.
+			elapsed := time.Since(observedAt)
+			ceil := func(period time.Duration) uint64 { return uint64((elapsed + period - 1) / period) }
+			if observedA.takeovers.Load()+observedB.takeovers.Load() != 0 {
+				t.Fatal("idle pair checked orphan takeover without a timed owner")
+			}
+			if observedA.acquires.Load()+observedB.acquires.Load()-beforeAcquire > ceil(state.SchedulerLeaseLifetime)+1 {
+				t.Fatal("follower polled coordinator acquisition before observed expiry")
+			}
+			if observedA.renewals.Load()+observedB.renewals.Load()-beforeRenew > ceil(state.SchedulerLeaseLifetime/2) {
+				t.Fatal("leader renewed more often than the documented cadence")
+			}
+			if observedA.registrations.Load()+observedB.registrations.Load()-beforeRegister > 2*ceil(state.DispatchWorkerLifetime/2) {
+				t.Fatal("worker presence renewed more often than the documented cadence")
+			}
 			left, right := a.SchedulerStatistics(), b.SchedulerStatistics()
 			if left.Leader == right.Leader || left.Acquisitions+right.Acquisitions != 1 {
 				t.Fatal("idle pair churned or duplicated scheduler leadership", left, right, observedA.lastError.Load(), observedB.lastError.Load())
@@ -309,8 +358,10 @@ func TestSchedulerPairAbruptLeaderLossRebuildsAndDispatches(t *testing.T) {
 			observed.dropRelease.Store(true)
 			due := time.Now().Add(100 * time.Millisecond)
 			ref := schedulerSeedTimer(t, s, due)
+			lost := time.Now()
 			leader.cancel()
-			schedulerAwait(t, due.Add(state.SchedulerLeaseLifetime+750*time.Millisecond), func() bool {
+			// The lease-loss budget starts at cancellation, after seed admission.
+			schedulerAwait(t, lost.Add(state.SchedulerLeaseLifetime+750*time.Millisecond), func() bool {
 				record, err := s.Load(context.Background(), ref)
 				return follower.SchedulerStatistics().Leader && err == nil && len(record.Payload.Timers) == 0
 			})

@@ -70,26 +70,47 @@ when you delete it.
 
 ## Replacing a process
 
-sipbridge has no built-in drain. On `SIGTERM` it closes its listeners and
-connections promptly, whatever calls are in progress. (A drain protocol is
-proposed but not implemented.) To restart an instance gracefully, you do the
-draining around it:
+sipbridge performs a bounded connection drain on `SIGTERM` or interrupt:
 
-1. **Stop sending it new work.** Take the instance out of load balancing or
-   DNS, and have your controllers stop placing new calls through it.
-2. **Leave everything else connected.** Keep the controller sessions and the
-   process running so that existing calls, transactions and subscriptions can
-   finish normally.
-3. **Wait for work to finish.** Calls end by themselves; registrations and
-   subscriptions may not, since clients keep refreshing them. Decide how long to
-   wait and what to do with what remains.
-4. **Remove the instance** from any remaining backend pools.
-5. **Restart it**, then check `/sip-servingz` and `/sip-readyz`.
+1. **Withdraw readiness.** New connections, outbound opens and UDP peer
+   allocations are fenced. Load balancing must observe `/sip-readyz`; control
+   sessions and shared-state access remain available for admitted work.
+2. **Finish admitted transactions.** After `--sip-withdrawal-grace`, settled
+   idle streams close. Outstanding response/ACK work can continue until the
+   original `--sip-drain-timeout` deadline.
+3. **Close remaining connections.** The hard deadline ends the local drain;
+   activity cannot extend it. Clients reconnect and undergo normal admission.
+   Shared dialog/subscription state is not rewritten by closing a socket.
+4. **Allow completion reporting, then stop.** The deployment's termination
+   grace must cover the drain bound and its completion-reporting tail.
+5. **Verify the replacement.** Check `/sip-servingz` and `/sip-readyz` before
+   replacing another instance.
+
+The [runtime drain contract](../runtime.md#bounded-sip-connection-drain) owns
+the exact bounds, refusal rules and physical-write uncertainty. This lifecycle
+needs no controller drain-generation or inventory RPC. Draining application
+call owners is a separate controller responsibility.
 
 Any client still connected when the process stops has to reconnect. With
 memory state, lost registrations and calls must be set up again; Redis can
 retain contexts for a replacement connection that passes the continuity checks. Calls do not move between controllers, and
 replacing sipbridge without disconnecting anyone is not possible today.
+
+### Coordinated scheduling upgrade
+
+The deadline-driven scheduling contract requires a worker-cohort upgrade within
+each state namespace. Older writers do not publish every coordinator wake required
+by the new implementation. Identical protocol descriptors therefore do not make
+mixed old/new operation safe.
+
+Stage the qualified image and both deployment states before beginning maintenance:
+withdraw/drain and stop every old worker in that namespace, verify no old process
+remains, then start the complete new cohort. Compatible protocol records can stay
+in Redis. Keep application controllers and their own state available. Verify
+control readiness, re-registration, subscriptions and required NOTIFY after restart.
+Use an explicit deployment/IaC phase for the stop/start boundary; OnDelete alone
+does not enforce it. No migration reader or persistent historical cleanup task
+is required.
 
 ## Rollback
 
@@ -98,9 +119,10 @@ check first depends on your state backend:
 
 - **Memory:** a restart loses state anyway, so there is nothing to keep
   compatible. Clients register again as after any restart.
-- **Redis:** all instances sharing a namespace must use the same state format
-  (currently schema 1, reducer 1, timers 1). Do not run builds with different
-  state formats against one namespace.
+- **Redis:** check the full public/private schema receipts and retained-format
+  compatibility of both builds. The logical profile `1/1/1` alone is insufficient.
+  Use a qualified compatible rollback or a coordinated empty-namespace cutover;
+  do not mix incompatible readers and writers.
 - **Controller:** check the image's schema receipt and required capabilities before
   reconnecting it to your controller.
 

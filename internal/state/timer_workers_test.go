@@ -68,9 +68,9 @@ func TestTimerColdRecoveryAdmitsWorkerDespiteOrphanedEpochQueues(t *testing.T) {
 		if _, err := s.LeaseScheduler(ctx, "recovery", true); err != nil {
 			t.Fatal(err)
 		}
-		more, err := s.TakeoverTimers(ctx, "recovery", replacement, 8)
-		if err != nil || !more {
-			t.Fatal("admitted replacement could not begin bounded recovery", more, err)
+		err := s.TakeoverTimers(ctx, "recovery", replacement, 8)
+		if err != nil {
+			t.Fatal("admitted replacement could not begin bounded recovery", err)
 		}
 	})
 }
@@ -132,9 +132,9 @@ func TestOwnedTimerQueueIsolationAndTargetedWake(t *testing.T) {
 		if _, err := s.LeaseScheduler(ctx, "coordinator", true); err != nil {
 			t.Fatal(err)
 		}
-		head, err := s.ScheduleHead(ctx, "coordinator", true)
-		if err != nil || head.DueMS != 0 {
-			t.Fatal("coordinator still schedules a healthy owned group", head, err)
+		head, err := s.ScheduleHead(ctx, "coordinator", true, ScheduleProtocol)
+		if err != nil || head.DueMS == 0 || head.Class != ScheduleWorkerExpiry {
+			t.Fatal("coordinator did not observe owner expiry", head, err)
 		}
 	})
 }
@@ -160,7 +160,7 @@ func TestTimerTakeoverMovesOnlySchedulingAndFencesOldAcknowledgement(t *testing.
 		if _, err := s.LeaseScheduler(ctx, "coordinator", true); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.TakeoverTimers(ctx, "coordinator", b, 8); err != nil {
+		if err := s.TakeoverTimers(ctx, "coordinator", b, 8); err != nil {
 			t.Fatal(err)
 		}
 		view, _, err := s.ReadState(ctx, ref)
@@ -171,9 +171,9 @@ func TestTimerTakeoverMovesOnlySchedulingAndFencesOldAcknowledgement(t *testing.
 		if err := s.RegisterDispatchWorker(ctx, b); err != nil {
 			t.Fatal(err)
 		}
-		more, err := s.TakeoverTimers(ctx, "coordinator", b, 1)
-		if err != nil || more {
-			t.Fatal("single group takeover failed", more, err)
+		err = s.TakeoverTimers(ctx, "coordinator", b, 1)
+		if err != nil {
+			t.Fatal("single group takeover failed", err)
 		}
 		view, _, err = s.ReadState(ctx, ref)
 		if err != nil || view.TimerWorker != b || view.Revision != "1" || len(view.Payload.Effects) != 1 || view.Payload.Effects[0].Worker != a || view.Payload.Effects[0].Status != EffectUnknown {

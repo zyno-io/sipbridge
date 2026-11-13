@@ -136,7 +136,7 @@ flowchart TD
     G -- No --> J[Commit accepted subscription and response effect]
     I --> J
     J --> K[Physical final-response lifecycle]
-    K --> L[Controller may persist content policy and issue NOTIFY]
+    K --> L[Controller must issue required current-state NOTIFY]
 ```
 
 Initial acceptance on the same established flow may commit directly. An existing
@@ -209,7 +209,7 @@ duplicate 2xx is no longer a live client-transaction match; see
 flowchart TD
     A[Initial INVITE after local decisions] --> B[Locate and controller ingress]
     B --> C[Ingest CAS: UAS context and INVITE server transaction]
-    C --> D[Committed request callback]
+    C --> D[Direct one-shot request presentation]
     D --> E[Controller policy and media decisions]
     E --> F[Respond provisional or final]
     F --> G[CAS selects response; successful final also creates dialog state]
@@ -383,12 +383,13 @@ flowchart TD
     C --> D{Exact native completion?}
     D -- Yes --> E[Validate completion tuple and replacement-flow evidence]
     D -- No --> F[Controller verifies continuing binding or subscription policy]
-    E --> G[CAS applies exact native transition]
-    F --> G
-    G --> H[Reply on the request's admitted physical flow]
-    G --> I{Future delivery route changes?}
-    I -- Yes --> J[Committed publication proposal and receipt CAS]
-    J --> K[Use accepted new flow for later output]
+    E --> G[CAS applies exact native completion]
+    G --> H[Native output uses admitted return flow]
+    F --> I{Acceptance needs delivery publication?}
+    I -- Yes --> J[Publication proposal and receipt CAS]
+    J --> K[Commit accepted request and delivery flow]
+    I -- No --> K
+    K --> L[Selected response uses admitted return flow]
 ```
 
 A physical connection is not the logical owner of a dialog. Timer ownership also
@@ -396,7 +397,9 @@ does not have to move because a packet arrives elsewhere. The native retained
 context and accepted transport remain authoritative. Replacing TLS with plaintext
 is not a continuity operation.
 
-A response to an admitted request uses that request's flow. Publishing a new
+A response to an admitted request uses that request's flow. Where acceptance
+requires publication, including an existing SUBSCRIBE refresh, the matching
+receipt must commit before its accepted response is selected. Publishing a new
 ordinary delivery route is a separate guarded operation. Incoming SUBSCRIBE
 refresh acceptance and INVITE-dialog flow adoption do not share application
 ownership-transfer semantics. No process can reopen or take over the old process's

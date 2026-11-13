@@ -24,7 +24,7 @@ func schedulerHead(t *testing.T, s Backend, token string, rebuild bool) Schedule
 	if _, err := s.LeaseScheduler(ctx, token, false); err != nil {
 		t.Fatal(err)
 	}
-	head, err := s.ScheduleHead(ctx, token, rebuild)
+	head, err := s.ScheduleHead(ctx, token, rebuild, ScheduleProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,16 +35,16 @@ func TestSchedulerExclusiveLeaseExpiryAndStaleRelease(t *testing.T) {
 	backendContract(t, func(t *testing.T, s Backend) {
 		ctx := context.Background()
 		until, err := s.LeaseScheduler(ctx, "first", true)
-		if err != nil || !until.After(time.Now()) {
+		if err != nil || !until.Held || !until.Until.After(time.Now()) {
 			t.Fatal("first scheduler not acquired", err)
 		}
-		if _, err := s.LeaseScheduler(ctx, "second", true); !errors.Is(err, ErrBusy) {
+		if observed, err := s.LeaseScheduler(ctx, "second", true); err != nil || observed.Held || !observed.Until.After(time.Now()) {
 			t.Fatal("two scheduler leaders admitted", err)
 		}
-		if _, err := s.ScheduleHead(ctx, "second", true); !errors.Is(err, ErrStale) {
+		if _, err := s.ScheduleHead(ctx, "second", true, ScheduleProtocol); !errors.Is(err, ErrStale) {
 			t.Fatal("follower rebuilt or read queue heads", err)
 		}
-		time.Sleep(time.Until(until) + 25*time.Millisecond)
+		time.Sleep(time.Until(until.Until) + 25*time.Millisecond)
 		if _, err := s.LeaseScheduler(ctx, "first", false); !errors.Is(err, ErrStale) {
 			t.Fatal("expired leadership revived by renewal", err)
 		}

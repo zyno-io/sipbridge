@@ -90,14 +90,7 @@ func (m *MemoryStore) workerHints(worker string, now int64, limit int) []Hint {
 }
 
 func (m *MemoryStore) scheduleOwnedTimer(g *memoryGroup) {
-	if g.due > 0 {
-		if m.timerWorkers == nil {
-			m.timerWorkers = make(map[string]int64)
-		}
-		if m.timerWorkers[g.timerWorker] == 0 {
-			m.timerWorkers[g.timerWorker] = m.lastClock.UnixMilli() + DispatchWorkerLifetime.Milliseconds()
-		}
-	}
+
 	if m.timerQueues == nil {
 		m.timerQueues = make(map[string]*hintHeap)
 	}
@@ -116,22 +109,39 @@ func (m *MemoryStore) scheduleOwnedTimer(g *memoryGroup) {
 	queue.set(g.ref, g.due)
 	if queue.Len() == 0 {
 		delete(m.timerQueues, g.timerWorker)
-	} else if previous == 0 || queue.items[0].due < previous {
-		m.wakeDispatch(g.timerWorker)
+		delete(m.timerWorkers, g.timerWorker)
+	} else {
+		if m.timerWorkers == nil {
+			m.timerWorkers = make(map[string]int64)
+		}
+		prior := m.timerWorkers[g.timerWorker]
+		now := m.lastClock.UnixMilli()
+		presence := m.dispatchWorkers[g.timerWorker]
+		if presence > now {
+			m.timerWorkers[g.timerWorker] = presence
+		} else if prior == 0 {
+			m.timerWorkers[g.timerWorker] = max(1, now)
+		}
+		if prior == 0 || m.timerWorkers[g.timerWorker] < prior {
+			m.wakeSchedule()
+		}
+		if previous == 0 || queue.items[0].due < previous {
+			m.wakeDispatch(g.timerWorker)
+		}
 	}
 }
 
-func (m *MemoryStore) TakeoverTimers(ctx context.Context, token, worker string, limit int) (bool, error) {
-	if !workerPattern.MatchString(token) || !dispatchWorkerPattern.MatchString(worker) || limit < 1 || limit > 128 {
-		return false, ErrConflict
+func (m *MemoryStore) TakeoverTimers(ctx context.Context, token, worker string, limit int) error {
+	if !workerPattern.MatchString(token) || !dispatchWorkerPattern.MatchString(worker) || limit < 1 || limit > 64 {
+		return ErrConflict
 	}
 	now, err := m.lock(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer m.unlock()
-	if !m.schedulerCurrent(token, now) || m.timerWorkers[worker] <= now {
-		return false, ErrStale
+	if !m.schedulerCurrent(token, now) || m.dispatchWorkers[worker] <= now {
+		return ErrStale
 	}
 	var expired []string
 	for id, until := range m.timerWorkers {
@@ -141,7 +151,7 @@ func (m *MemoryStore) TakeoverTimers(ctx context.Context, token, worker string, 
 	}
 	sort.Strings(expired)
 	if len(expired) == 0 {
-		return false, nil
+		return nil
 	}
 	old := expired[0]
 	queue := m.timerQueues[old]
@@ -159,5 +169,5 @@ func (m *MemoryStore) TakeoverTimers(ctx context.Context, token, worker string, 
 		delete(m.timerWorkers, old)
 		m.forgetDispatchWake(old)
 	}
-	return len(expired) > 1 || queue != nil && queue.Len() > 0, nil
+	return nil
 }

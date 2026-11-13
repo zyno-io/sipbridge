@@ -3,7 +3,6 @@ package state
 import (
 	"context"
 	"errors"
-	"time"
 )
 
 const (
@@ -44,12 +43,13 @@ type Backend interface {
 	ApplicationExpiryPage(context.Context, int) (ApplicationExpiryPage, error)
 	AckApplicationExpiryPage(context.Context, ApplicationExpiryPage) error
 	ScheduleHints(context.Context, uint16, int, int) ([]HintBatch, error)
-	LeaseScheduler(context.Context, string, bool) (time.Time, error)
+	LeaseScheduler(context.Context, string, bool) (SchedulerLease, error)
 	ReleaseScheduler(context.Context, string) error
-	ScheduleHead(context.Context, string, bool) (ScheduleHead, error)
+	ScheduleHead(context.Context, string, bool, ScheduleClass) (ScheduleHead, error)
+	WaitSchedulerLease(context.Context, string) (string, error)
 	WaitSchedule(context.Context, string) (string, error)
 	WaitDispatch(context.Context, string, string) (string, error)
-	TakeoverTimers(context.Context, string, string, int) (bool, error)
+	TakeoverTimers(context.Context, string, string, int) error
 	SchedulerHints(context.Context, string, uint16, int, int) ([]HintBatch, error)
 	RepairScheduler(context.Context, string, uint64, int) (uint64, int, error)
 	DispatchHead(context.Context, string) (ScheduleHead, error)

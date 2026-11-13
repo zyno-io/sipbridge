@@ -53,21 +53,29 @@ local function timerScheduleProblem(owner)
  if #owner~=64 or not string.match(owner,'^[a-f0-9]+$') then return 'CORRUPT' end
  local root=string.sub(KEYS[4],1,#KEYS[4]-#'scheduler:heads')
  local key=root..'timer:'..owner; local wake=root..'dispatch:'..owner..':wake'
- if not keytype(key,'zset') or not keytype(wake,'stream') or not keytype(root..'timer:workers','zset') then return 'CORRUPT' end
+ if not keytype(key,'zset') or not keytype(wake,'stream') or not keytype(root..'timer:workers','zset') or not keytype(root..'scheduler:workers','zset') then return 'CORRUPT' end
  if not redis.acl_check_cmd('ZADD',key,1,KEYS[1]) or not redis.acl_check_cmd('ZREM',key,KEYS[1]) or
     not redis.acl_check_cmd('ZRANGE',key,0,0,'WITHSCORES') or
     not redis.acl_check_cmd('XADD',wake,'MAXLEN','=',1,'*','changed','1') or not redis.acl_check_cmd('PEXPIRE',wake,120000) or
-    not redis.acl_check_cmd('ZADD',root..'timer:workers',1,owner) then return 'AUTHORITY' end
+    not redis.acl_check_cmd('ZADD',root..'timer:workers',1,owner) or not redis.acl_check_cmd('ZREM',root..'timer:workers',owner) or not redis.acl_check_cmd('ZSCORE',root..'timer:workers',owner) or not redis.acl_check_cmd('ZSCORE',root..'scheduler:workers',owner) or not redis.acl_check_cmd('ZCARD',key) then return 'AUTHORITY' end
+ local score=redis.call('ZSCORE',root..'timer:workers',owner); local presence=redis.call('ZSCORE',root..'scheduler:workers',owner)
+ for _,v in ipairs({score or '1',presence or '1'}) do local n=tonumber(v); if not n or n<1 or n>9007199254740991 or n~=math.floor(n) then return 'CORRUPT' end end
  return nil
 end
 local function projectTimerSchedule(member,due,owner)
  if owner=='' then return end
  local root=string.sub(KEYS[4],1,#KEYS[4]-#'scheduler:heads')
  local key=root..'timer:'..owner; local wake=root..'dispatch:'..owner..':wake'
- if due and due>0 and not redis.call('ZSCORE',root..'timer:workers',owner) then redis.call('ZADD',root..'timer:workers',nowms()+2000,owner) end
+ local prior=redis.call('ZSCORE',root..'timer:workers',owner)
+ local presence=tonumber(redis.call('ZSCORE',root..'scheduler:workers',owner) or '0'); local now=nowms()
  local previous=redis.call('ZRANGE',key,0,0,'WITHSCORES')
  if due and due>0 then redis.call('ZADD',key,due,member) else redis.call('ZREM',key,member) end
  local head=redis.call('ZRANGE',key,0,0,'WITHSCORES')
+ if #head==0 then redis.call('ZREM',root..'timer:workers',owner) else
+  local score=presence>now and presence or (prior and tonumber(prior) or math.max(1,now))
+  redis.call('ZADD',root..'timer:workers',score,owner)
+  if not prior or score<tonumber(prior) then redis.call('XADD',KEYS[5],'MAXLEN','=',1,'*','changed','1') end
+ end
  if #head>0 and (#previous==0 or tonumber(head[2])<tonumber(previous[2])) then
   redis.call('XADD',wake,'MAXLEN','=',1,'*','changed','1')
   redis.call('PEXPIRE',wake,120000)

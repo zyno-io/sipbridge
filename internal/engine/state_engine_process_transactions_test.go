@@ -385,6 +385,25 @@ func processCancelledLateForksCleanupAfterOwnerDeath(t *testing.T, harness func(
 			if scenario.rejected {
 				phone.send(t, []byte(processInviteFinal(invite, 487, "early-phone").String()))
 				phone.receive(t, sip.ACK, 0)
+				// Reading the ACK from the socket does not prove its write result
+				// is recorded in state. Wait for that proof before killing its
+				// worker; uncertain physical writes have separate coverage.
+				processWaitRecord(h, callID, func(record state.Record, _ *stateContext) bool {
+					for _, effect := range record.Payload.Effects {
+						if effect.Kind != "deliver" {
+							continue
+						}
+						var body stateEngineEffect
+						if body.unmarshalMetadata(effect.Payload) != nil {
+							return false
+						}
+						if body.WireMethod == "ACK" && body.WireSequence == invite.CSeq().SeqNo &&
+							effect.Status != state.EffectWritten {
+							return false
+						}
+					}
+					return true // Collection also requires terminal delivery evidence.
+				})
 			}
 			before, group := h.record(callID)
 			original := processOnlyContext(t, group)

@@ -102,6 +102,13 @@ needs them. These fixtures provide no current service API. Migrating their
 assertions to native authority changes their premise;
 use actual 1/1 process/socket tests for current production-path evidence.
 
+The process fixture's controller RPC wait must end when its session closes,
+matching the real control peer. Losing a session produces an unavailable result;
+it never proves that an interrupted physical write did not happen. Tests that
+specifically require a completed setup before killing a worker must wait for its
+recorded write result, rather than inferring completion from a socket read.
+Uncertain-write cases remain separate and must preserve UNKNOWN.
+
 The claimed fixture driver loads one value and Redis-derived time, reduces and commits
 before dispatch. Pending input recovery finishes that exact input before another;
 claims never span external RPC/socket I/O, and uncertain commits inspect exact

@@ -1,10 +1,9 @@
 # Execution, storage and physical effects
 
-This chapter maps implemented execution, including direct one-shot request
-presentation. Its traversal baseline is source revision
-`f8cbce847d29e53d686e1add6e0a2ba12ac816c2`, updated with the source in this checkout.
-It describes the service's schema 1 / reducer 1 / timers 1 CAS path, with either the Memory or Redis adapter. It does
-not treat the historical claimed fixture driver as a second service mode.
+This chapter maps the current implementation of the architecture and runtime
+contracts, including direct one-shot presentation. It follows the source shipped
+with this chapter. The service uses schema 1 / reducer 1 / timers 1 with either
+the Memory or Redis adapter; fixture drivers are separate programs.
 
 [Architecture](../../ARCHITECTURE.md) owns component boundaries;
 [Runtime](../runtime.md) owns exact admission, proof, retention and failure

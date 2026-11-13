@@ -30,13 +30,15 @@ func (m *MemoryStore) RegisterDispatchWorker(ctx context.Context, worker string)
 	if m.timerWorkers == nil {
 		m.timerWorkers = make(map[string]int64)
 	}
-	for id, until := range m.timerWorkers {
-		if until <= now && (m.timerQueues[id] == nil || m.timerQueues[id].Len() == 0) {
-			delete(m.timerWorkers, id)
-			m.forgetDispatchWake(id)
+	if q := m.timerQueues[worker]; q != nil && q.Len() > 0 {
+		prior := m.timerWorkers[worker]
+		m.timerWorkers[worker] = now + DispatchWorkerLifetime.Milliseconds()
+		if prior == 0 || m.timerWorkers[worker] < prior {
+			m.wakeSchedule()
 		}
+	} else {
+		delete(m.timerWorkers, worker)
 	}
-	m.timerWorkers[worker] = now + DispatchWorkerLifetime.Milliseconds()
 	return nil
 }
 

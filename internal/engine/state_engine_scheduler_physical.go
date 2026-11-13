@@ -38,13 +38,13 @@ func (e *StateEngine) physicalDispatchSession(worker string) {
 		defer stop()
 		return e.store.DispatchHead(read, worker)
 	}
-	head, err := readHead()
+	registration, stop := context.WithTimeout(ctx, 100*time.Millisecond)
+	err := e.store.RegisterDispatchWorker(registration, worker)
+	stop()
 	if err != nil {
 		return
 	}
-	registration, stop := context.WithTimeout(ctx, 100*time.Millisecond)
-	err = e.store.RegisterDispatchWorker(registration, worker)
-	stop()
+	head, err := readHead()
 	if err != nil {
 		return
 	}
@@ -73,7 +73,7 @@ func (e *StateEngine) physicalDispatchSession(worker string) {
 	defer func() { cancel(); <-done }()
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
-	register := time.NewTicker(500 * time.Millisecond)
+	register := time.NewTicker(state.DispatchWorkerLifetime / 2)
 	defer register.Stop()
 	var nextPass time.Time
 	arm := func() {

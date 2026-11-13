@@ -88,7 +88,7 @@ and [NOTIFY](sip.md#outgoing-subscription-notify).
 | Physical ingress | TCP/TLS accept and close, UDP framing/order lanes, keepalive/framing, method denial, required-auth challenge and local ACK proof |
 | Native ingress | New context allocation, exact existing lookup, controller-admitted ingest, retained completion, scoped refusal, request replay and unmatched response |
 | Public control | Hello/status/heartbeat, Ingest, four Command actions, Inspect, physical Write/InspectEffect, optional controller-context inventory |
-| Native mutation catalogue | All fourteen current `stateEngineInput.Kind` cases in the [execution inventory](execution.md#entry-points-and-every-reducer-input) |
+| Native mutation catalogue | All fifteen current `stateEngineInput.Kind` cases in the [execution inventory](execution.md#entry-points-and-every-reducer-input) |
 | Application effects | Presentation, lifecycle event, flow adoption, credential lookup, application probe and network open; distinct start/result rules |
 | Physical effects | Native permit preparation, indexed discovery, Reserve, one socket attempt, Complete, inspection, settlement and reclamation |
 | SIP procedures | REGISTER, OPTIONS, SUBSCRIBE refresh/unsubscribe, NOTIFY, UAS/UAC INVITE, provisional/final/fork response, ACK, CANCEL, BYE, re-INVITE, REFER and generic supported dialog requests |

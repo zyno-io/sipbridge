@@ -387,6 +387,8 @@ func (p *processController) call(envelope *pb.Envelope) (*pb.Envelope, error) {
 	select {
 	case reply := <-result:
 		return reply, nil
+	case <-p.done:
+		return nil, fmt.Errorf("fixture control session closed")
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}

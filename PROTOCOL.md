@@ -1,7 +1,7 @@
 # sipbridge control protocol
 
-Status: experimental implemented service contract, with proposed conformance and
-drain requirements identified below. The current service uses UDP/TCP/TLS listeners,
+Status: experimental implemented service contract. Qualification requirements are
+identified below. The current service uses UDP/TCP/TLS listeners,
 authenticated JSON control, schema 1 / reducer 1 / timers 1 CAS and autonomous native
 completion. [Verification](docs/verification.md) lists the current test coverage
 and its limits; full platform conformance is not yet qualified. The session-only
@@ -253,8 +253,8 @@ MUST NOT close client TLS sockets, delete native contexts or reset SIP timers.
 The controller reconnects with bounded backoff while the endpoint remains authenticated.
 
 Capabilities describe negotiated behavior, not runtime readiness; `session.status`
-separately states retained/binding readiness and new-work classes. Proposed drain and
-inventory operations below require canonical schema/capability design before use.
+separately states retained/binding readiness and new-work classes. Process drain
+uses the bounded lifecycle below, not an unimplemented inventory protocol.
 
 ### Bounded writes and late replies
 
@@ -527,7 +527,7 @@ SRF tunnel or arbitrary raw-wire interface.
 The `probeApplication` / `applicationStatus` exchange checks application liveness
 before subscription-controller handoff. `controllerContexts` /
 `controllerContextsResult` provide authenticated owner-scoped recovery inventory.
-Global instance inventory and drain generation messages remain proposed requirements.
+There is no global instance-inventory or drain-generation message family.
 
 Opening a new UAC uses a caller-allocated OperationRef and an exclusively claimed
 context identity before SIP is sent. A duplicate control request cannot create a
@@ -740,11 +740,9 @@ are in [Runtime](docs/runtime.md#business-selection-and-subscriptions).
 | Capability list / negotiated envelope minimum | At most 32 capabilities / 512 bytes. |
 
 Exact native capacity, proof reservations, timers and byte-encoding bounds are in
-[Runtime](docs/runtime.md#service-bounds-and-encoding). The broader design's inventory
-pages (128), output queues (256 messages/8 MiB with 16 slots/1 MiB reserved) and
-additional operation markers (4,096/five minutes) are proposed requirements, not
-implemented queues or negotiated limits. Introduce them only with canonical contract
-and bounded implementation; the current writer token creates no application queue.
+[Runtime](docs/runtime.md#service-bounds-and-encoding). Proposed inventory/queue
+designs are not service limits or prerequisites. The bounded writer token creates
+no durable application queue.
 
 Negotiation may reduce peer limits. A receiver never silently raises its local
 hard cap. Global socket/context/subscription/queue budgets are also mandatory
@@ -785,26 +783,19 @@ report a fault. This requires directly projected directories, not init-time copi
 or subPath mounts. Routine leaf renewal is not revocation of existing sessions;
 emergency revocation is an explicit operator action.
 
-### Proposed drain protocol
+### Bounded process drain
 
-The current schema has no drain generation/inventory family. The following is a
-rollout requirement that must be implemented and qualified before production use.
+SIGTERM or interrupt withdraws SIP readiness, fences new connection/setup work
+and keeps admitted completion, control sessions and state access available during
+a fixed connection-drain interval. Settled streams close after withdrawal grace;
+the hard deadline closes remaining sockets. Physical uncertainty and retained
+dialog/subscription obligations survive under their ordinary rules. Clients can
+reconnect to a compatible worker; sockets and application memory do not move.
 
-`drain.begin` names a drain generation and immediately fences new calls/claims.
-It retains reconnects needed by existing authorized contexts, ingress/egress relay,
-private sessions, native timers and terminal signaling. `drain.status` reports
-native contexts, pending/unknown writes, local client flows leased by remote
-protocol owners, and acknowledged controller application work. Missing owner evidence
-is unknown, never zero. Heartbeat counts alone cannot authorize deletion.
-
-`drain.complete` requires no retained native/application/relay dependencies and
-acknowledgements for the current generation. If registrations/subscriptions would
-otherwise retain the process indefinitely, an explicit maintenance policy must
-settle or end them and expire their leases before withdrawal. OnDelete stages
-image/template changes; it does not upgrade a live process or preserve its sockets
-when it is actually restarted. Planned SIP-core replacement still closes its
-remaining client TLS connections; controller reattachment preserves neither those
-sockets nor application memory.
+The [runtime drain contract](docs/runtime.md#bounded-sip-connection-drain) owns
+the exact timing and admission rules. The current wire contract has no drain
+generation/inventory RPC family and does not require one for this lifecycle.
+OnDelete stages template changes; actual replacement still closes local sockets.
 
 ## 12. Required conformance evidence
 

@@ -118,20 +118,19 @@ func (s *Store) RegisterDispatchWorker(ctx context.Context, worker string) error
 
 var dispatchRegisterScript = stateScript(`
 if not primary() then return fail('AUTHORITY') end
-if not keytype(KEYS[1],'zset') or not keytype(KEYS[2],'zset') then return fail('CORRUPT') end
-local now=nowms()
-local expired=redis.call('ZRANGEBYSCORE',KEYS[1],'-inf',integer(now),'LIMIT',0,256)
+local queue=ARGV[8]..'timer:'..ARGV[7]; local wake=ARGV[8]..'scheduler:wake'
+if not keytype(KEYS[1],'zset') or not keytype(KEYS[2],'zset') or not keytype(queue,'zset') or not keytype(wake,'stream') then return fail('CORRUPT') end
+local now=nowms(); local expired=redis.call('ZRANGEBYSCORE',KEYS[1],'-inf',integer(now),'LIMIT',0,256)
+local count=redis.call('ZCARD',KEYS[1]); local old=redis.call('ZSCORE',KEYS[1],ARGV[7]); local prior=redis.call('ZSCORE',KEYS[2],ARGV[7])
+for _,v in ipairs({old or '1',prior or '1'}) do local n=tonumber(v); if not n or n<1 or n>9007199254740991 or n~=math.floor(n) then return fail('CORRUPT') end end
+if count-#expired>=256 and not old then return fail('CAPACITY') end
+if not redis.acl_check_cmd('ZCARD',queue) or not redis.acl_check_cmd('ZADD',KEYS[1],1,ARGV[7]) or not redis.acl_check_cmd('ZREM',KEYS[1],ARGV[7]) or not redis.acl_check_cmd('ZADD',KEYS[2],1,ARGV[7]) or not redis.acl_check_cmd('ZREM',KEYS[2],ARGV[7]) or not redis.acl_check_cmd('XADD',wake,'MAXLEN','=',1,'*','changed','1') then return fail('AUTHORITY') end
 for _,worker in ipairs(expired) do redis.call('ZREM',KEYS[1],worker) end
-if redis.call('ZCARD',KEYS[1])>=256 and not redis.call('ZSCORE',KEYS[1],ARGV[7]) then return fail('CAPACITY') end
-local expiredTimers=redis.call('ZRANGEBYSCORE',KEYS[2],'-inf',integer(now),'LIMIT',0,256)
-for _,worker in ipairs(expiredTimers) do
- if #worker~=64 or not string.match(worker,'^[a-f0-9]+$') or not keytype(ARGV[8]..'timer:'..worker,'zset') then return fail('CORRUPT') end
-end
-for _,worker in ipairs(expiredTimers) do
- if redis.call('ZCARD',ARGV[8]..'timer:'..worker)==0 then redis.call('ZREM',KEYS[2],worker) end
-end
 redis.call('ZADD',KEYS[1],now+2000,ARGV[7])
-redis.call('ZADD',KEYS[2],now+2000,ARGV[7])
+if redis.call('ZCARD',queue)>0 then
+ redis.call('ZADD',KEYS[2],now+2000,ARGV[7])
+ if not prior or now+2000<tonumber(prior) then redis.call('XADD',wake,'MAXLEN','=',1,'*','changed','1') end
+else redis.call('ZREM',KEYS[2],ARGV[7]) end
 return {'OK'}
 `)
 

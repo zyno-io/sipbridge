@@ -20,26 +20,28 @@ import (
 // values; the engine uses the same transient CAS execution as Redis.
 type MemoryStore struct {
 	metadata
-	gate                chan struct{}
-	available           atomic.Bool
-	closed              bool
-	clock               func() time.Time
-	lastClock           time.Time
-	groups              map[string]*memoryGroup
-	schedules           []memorySchedule
-	leases              map[string]*memoryLease
-	applicationContexts map[string]map[string]ApplicationContextEntry
-	applicationExpiry   hintHeap
-	leaseOrder          list.List
-	schedulerHolder     string
-	schedulerUntil      int64
-	schedulerCursor     uint64
-	schedulerWake       chan struct{}
-	dispatchQueues      map[string]*hintHeap
-	dispatchWorkers     map[string]int64
-	timerQueues         map[string]*hintHeap
-	timerWorkers        map[string]int64
-	dispatchWakes       map[string]*memoryWorkerWake
+	gate                 chan struct{}
+	available            atomic.Bool
+	closed               bool
+	clock                func() time.Time
+	lastClock            time.Time
+	groups               map[string]*memoryGroup
+	schedules            []memorySchedule
+	leases               map[string]*memoryLease
+	applicationContexts  map[string]map[string]ApplicationContextEntry
+	applicationExpiry    hintHeap
+	leaseOrder           list.List
+	schedulerHolder      string
+	schedulerUntil       int64
+	schedulerCursor      uint64
+	schedulerWake        chan struct{}
+	schedulerLeaseWake   chan struct{}
+	schedulerLeaseCursor uint64
+	dispatchQueues       map[string]*hintHeap
+	dispatchWorkers      map[string]int64
+	timerQueues          map[string]*hintHeap
+	timerWorkers         map[string]int64
+	dispatchWakes        map[string]*memoryWorkerWake
 }
 
 type memoryGroup struct {
@@ -99,7 +101,7 @@ func newMemory(cfg Config, clock func() time.Time) (*MemoryStore, error) {
 		return nil, errors.New("invalid SIP memory capacity")
 	}
 	m := &MemoryStore{metadata: newMetadata(cfg), gate: make(chan struct{}, 1), clock: clock,
-		groups: make(map[string]*memoryGroup), leases: make(map[string]*memoryLease), schedules: make([]memorySchedule, cfg.Partitions), schedulerWake: make(chan struct{})}
+		groups: make(map[string]*memoryGroup), leases: make(map[string]*memoryLease), schedules: make([]memorySchedule, cfg.Partitions), schedulerWake: make(chan struct{}), schedulerLeaseWake: make(chan struct{})}
 	// Even explicitly identical configuration never joins independent local stores.
 	m.authority.RunID = uuid.NewString()
 	m.available.Store(true)
@@ -149,6 +151,7 @@ func (m *MemoryStore) Close() error {
 	}
 	m.closed = true
 	close(m.schedulerWake)
+	close(m.schedulerLeaseWake)
 	for _, wake := range m.dispatchWakes {
 		close(wake.changed)
 	}

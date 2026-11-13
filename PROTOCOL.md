@@ -59,6 +59,7 @@ claim admission so an incompatible controller cannot fence a compatible one.
 | `sip.command-admission.v1` | Command-time policy/delivery admission for Respond, OpenUac and DialogRequest. |
 | `sip.command-budget.v1` | Commands may carry the 40-second budget; ordinary RPC/write limits remain separate. |
 | `sip.dialog-continuity.v1` | Explicit native validation of same-transport replacement-flow attempts. |
+| `sip.request-decision.v1` | Memory request notification/decision/commit contract below; requires its updated canonical schema receipt. |
 
 State execution requires `sip.state.v1` for every backend. Negotiation validates
 state authority before claim admission and acquires the native owner lease before
@@ -301,6 +302,12 @@ mechanics, never service client-source fields or advertised headers.
 
 ## 5. Owner lookup, redirects and native ingress
 
+The routing/ingest handshake in this section describes the checkpoint runtime.
+The Memory [direct decision](#direct-request-decision-memory-target)
+replaces those exchanges; the native matching, account-policy and transport trust
+rules still apply. A bounded pending native request handle does not establish a
+business owner claim or accepted registration/subscription.
+
 Ingress parses/fragments SIP using the library but MUST NOT create a second native
 transaction while resolving an existing context. controller's trusted routing index
 maps native selectors to logical context and original controller owner. SIP-state
@@ -519,6 +526,7 @@ SRF tunnel or arbitrary raw-wire interface.
 | ingest/result | controller to worker; exact logical context/native input, not proof of successful business policy or socket write. |
 | request, dialogEvent | Worker to original controller; exact request handle, immutable observations and lifecycle. |
 | command/result | controller to worker; sequenced Respond/OpenUac/DialogRequest/Cancel with owner/admission checks. |
+| requestDecision/result | Direct-decision controller to Memory worker; one decision for the exact notified request and one committed result. |
 | flowAdoption/flowAdoptionResult | Worker to controller and receipt; ordered future context delivery, separate from response-return flow. |
 | credentialLookup/credentialResult | Pure original-controller lookup; credentials stay transient and never enter retained protocol input/outcome. |
 | flowClosed | Exact ingress flow invalidation; no effect on other flows or logical owner. |
@@ -546,6 +554,113 @@ the library's internal connection address or whether a socket came from a cache.
 Forwarding through A cannot advertise a virtual loopback address, localhost,
 control address or internal flow key. The owner applies configured public
 Contact/Via identity consistently on fresh and reused connections.
+
+### Direct request decision (Memory target)
+
+This is the direct-decision contract locked with architecture revision two and
+approved by Astra before implementation. It is not a qualification claim. It
+requires `sip.request-decision.v1` in addition to the
+existing native state/admission capabilities. Memory uses only this request path;
+the checkpoint Redis runtime retains its existing families during Memory
+qualification. There is no Memory fallback or new compatibility engine.
+
+```mermaid
+sequenceDiagram
+    participant S as sipbridge
+    participant C as Controller
+    S->>C: request notification
+    C->>S: requestDecision
+    S->>C: result (native committed)
+```
+
+The `request` payload retains `RequestPresented` and adds an optional
+`flowAdoption` proposal of the existing native proposal type. Native validates
+the actual SIP identity, sequence, transport and observed flow before notifying.
+The message supplies the exact request ID, original budget, context/current
+snapshot, observed SIP message and flow. It is a one-shot notification, not an RPC
+requiring an acceptance reply. The controller chooses policy once and submits a
+decision as its first acceptance. For a fresh context, the exclusive application
+claim precedes a positive decision; pending native admission grants no account
+authority. A retained call uses its original live controller; subscription
+controller changes retain their existing authenticated handoff checks.
+
+For an exact fresh, unowned pending request, snapshot `application` is only the
+notification recipient hint. That controller may forward the notification and
+verified policy through its own trusted discovery/tunneling path to the selected
+application. The selected application submits the decision on its own authenticated
+native session. Its real application/lease becomes the first owner atomically
+with acceptance of the first valid decision, including a valid final SIP denial.
+An invalid/refused proposal grants no ownership; expired or cancelled handles
+cannot be claimed. Forwarding preserves the exact request, wire, flow and original
+deadline. The committed result names the deciding application/term, never the hint.
+This does not permit reassignment of an accepted call or controller recovery.
+Recipient-dependent outputs and automatic 100 are held until binding. Bounded
+native timeout refusal and exact paired CANCEL completion still terminate an
+unowned setup under native authority without manufacturing a controller claim.
+
+The new canonical `RequestDecision` contains these fields; generated types, field
+numbers and the receipt remain owned by `proto/sipbridge-control.proto`:
+
+| Fields | Meaning |
+| --- | --- |
+| `context`, `requestId`, `sequence` | Exact pending request and next context command sequence. |
+| `admission`, `basis` | Existing command policy/delivery witness and existing ingress admission basis. |
+| `principalId`, `bindingId` | Controller-selected account binding; continuity cannot substitute another identity. |
+| `delivery` | Ordered receipt for the notification's native-validated flow proposal, when required. |
+| `status`, `headers`, `body` | Selected SIP response. Zero status admits asynchronous handling with later ordinary commands. |
+| `notify` | One content template with `method == NOTIFY`, using the existing `DialogRequest` type. |
+
+REGISTER and SUBSCRIBE require a final decision response; zero status is invalid
+for them. Other admitted requests may defer their business response. A non-2xx
+final denial requires the exact request/live controller but need not fabricate a
+business directory admission or publish a new binding. Positive decisions require
+current policy and their selected admission basis. Every accepted SUBSCRIBE,
+refresh and unsubscribe includes its required NOTIFY template. A negative
+SUBSCRIBE includes none. NOTIFY is forbidden on other decisions. SIP header,
+route, CSeq, expiry and content validation remain native. A selected NOTIFY flow
+must match the accepted context delivery; it cannot replace the response's exact
+return flow.
+
+The worker revalidates the exact request, original deadline, current owner term,
+command sequence, account identity and delivery witness. It stages the native
+response and any subscription/NOTIFY candidates, capacity, indexes and physical
+obligations together under its short context lock. A failed decision publishes
+no partial SIP transition or output. Valid semantic refusals may consume sequence
+and retain a small result under the ordinary command rules. The decision consumes
+one sequence; its required NOTIFY is a native obligation, not a second business
+command. No action list or retained parsed SIP graph is introduced.
+
+Flow adoption is not published merely because a new socket was observed. When
+needed, the notification carries the native-validated proposal first. The
+controller performs its existing ordered publication and returns that exact
+receipt in the decision. Receipt identity, proposed flow/native revision and
+directory epoch must match; the prior delivery witness must still be current.
+`admission.expectedDelivery` binds that prior witness; `decision.delivery` carries
+the newly published receipt. The controller must not substitute the new receipt
+for the prior witness before native commit.
+Unrelated physical completion remains independently recordable.
+
+After atomic publication the worker starts the response/NOTIFY batch in native
+order and returns `ACCEPTED` with the committed snapshot. This proves native
+intent acceptance, never response/NOTIFY `WRITTEN` or peer receipt. Existing
+Reserve/Complete, native transactions and lifecycle events own later outcomes.
+The same existing per-context owner command lane covers version allocation,
+rendering and native dispatch for both decisions and ordinary notifications.
+Forwarded changes arrange preparation in that owner lane rather than forwarding
+pre-versioned content. A new content version lineage requires a genuinely new full
+native context/incarnation, never merely a missing business subscription row;
+initial counter publication preserves any higher existing counter. No state lock
+spans controller or socket I/O. A missing/expired decision selects a bounded native
+503 only while the exact request is unanswered; it is not presented again.
+
+Controllers publish accepted subscription Contact/lease/termination from the
+committed result. BLF/MWI content and version are prepared before the decision;
+failed preparation/commit may waste a version but cannot publish false acceptance
+or resend uncertain SIP. A lost result is uncertain business evidence, not
+permission to repeat the decision elsewhere. A phone may need a fresh transaction
+or subscription. Once committed, required NOTIFY and post-OK INVITE/ACK/fork/
+ACK-before-BYE duties remain native even if the controller disappears. Subsequent
+business NOTIFYs and call commands retain the existing command contract.
 
 ### Call adapter boundary
 

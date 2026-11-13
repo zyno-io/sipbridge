@@ -106,6 +106,13 @@ func NewServer(cfg Config) (*Server, error) {
 		(!slices.Contains(cfg.Capabilities, NativeCompletionCapability) || cfg.OnControllerSession == nil || cfg.OnControllerRenew == nil) {
 		return nil, errors.New("controller reattach requires session and renewal hooks")
 	}
+	if slices.Contains(cfg.Capabilities, RequestDecisionCapability) {
+		for _, required := range requestDecisionDependencies {
+			if !slices.Contains(cfg.Capabilities, required) {
+				return nil, errors.New("request decisions require native state, completion, admission, budget and continuity")
+			}
+		}
+	}
 	for _, u := range cfg.AllowedURIs {
 		if u == "" || strings.Contains(u, "*") {
 			return nil, errors.New("URI identity allowlist must be exact")
@@ -411,6 +418,9 @@ const CommandBudgetCapability = "sip.command-budget.v1"
 const CommandAdmissionCapability = "sip.command-admission.v1"
 const DialogContinuityCapability = "sip.dialog-continuity.v1"
 const StateCapability = "sip.state.v1"
+const RequestDecisionCapability = "sip.request-decision.v1"
+
+var requestDecisionDependencies = [...]string{"sip.v1", StateCapability, NativeCompletionCapability, CommandAdmissionCapability, CommandBudgetCapability, DialogContinuityCapability}
 
 // HasStateCapability requires the common state contract for every adapter.
 func HasStateCapability(capabilities []string) bool {
@@ -555,6 +565,16 @@ func (p *session) hello() error {
 	if slices.Contains(p.server.cfg.Capabilities, NativeCompletionCapability) && !slices.Contains(p.capabilities, NativeCompletionCapability) {
 		return errors.New("state runtime requires sip.native-completion.v1")
 	}
+	if slices.Contains(p.server.cfg.Capabilities, RequestDecisionCapability) {
+		if !slices.Contains(p.capabilities, RequestDecisionCapability) {
+			return errors.New("memory runtime requires sip.request-decision.v1")
+		}
+		for _, required := range requestDecisionDependencies {
+			if !slices.Contains(p.capabilities, required) {
+				return errors.New("request decision dependencies are not negotiated")
+			}
+		}
+	}
 	if p.server.cfg.InboundAuthPolicy != nil && !slices.Contains(p.capabilities, LocalChallengeCapability) {
 		return errors.New("configured initial authentication requires sip.local-challenge.v1")
 	}
@@ -672,7 +692,14 @@ func (p *session) handle(e *pb.Envelope) bool {
 		if !slices.Contains(p.capabilities, "sip.v1") {
 			return false
 		}
-		if slices.Contains(p.capabilities, ControllerReattachCapability) && (e.GetIngest() != nil || e.GetCommand() != nil) {
+		direct := slices.Contains(p.capabilities, RequestDecisionCapability)
+		if e.GetRequestDecision() != nil && (!direct || e.RemainingBudgetMs == 0) {
+			return false
+		}
+		if direct && (e.GetIngest() != nil || e.GetRouteResult() != nil || e.GetRequest() != nil) {
+			return false
+		}
+		if slices.Contains(p.capabilities, ControllerReattachCapability) && (e.GetIngest() != nil || e.GetCommand() != nil || e.GetRequestDecision() != nil) {
 			p.mu.Lock()
 			ready := p.status.GetRetainedReady() && p.status.GetBindingsReady()
 			p.mu.Unlock()

@@ -21,7 +21,7 @@ import (
 // This fixture uses the real canonical control transport and runtime constructor.
 // Its socket adapter records writes in a channel; actual TLS SIP is covered by
 // the separate wire qualification and matched performance workload.
-func residentControlFixture(t *testing.T) (*ResidentMemory, *control.Peer, *websocket.Conn, context.Context, string, <-chan []byte, *atomic.Int64) {
+func residentControlFixture(t *testing.T, direct ...bool) (*ResidentMemory, *control.Peer, *websocket.Conn, context.Context, string, <-chan []byte, *atomic.Int64) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
@@ -39,6 +39,9 @@ func residentControlFixture(t *testing.T) (*ResidentMemory, *control.Peer, *webs
 	}
 	var e *ResidentMemory
 	capabilities := []string{Capability, control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability}
+	if len(direct) > 0 && direct[0] {
+		capabilities = append(capabilities, control.CommandBudgetCapability, control.DialogContinuityCapability, control.RequestDecisionCapability)
+	}
 	server, err := control.NewServer(control.Config{Process: process, Authenticator: auth, AllowPlain: true, StateAuthority: authority, Capabilities: capabilities,
 		OnApplicationLease: func(ctx context.Context, app *pb.ProcessRef, term string) (*pb.ApplicationLease, error) {
 			return e.ApplicationLease(ctx, app, term)

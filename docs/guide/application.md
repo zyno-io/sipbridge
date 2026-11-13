@@ -53,6 +53,23 @@ existing calls.
 
 ## Request handling duties
 
+### Memory: one decision
+
+Offer `sip.request-decision.v1` together with the native state, completion,
+admission, budget and continuity capabilities. A Memory `request` is a one-shot
+notification; do not acknowledge it separately. Authenticate, select the owner and
+policy, then submit one `requestDecision` for its exact handle and next sequence.
+An accepted SUBSCRIBE decision includes its required NOTIFY content. The native
+`ACCEPTED` result proves committed intent, not a socket write. Asynchronous call
+work can start after admission and use ordinary commands for later responses.
+
+When a notification includes a native-validated flow proposal, return its ordered
+receipt in the same decision while preserving the prior delivery witness used
+for policy. The [direct-decision contract](../spec/protocol.md#direct-request-decision-memory-target)
+owns exact fields, ownership, deadlines and uncertainty rules.
+
+### Checkpoint: route and present
+
 **Route new requests.** For each `ingress` message, return a `routeResult`
 before its budget runs out (two seconds at most): `ACCEPTED`, `REDIRECT` to
 another connected controller (at most two redirects, never back to a controller
@@ -76,6 +93,8 @@ Reply to the presentation with an accepted/completed `result`; this acknowledges
 application handling, not a physical SIP write. The response command has its own
 correlation ID and write outcome. Presentation is one-shot under the original
 deadline, without a durable queue or cross-worker retry after process loss.
+
+### Commands and events
 
 **Originate requests.** Use `openUac` for a new INVITE or a standalone OPTIONS,
 MESSAGE or NOTIFY, and `dialogRequest` for requests inside a dialog such as BYE

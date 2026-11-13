@@ -315,7 +315,11 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 		cancel()
 		t.Fatal(err)
 	}
-	probeHello := &pb.Envelope{CorrelationId: "unavailable-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "unavailable-probe", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 1, Capabilities: []string{"sip.v1", controlpkg.StateCapability, controlpkg.NativeCompletionCapability}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
+	capabilities := []string{"sip.v1", controlpkg.StateCapability, controlpkg.NativeCompletionCapability}
+	if backend == "memory" {
+		capabilities = append(capabilities, controlpkg.RequestDecisionCapability, controlpkg.CommandAdmissionCapability, controlpkg.CommandBudgetCapability, controlpkg.DialogContinuityCapability)
+	}
+	probeHello := &pb.Envelope{CorrelationId: "unavailable-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "unavailable-probe", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 1, Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
 	probeWire, err := protojson.Marshal(probeHello)
 	if err == nil {
 		err = probe.Write(attempt, websocket.MessageText, probeWire)
@@ -342,8 +346,8 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 	}
 	var controller *websocket.Conn
 	recoveryDeadline := time.Now().Add(8 * time.Second)
-	hello := &pb.Envelope{CorrelationId: "recover-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "surviving-controller", Epoch: "same-process"}, ConnectionAttempt: 1, Major: 1, Capabilities: []string{"sip.v1", controlpkg.StateCapability, controlpkg.NativeCompletionCapability}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
-	if hook != nil {
+	hello := &pb.Envelope{CorrelationId: "recover-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "surviving-controller", Epoch: "same-process"}, ConnectionAttempt: 1, Major: 1, Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: controlpkg.MaxEnvelope}}}}
+	if hook != nil && backend != "memory" {
 		hello.GetHello().Capabilities = append(hello.GetHello().Capabilities, controlpkg.DialogContinuityCapability)
 	}
 	if securityMode != "mtls" {
@@ -386,6 +390,9 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 	}
 	if backend == "memory" && (ack.ApplicationLease.GetTerm() == "" || ack.ApplicationLease.GetRecoveryToken() != "" || slices.Contains(ack.Capabilities, controlpkg.ControllerReattachCapability)) {
 		t.Fatal("memory must negotiate an ordinary owner without checkpoint recovery")
+	}
+	if backend == "memory" && !slices.Contains(ack.Capabilities, controlpkg.RequestDecisionCapability) {
+		t.Fatal("memory must negotiate the direct request decision contract")
 	}
 	frame := &pb.Envelope{SessionId: ack.SessionId, CorrelationId: "recovered-status", Payload: &pb.Envelope_Status{Status: &pb.SessionStatus{RetainedReady: true, BindingsReady: true}}}
 	encoded, _ := protojson.Marshal(frame)

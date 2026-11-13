@@ -24,7 +24,17 @@ func residentStartServer(message portable.Message, flow *pb.FlowRef, application
 		return nil, nil, err
 	}
 	request, ok := parsed.(*sip.Request)
-	if !ok || request.IsAck() || request.IsCancel() {
+	if !ok {
+		return nil, nil, errors.New("new server transaction requires a request")
+	}
+	return residentStartServerParsed(message, flow, application, localTag, requestID, deadline, now, request)
+}
+
+func residentStartServerParsed(message portable.Message, flow *pb.FlowRef, application *pb.ProcessRef, localTag, requestID string, deadline time.Time, now int64, request *sip.Request) (*residentTransaction, []portable.Effect, error) {
+	if flow == nil || application == nil || requestID == "" || localTag == "" {
+		return nil, nil, errors.New("server transaction identity required")
+	}
+	if request == nil || request.IsAck() || request.IsCancel() {
 		return nil, nil, errors.New("new server transaction requires an ordinary request")
 	}
 	family := portable.NonInviteServer
@@ -51,14 +61,27 @@ func (e *ResidentMemory) prepareResidentInitial(in *pb.OwnerIngest, deadline tim
 	if err := e.validateRef(in.Context); err != nil {
 		return nil, nil, nil, err
 	}
-	message := portable.Message{Wire: in.Wire, Transport: in.Flow.Transport,
-		Source: net.JoinHostPort(in.Flow.SourceIp, strconv.Itoa(int(in.Flow.SourcePort)))}
-	parsed, err := message.Parse()
+	parsed, err := (portable.Message{Wire: in.Wire, Transport: in.Flow.Transport}).Parse()
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	request, ok := parsed.(*sip.Request)
-	if !ok || request.To() == nil || request.From() == nil || parsed.CallID() == nil || parsed.CallID().Value() != in.Context.State.CallId || tag(request.To().Params) != "" || request.IsAck() || request.IsCancel() {
+	if !ok {
+		return nil, nil, nil, errors.New("initial request required")
+	}
+	return e.prepareResidentInitialParsed(in, deadline, now, request)
+}
+
+func (e *ResidentMemory) prepareResidentInitialParsed(in *pb.OwnerIngest, deadline time.Time, now time.Time, request *sip.Request) (*residentContext, *residentTransaction, []portable.Effect, error) {
+	if in == nil || in.Context == nil || in.Flow == nil || !validSendProcess(in.Application) {
+		return nil, nil, nil, errors.New("inbound authority required")
+	}
+	if err := e.validateRef(in.Context); err != nil {
+		return nil, nil, nil, err
+	}
+	message := portable.Message{Wire: in.Wire, Transport: in.Flow.Transport,
+		Source: net.JoinHostPort(in.Flow.SourceIp, strconv.Itoa(int(in.Flow.SourcePort)))}
+	if request == nil || request.To() == nil || request.From() == nil || request.CallID() == nil || request.CallID().Value() != in.Context.State.CallId || tag(request.To().Params) != "" || request.IsAck() || request.IsCancel() {
 		return nil, nil, nil, errors.New("invalid initial request identity")
 	}
 	localTag := e.id("resident-tag", in.Context.State.Incarnation, in.Context.Id)[:32]
@@ -67,12 +90,12 @@ func (e *ResidentMemory) prepareResidentInitial(in *pb.OwnerIngest, deadline tim
 	if deadline.Before(presentDeadline) {
 		presentDeadline = deadline
 	}
-	tx, effects, err := residentStartServer(message, in.Flow, in.Application, localTag, requestID, presentDeadline, now.UnixMilli())
+	tx, effects, err := residentStartServerParsed(message, in.Flow, in.Application, localTag, requestID, presentDeadline, now.UnixMilli(), request)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	snapshot := &pb.ContextSnapshot{Context: proto.Clone(in.Context).(*pb.ContextRef), Application: proto.Clone(in.Application).(*pb.ProcessRef),
-		BindingId: in.BindingId, PrincipalId: in.PrincipalId, Kind: pb.ContextSnapshot_TRANSACTION, CallId: parsed.CallID().Value(),
+		BindingId: in.BindingId, PrincipalId: in.PrincipalId, Kind: pb.ContextSnapshot_TRANSACTION, CallId: request.CallID().Value(),
 		RemoteTag: tag(request.From().Params), RemoteUri: request.From().Address.String(), LocalUri: request.To().Address.String(),
 		Transport: in.Flow.Transport, LocalTag: localTag}
 	if request.IsInvite() {

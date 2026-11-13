@@ -25,7 +25,7 @@ func (e *ResidentMemory) Handle(peer *control.Peer, envelope *pb.Envelope) error
 		return errors.New("resident engine closed")
 	}
 	work := e.work
-	if envelope.GetIngest() != nil {
+	if envelope.GetRequestDecision() != nil {
 		work = e.ingressWork
 	}
 	select {
@@ -55,8 +55,8 @@ func (e *ResidentMemory) handleResident(ctx context.Context, peer *control.Peer,
 		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "controller attachment unavailable"}, nil
 	}
 	switch body := envelope.Payload.(type) {
-	case *pb.Envelope_Ingest:
-		return e.ingest(ctx, peer, body.Ingest, deadline)
+	case *pb.Envelope_RequestDecision:
+		return e.decideResidentRequest(ctx, peer, body.RequestDecision, envelope.CorrelationId, deadline)
 	case *pb.Envelope_Command:
 		return e.command(ctx, peer, body.Command, envelope.CorrelationId, deadline)
 	case *pb.Envelope_Inspect:

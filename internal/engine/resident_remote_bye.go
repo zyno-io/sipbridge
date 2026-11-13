@@ -15,6 +15,14 @@ import (
 // completeResidentRemoteBye accepts only the retained dialog's exact admitted
 // flow. Its native 200 and terminal event do not require a live controller.
 func (e *ResidentMemory) completeResidentRemoteBye(ctx context.Context, flow *pb.FlowRef, received, observed *pb.SipMessage) (bool, error) {
+	parsed, err := parseObservedMessage(received.Wire)
+	if err != nil {
+		return false, err
+	}
+	return e.completeResidentRemoteByeParsed(ctx, flow, received, observed, parsed)
+}
+
+func (e *ResidentMemory) completeResidentRemoteByeParsed(ctx context.Context, flow *pb.FlowRef, received, observed *pb.SipMessage, parsed sip.Message) (bool, error) {
 	e.mu.Lock()
 	var c *residentContext
 	for _, selector := range observed.Selectors {
@@ -28,10 +36,6 @@ func (e *ResidentMemory) completeResidentRemoteBye(ctx context.Context, flow *pb
 		return false, nil
 	}
 	message := portable.Message{Wire: received.Wire, Transport: flow.Transport}
-	parsed, err := message.Parse()
-	if err != nil {
-		return true, err
-	}
 	request, ok := parsed.(*sip.Request)
 	if !ok || request.To() == nil || request.From() == nil {
 		return false, nil

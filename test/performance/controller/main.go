@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,6 +30,7 @@ type application struct {
 	conn      *websocket.Conn
 	session   string
 	owner     *pb.ProcessRef
+	direct    bool
 	mu        sync.Mutex
 	writes    sync.Mutex
 	pending   map[string]chan *pb.Envelope
@@ -69,7 +71,7 @@ func run() error {
 	defer conn.CloseNow()
 	conn.SetReadLimit(1 << 20)
 	a := &application{ctx: ctx, conn: conn, owner: &pb.ProcessRef{InstanceId: "perf-app", Epoch: uuid.NewString()}, pending: make(map[string]chan *pb.Envelope), lanes: make(map[string]*sync.Mutex)}
-	if err = a.send(&pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: a.owner, ConnectionAttempt: 1, Major: 1, Capabilities: []string{"sip.v1", "sip.state.v1", "sip.native-completion.v1", "sip.command-budget.v1", "sip.command-admission.v1", "sip.dialog-continuity.v1"}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 1 << 20}}}}); err != nil {
+	if err = a.send(&pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: a.owner, ConnectionAttempt: 1, Major: 1, Capabilities: []string{"sip.v1", "sip.state.v1", "sip.native-completion.v1", "sip.command-budget.v1", "sip.command-admission.v1", "sip.dialog-continuity.v1", "sip.request-decision.v1"}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 1 << 20}}}}); err != nil {
 		return err
 	}
 	_, wire, err := conn.Read(ctx)
@@ -85,6 +87,7 @@ func run() error {
 		return errors.New("fixture requires native state application lease")
 	}
 	a.session = ack.SessionId
+	a.direct = slices.Contains(ack.Capabilities, "sip.request-decision.v1")
 	if err = a.send(&pb.Envelope{CorrelationId: uuid.NewString(), Payload: &pb.Envelope_Status{Status: &pb.SessionStatus{RetainedReady: true, BindingsReady: true, AdmitSubscriptions: true, AdmitCalls: true}}}); err != nil {
 		return err
 	}
@@ -219,8 +222,10 @@ func (a *application) handle(e *pb.Envelope) error {
 		return a.accepted(e)
 	case *pb.Envelope_Request:
 		p := body.Request
-		if err := a.accepted(e); err != nil {
-			return err
+		if !a.direct {
+			if err := a.accepted(e); err != nil {
+				return err
+			}
 		}
 		a.mu.Lock()
 		lane := a.lanes[p.Snapshot.Context.Id]
@@ -245,6 +250,9 @@ func (a *application) handle(e *pb.Envelope) error {
 		headers := []*pb.Header{{Name: "Expires", Value: header(p.Message.Wire, "Expires")}}
 		if method == "REGISTER" {
 			headers = append(headers, &pb.Header{Name: "Contact", Value: header(p.Message.Wire, "Contact")})
+		}
+		if a.direct {
+			return a.decide(p, status, headers)
 		}
 		r, err := a.command(p.Snapshot, &pb.Command{Action: &pb.Command_Respond{Respond: &pb.Respond{RequestId: p.RequestId, Status: status, Headers: headers, Authority: &pb.ResponseAuthority{DirectoryEpoch: "perf-directory"}}}})
 		if err != nil {
@@ -284,4 +292,50 @@ func (a *application) handle(e *pb.Envelope) error {
 	default:
 		return fmt.Errorf("unexpected control payload %T", body)
 	}
+}
+
+// The fixture prepares policy and content only. The native committed result is
+// not physical delivery proof; the independent TLS load client verifies every SIP result.
+func (a *application) decide(p *pb.RequestPresented, status uint32, headers []*pb.Header) error {
+	decision := &pb.RequestDecision{Context: p.Snapshot.Context, RequestId: p.RequestId, Sequence: p.Snapshot.CommandSequence + 1,
+		Admission: &pb.CommandAdmission{DirectoryEpoch: "perf-directory", ExpiresAtMs: uint64(time.Now().Add(2 * time.Second).UnixMilli()), ExpectedDelivery: p.Snapshot.Delivery},
+		Basis:     pb.OwnerIngest_AUTHENTICATED_BINDING, PrincipalId: "perf-phone", BindingId: "perf-binding", Status: status, Headers: headers}
+	if proposal := p.FlowAdoption; proposal != nil {
+		decision.Delivery = &pb.ContextDelivery{Flow: proposal.Flow, NativeRevision: proposal.NativeRevision, DirectoryEpoch: "perf-directory", RegistrationTicket: "perf-ticket"}
+	}
+	if p.Message.Method == "SUBSCRIBE" {
+		event := header(p.Message.Wire, "Event")
+		content := "application/simple-message-summary"
+		payload := "Messages-Waiting: no\r\nMessage-Account: sip:1000@bench.invalid\r\nVoice-Message: 0/0 (0/0)\r\n"
+		if event == "dialog" {
+			content = "application/dialog-info+xml"
+			payload = fmt.Sprintf("<?xml version=\"1.0\"?><dialog-info xmlns=\"urn:ietf:params:xml:ns:dialog-info\" version=\"%s\" state=\"full\" entity=\"sip:1000@bench.invalid\"></dialog-info>", strings.Fields(header(p.Message.Wire, "CSeq"))[0])
+		}
+		state := "active;expires=" + header(p.Message.Wire, "Expires")
+		if header(p.Message.Wire, "Expires") == "0" {
+			state = "terminated;reason=timeout"
+		}
+		decision.Notify = &pb.DialogRequest{Method: "NOTIFY", Headers: []*pb.Header{{Name: "Event", Value: event}, {Name: "Subscription-State", Value: state}, {Name: "Content-Type", Value: content}}, Body: []byte(payload)}
+		decision.Admission.SelectedFlow = p.Flow
+	}
+	reply, err := a.call(&pb.Envelope{Payload: &pb.Envelope_RequestDecision{RequestDecision: decision}})
+	if err != nil {
+		return err
+	}
+	result := reply.GetResult()
+	if result == nil || result.Certainty != pb.OperationResult_ACCEPTED || result.Error != "" || result.Snapshot == nil {
+		return fmt.Errorf("fixture decision refused: %v", result)
+	}
+	if p.Message.Method == "REGISTER" {
+		a.register.Add(1)
+	} else {
+		a.subscribe.Add(1)
+		a.notify.Add(1)
+	}
+	if p.Message.Method == "REGISTER" || header(p.Message.Wire, "Expires") == "0" {
+		a.mu.Lock()
+		delete(a.lanes, p.Snapshot.Context.Id)
+		a.mu.Unlock()
+	}
+	return nil
 }

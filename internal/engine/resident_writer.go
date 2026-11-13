@@ -22,159 +22,208 @@ func (e *ResidentMemory) stageResidentOutputsLocked(c *residentContext, tx *resi
 	return e.stageResidentMixedOutputsLocked(c, tx, effects, policy, operation, deadline, nil)
 }
 
-// Mixed paired native transitions share one procedure budget and publish one
-// all-or-nothing output batch, while each response retains its own return flow.
+// Mixed paired native transitions publish one all-or-nothing output batch. Each
+// response retains its own return flow.
 func (e *ResidentMemory) stageResidentMixedOutputsLocked(c *residentContext, tx *residentTransaction, effects []portable.Effect, policy *pb.CommandAdmission, operation string, deadline time.Time, selectTransaction func(portable.Effect) *residentTransaction) ([]*pb.FlowWrite, error) {
+	return e.stageResidentOutputGroupsLocked(c, []residentOutputGroup{{tx: tx, effects: effects, policy: policy, selectTransaction: selectTransaction}}, operation, deadline)
+}
+
+type residentOutputGroup struct {
+	tx                *residentTransaction
+	effects           []portable.Effect
+	policy            *pb.CommandAdmission
+	nativeCompletion  bool
+	selectTransaction func(portable.Effect) *residentTransaction
+}
+
+// A decision can stage its response and required NOTIFY together. All native
+// validation and all budget charges succeed before any output becomes visible.
+func (e *ResidentMemory) stageResidentOutputGroupsLocked(c *residentContext, groups []residentOutputGroup, operation string, deadline time.Time, publishAuthority ...func() error) ([]*pb.FlowWrite, error) {
 	var staged []*residentOutput
-	var bytes int64
-	budget := tx.budget
-	if budget == nil {
-		budget = c.budget
+	type budgetCharge struct {
+		bytes, consumed int64
+		count           int
+		charged         bool
 	}
+	charges := make(map[*residentBudget]*budgetCharge)
 	type emissionCount struct{ total, provisional uint16 }
 	counts := make(map[*residentTransaction]emissionCount)
-	var acks map[residentACKIdentity]uint16
-	for _, effect := range effects {
-		if effect.Kind != portable.Send && effect.Kind != portable.Respond {
-			continue
-		}
-		if effect.Message == nil {
-			return nil, errors.New("native send lacks wire")
-		}
-		selected := tx
-		if selectTransaction != nil {
-			selected = selectTransaction(effect)
-		}
-		if selected == nil || selected.budget != tx.budget {
-			return nil, errors.New("mixed output budget mismatch")
-		}
-		flow := selected.flow
-		if policy != nil && policy.SelectedFlow != nil {
-			flow = policy.SelectedFlow
-		}
-		if !validPolicyFlow(flow) || !sameProcess(flow.Ingress, e.cfg.Process) {
-			return nil, errors.New("local output flow required")
-		}
-		message := *effect.Message
-		if message.Transport != flow.Transport {
-			return nil, errors.New("output transport changed")
-		}
-		parsed, err := message.Parse()
-		if err != nil {
-			return nil, err
-		}
-		// Physical authority needs only method/status/wire. Do not allocate a
-		// controller header/address/digest DTO or parse the same output again.
-		observed := &pb.SipMessage{Method: string(parsed.CSeq().MethodName)}
-		if response, ok := parsed.(*sip.Response); ok {
-			response.Via().Params.Add("received", flow.SourceIp)
-			if response.Via().Params.Has("rport") {
-				response.Via().Params.Add("rport", strconv.Itoa(int(flow.SourcePort)))
-			}
-			message.Wire = []byte(response.String())
-			observed.Status = uint32(response.StatusCode)
-		}
-		observed.Wire = message.Wire
-		if observed.Method == "ACK" && observed.Status == 0 {
-			identity := residentACKIdentity{local: tag(parsed.From().Params), remote: tag(parsed.To().Params), sequence: parsed.CSeq().SeqNo}
-			if budget != nil && budget.acks[identity]+acks[identity] >= stateProfileTransmissions {
+	acks := make(map[*residentBudget]map[residentACKIdentity]uint16)
+	for _, group := range groups {
+		tx, effects, policy, selectTransaction := group.tx, group.effects, group.policy, group.selectTransaction
+		for _, effect := range effects {
+			if effect.Kind != portable.Send && effect.Kind != portable.Respond {
 				continue
 			}
-			if acks == nil {
-				acks = make(map[residentACKIdentity]uint16)
+			if effect.Message == nil {
+				return nil, errors.New("native send lacks wire")
 			}
-			acks[identity]++
-		} else {
-			count, ok := counts[selected]
-			if !ok {
-				count = emissionCount{selected.emissions, selected.provisionalEmissions}
+			selected := tx
+			if selectTransaction != nil {
+				selected = selectTransaction(effect)
 			}
-			provisional := observed.Status > 0 && observed.Status < 200
-			full := count.total >= stateTransactionEmissions || provisional && count.provisional >= stateProfileTransmissions || observed.Status >= 200 && count.total-count.provisional >= stateProfileTransmissions
-			if full {
-				if operation != "" && !effect.Replay {
-					return nil, errors.New("procedure emission capacity")
+			if selected == nil {
+				return nil, errors.New("missing output transaction")
+			}
+			budget := selected.budget
+			if budget == nil {
+				budget = c.budget
+			}
+			flow := selected.flow
+			if policy != nil && policy.SelectedFlow != nil {
+				flow = policy.SelectedFlow
+			}
+			if !validPolicyFlow(flow) || !sameProcess(flow.Ingress, e.cfg.Process) {
+				return nil, errors.New("local output flow required")
+			}
+			message := *effect.Message
+			if message.Transport != flow.Transport {
+				return nil, errors.New("output transport changed")
+			}
+			parsed, err := message.Parse()
+			if err != nil {
+				return nil, err
+			}
+			// Physical authority needs only method/status/wire. Do not allocate a
+			// controller header/address/digest DTO or parse the same output again.
+			observed := &pb.SipMessage{Method: string(parsed.CSeq().MethodName)}
+			if response, ok := parsed.(*sip.Response); ok {
+				response.Via().Params.Add("received", flow.SourceIp)
+				if response.Via().Params.Has("rport") {
+					response.Via().Params.Add("rport", strconv.Itoa(int(flow.SourcePort)))
 				}
-				continue
+				message.Wire = []byte(response.String())
+				observed.Status = uint32(response.StatusCode)
 			}
-			count.total++
-			if provisional {
-				count.provisional++
+			observed.Wire = message.Wire
+			if observed.Method == "ACK" && observed.Status == 0 {
+				identity := residentACKIdentity{local: tag(parsed.From().Params), remote: tag(parsed.To().Params), sequence: parsed.CSeq().SeqNo}
+				if budget != nil && budget.acks[identity]+acks[budget][identity] >= stateProfileTransmissions {
+					continue
+				}
+				if acks[budget] == nil {
+					acks[budget] = make(map[residentACKIdentity]uint16)
+				}
+				acks[budget][identity]++
+			} else {
+				count, ok := counts[selected]
+				if !ok {
+					count = emissionCount{selected.emissions, selected.provisionalEmissions}
+				}
+				provisional := observed.Status > 0 && observed.Status < 200
+				full := count.total >= stateTransactionEmissions || provisional && count.provisional >= stateProfileTransmissions || observed.Status >= 200 && count.total-count.provisional >= stateProfileTransmissions
+				if full {
+					if operation != "" && !effect.Replay {
+						return nil, errors.New("procedure emission capacity")
+					}
+					continue
+				}
+				count.total++
+				if provisional {
+					count.provisional++
+				}
+				counts[selected] = count
 			}
-			counts[selected] = count
+			until := time.Now().Add(2 * time.Second)
+			if !deadline.IsZero() && deadline.Before(until) {
+				until = deadline
+			}
+			if policy != nil && time.UnixMilli(int64(policy.ExpiresAtMs)).Before(until) {
+				until = time.UnixMilli(int64(policy.ExpiresAtMs))
+			}
+			if !time.Now().Before(until) {
+				return nil, errors.New("output deadline elapsed")
+			}
+			class := pb.EffectAuthorization_APPLICATION
+			if selected.cleanup {
+				class = pb.EffectAuthorization_TERMINAL_CLEANUP
+			} else if observed.Status > 0 {
+				class = pb.EffectAuthorization_RESPONSE
+			} else if group.nativeCompletion || effect.Replay || observed.Method == "ACK" || observed.Method == "CANCEL" {
+				class = pb.EffectAuthorization_NATIVE_COMPLETION
+			}
+			ref := &pb.StateEffectRef{Context: c.snapshot.Context, AttemptId: "a-" + uuid.NewString()}
+			auth := &pb.EffectAuthorization{Effect: ref, AuthorityClass: class, DeadlineMs: uint64(until.UnixMilli()), ApplicationLeaseTerm: c.snapshot.ApplicationLeaseTerm,
+				CompletionScope: e.id("native-completion-v1", e.authority.Service, e.authority.Generation, e.authority.PrimaryId, c.snapshot.Context.State.GroupId, c.snapshot.Context.State.Incarnation, c.snapshot.CallId, c.snapshot.Context.Id)}
+			fingerprint, err := SendFingerprint(c.snapshot, observed, auth, flow)
+			if err != nil {
+				return nil, err
+			}
+			ref.Id, auth.Fingerprint = "e-"+fingerprint, fingerprint
+			epoch := e.authority.PrimaryId
+			if policy != nil {
+				epoch = policy.DirectoryEpoch
+			}
+			write := &pb.FlowWrite{Effect: ref, Flow: flow, Permit: &pb.SendPermit{Authorization: auth, Flow: flow, DirectoryEpoch: epoch,
+				OrderingProof: e.id("native-write-authority-v1", fingerprint), CompletionScope: auth.CompletionScope}}
+			output, err := newResidentOutput(write, message.Wire, until)
+			if err != nil {
+				return nil, err
+			}
+			output.transaction, output.operation, output.command = selected.native.Key, operation, selected.command
+			output.replay = effect.Replay
+			output.method, output.status, output.drain = observed.Method, observed.Status, drainMessageObservation(parsed)
+			if observed.Method == "ACK" {
+				output.ackSequence = parsed.CSeq().SeqNo
+			}
+			output.bytes = int64(unsafe.Sizeof(*output)) + int64(len(message.Wire)) + residentFlowBytes(flow) + residentProofBytes(output.write) + 512
+			if policy != nil && policy.ExpectedDelivery != nil {
+				output.expectedDelivery = proto.Clone(policy.ExpectedDelivery).(*pb.ContextDelivery)
+			}
+			output.budget = budget
+			charge := charges[budget]
+			if charge == nil {
+				charge = &budgetCharge{}
+				charges[budget] = charge
+			}
+			charge.bytes += output.bytes
+			charge.count++
+			staged = append(staged, output)
 		}
-		until := time.Now().Add(2 * time.Second)
-		if !deadline.IsZero() && deadline.Before(until) {
-			until = deadline
-		}
-		if policy != nil && time.UnixMilli(int64(policy.ExpiresAtMs)).Before(until) {
-			until = time.UnixMilli(int64(policy.ExpiresAtMs))
-		}
-		if !time.Now().Before(until) {
-			return nil, errors.New("output deadline elapsed")
-		}
-		class := pb.EffectAuthorization_APPLICATION
-		if selected.cleanup {
-			class = pb.EffectAuthorization_TERMINAL_CLEANUP
-		} else if observed.Status > 0 {
-			class = pb.EffectAuthorization_RESPONSE
-		} else if effect.Replay || observed.Method == "ACK" || observed.Method == "CANCEL" {
-			class = pb.EffectAuthorization_NATIVE_COMPLETION
-		}
-		ref := &pb.StateEffectRef{Context: c.snapshot.Context, AttemptId: "a-" + uuid.NewString()}
-		auth := &pb.EffectAuthorization{Effect: ref, AuthorityClass: class, DeadlineMs: uint64(until.UnixMilli()), ApplicationLeaseTerm: c.snapshot.ApplicationLeaseTerm,
-			CompletionScope: e.id("native-completion-v1", e.authority.Service, e.authority.Generation, e.authority.PrimaryId, c.snapshot.Context.State.GroupId, c.snapshot.Context.State.Incarnation, c.snapshot.CallId, c.snapshot.Context.Id)}
-		fingerprint, err := SendFingerprint(c.snapshot, observed, auth, flow)
-		if err != nil {
-			return nil, err
-		}
-		ref.Id, auth.Fingerprint = "e-"+fingerprint, fingerprint
-		epoch := e.authority.PrimaryId
-		if policy != nil {
-			epoch = policy.DirectoryEpoch
-		}
-		write := &pb.FlowWrite{Effect: ref, Flow: flow, Permit: &pb.SendPermit{Authorization: auth, Flow: flow, DirectoryEpoch: epoch,
-			OrderingProof: e.id("native-write-authority-v1", fingerprint), CompletionScope: auth.CompletionScope}}
-		output, err := newResidentOutput(write, message.Wire, until)
-		if err != nil {
-			return nil, err
-		}
-		output.transaction, output.operation, output.command = selected.native.Key, operation, selected.command
-		output.replay = effect.Replay
-		output.method, output.status, output.drain = observed.Method, observed.Status, drainMessageObservation(parsed)
-		if observed.Method == "ACK" {
-			output.ackSequence = parsed.CSeq().SeqNo
-		}
-		output.bytes = int64(unsafe.Sizeof(*output)) + int64(len(message.Wire)) + residentFlowBytes(flow) + residentProofBytes(output.write) + 512
-		if policy != nil && policy.ExpectedDelivery != nil {
-			output.expectedDelivery = proto.Clone(policy.ExpectedDelivery).(*pb.ContextDelivery)
-		}
-		bytes += output.bytes
-		staged = append(staged, output)
 	}
 	if len(staged) == 0 {
 		return nil, nil
 	}
-	if budget == nil || !budget.open || budget.outputs < len(staged) {
-		return nil, errors.New("procedure output capacity")
-	}
 	if len(c.outputs)+c.reservedOutputs > stateNativeProcedures*stateTransactionEmissions {
 		return nil, errors.New("context output capacity")
 	}
-	consumed, err := e.chargeResidentBudgetLocked(c, budget, bytes)
-	if err != nil {
-		return nil, err
+	for budget, charge := range charges {
+		if budget == nil || !budget.open || budget.outputs < charge.count {
+			return nil, errors.New("procedure output capacity")
+		}
 	}
-	budget.outputs -= len(staged)
-	c.reservedOutputs -= len(staged)
+	for budget, charge := range charges {
+		consumed, err := e.chargeResidentBudgetLocked(c, budget, charge.bytes)
+		if err != nil {
+			for owner, prior := range charges {
+				if prior.charged {
+					_ = e.refundResidentBudgetLocked(c, owner, prior.bytes, prior.consumed)
+				}
+			}
+			return nil, err
+		}
+		charge.consumed, charge.charged = consumed, true
+	}
+	if len(publishAuthority) > 0 {
+		if err := publishAuthority[0](); err != nil {
+			for budget, charge := range charges {
+				_ = e.refundResidentBudgetLocked(c, budget, charge.bytes, charge.consumed)
+			}
+			return nil, err
+		}
+	}
+	for budget, charge := range charges {
+		budget.outputs -= charge.count
+		c.reservedOutputs -= charge.count
+	}
 	for selected, count := range counts {
 		selected.emissions, selected.provisionalEmissions = count.total, count.provisional
 	}
-	if len(acks) != 0 {
+	for budget, identities := range acks {
 		if budget.acks == nil {
 			budget.acks = make(map[residentACKIdentity]uint16)
 		}
-		for identity, count := range acks {
+		for identity, count := range identities {
 			budget.acks[identity] += count
 		}
 	}
@@ -183,9 +232,9 @@ func (e *ResidentMemory) stageResidentMixedOutputsLocked(c *residentContext, tx 
 	}
 	writes := make([]*pb.FlowWrite, 0, len(staged))
 	for _, output := range staged {
-		output.budget = budget
-		output.borrowed = min(consumed, output.bytes)
-		consumed -= output.borrowed
+		charge := charges[output.budget]
+		output.borrowed = min(charge.consumed, output.bytes)
+		charge.consumed -= output.borrowed
 		c.outputs[output.write.Effect.Id] = output
 		retainResidentCommandLocked(output.command)
 		writes = append(writes, output.write)

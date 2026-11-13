@@ -71,6 +71,12 @@ func (e *ResidentMemory) failResidentPresentation(c *residentContext, requestID 
 	if request, ok := origin.(*sip.Request); parseErr == nil && ok && request.IsInvite() && request.To() != nil && request.From() != nil {
 		dialogKey = tag(request.To().Params) + "/" + tag(request.From().Params)
 		dialog = c.dialogs[dialogKey]
+		// An undecided direct request has not changed its dialog. Native
+		// refusal must still complete its transaction if later dialog input
+		// made this unaccepted request stale.
+		if tx.decisionPending {
+			dialog = nil
+		}
 		if dialog != nil {
 			dialogNext, dialogEffects, err = portable.StepDialog(dialog.native, portable.DialogInput{Kind: portable.DialogSendResponse, Now: time.Now().UnixMilli(), Message: message})
 			if err == nil {
@@ -102,6 +108,9 @@ func (e *ResidentMemory) failResidentPresentation(c *residentContext, requestID 
 		_ = e.scheduleResidentDialogLocked(c, dialogKey, dialogEffects)
 	}
 	e.commitResidentTransactionBytesLocked(c, tx, delta, borrowed)
+	if tx.decisionPending {
+		e.clearResidentDecisionLocked(c, tx)
+	}
 	_ = e.scheduleResidentTransactionLocked(c, tx, effects)
 	e.retireResidentTransactionLocked(c, tx)
 	c.mu.Unlock()

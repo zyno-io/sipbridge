@@ -26,8 +26,13 @@ func (e *ResidentMemory) completeResidentClient(ctx context.Context, flow *pb.Fl
 	return e.completeResidentClientParsed(ctx, flow, received.Wire, response)
 }
 
-func (e *ResidentMemory) completeResidentClientParsed(ctx context.Context, flow *pb.FlowRef, wire []byte, response *sip.Response) (bool, error) {
-	selectors := observedMessageSelectors(response, false)
+func (e *ResidentMemory) completeResidentClientParsed(ctx context.Context, flow *pb.FlowRef, wire []byte, response *sip.Response, projected ...[]string) (bool, error) {
+	var selectors []string
+	if len(projected) > 0 {
+		selectors = projected[0]
+	} else {
+		selectors = observedMessageSelectors(response, false)
+	}
 	e.mu.Lock()
 	var c *residentContext
 	for _, selector := range selectors {

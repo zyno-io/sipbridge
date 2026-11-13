@@ -58,6 +58,7 @@ type residentContext struct {
 	reservedOutputs      int
 	reservedEvents       int
 	ownerKey             string
+	directUnbound        bool
 	ownerLost            bool
 	ownerCleanupAt       time.Time
 	borrowed             int64
@@ -93,6 +94,10 @@ type residentAdmission struct {
 }
 
 type residentTransaction struct {
+	direct               bool
+	decisionPending      bool
+	decisionProposal     *pb.FlowAdoptionRequest
+	requestDialog        string
 	emissions            uint16
 	provisionalEmissions uint16
 	policy               *pb.CommandAdmission

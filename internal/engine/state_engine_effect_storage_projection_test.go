@@ -96,7 +96,9 @@ func TestEffectStorageProjectionCoversCanonicalMetadataFields(t *testing.T) {
 		value  proto.Message
 		fields string
 	}{
-		{&pb.RequestPresented{}, "snapshot,request_id,message,flow"},
+		// flow_adoption is a direct Memory notification field. Checkpoint
+		// requests never populate it or put its proposal in durable effects.
+		{&pb.RequestPresented{}, "snapshot,request_id,message,flow,flow_adoption"},
 		{&pb.EgressRequest{}, "snapshot,message,return_flow,authorization"},
 		{&pb.DialogEvent{}, "kind,snapshot,message,operation_id,error"},
 	} {

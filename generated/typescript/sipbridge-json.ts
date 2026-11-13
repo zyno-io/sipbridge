@@ -182,6 +182,12 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
                 message: '.sipbridge.control.v1.ControllerContextsResult',
                 oneof: 'payload',
                 alias: 'controller_contexts_result'
+            },
+            requestDecision: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.RequestDecision',
+                oneof: 'payload',
+                alias: 'request_decision'
             }
         },
         oneofs: ['payload']
@@ -870,6 +876,62 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             flow: {
                 kind: 'message',
                 message: '.sipbridge.control.v1.FlowRef'
+            },
+            flowAdoption: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.FlowAdoptionRequest',
+                alias: 'flow_adoption'
+            }
+        },
+        oneofs: []
+    },
+    '.sipbridge.control.v1.RequestDecision': {
+        fields: {
+            context: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.ContextRef'
+            },
+            requestId: {
+                kind: 'string',
+                alias: 'request_id'
+            },
+            sequence: {
+                kind: 'uint64'
+            },
+            admission: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.CommandAdmission'
+            },
+            basis: {
+                kind: 'enum',
+                values: ['UNSPECIFIED', 'EXISTING_FLOW', 'AUTHENTICATED_BINDING', 'TLS_DIALOG_CONTINUITY', 'TLS_TRANSACTION_CONTINUITY']
+            },
+            principalId: {
+                kind: 'string',
+                alias: 'principal_id'
+            },
+            bindingId: {
+                kind: 'string',
+                alias: 'binding_id'
+            },
+            delivery: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.ContextDelivery'
+            },
+            status: {
+                kind: 'uint32'
+            },
+            headers: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.Header',
+                repeated: true
+            },
+            body: {
+                kind: 'bytes'
+            },
+            notify: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.DialogRequest'
             }
         },
         oneofs: []

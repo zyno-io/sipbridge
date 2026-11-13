@@ -43,7 +43,17 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 		return controller.Write(ctx, websocket.MessageText, wire)
 	}
 	present := make(chan uint32, 8)
+	acknowledged := make(chan struct{}, 1)
 	failures := make(chan error, 1)
+	defer func() {
+		if t.Failed() {
+			select {
+			case err := <-failures:
+				t.Logf("fixture control failure: %v", err)
+			default:
+			}
+		}
+	}()
 	stopped := make(chan struct{})
 	fail := func(err error) {
 		select {
@@ -51,10 +61,8 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 		default:
 		}
 	}
-	app := hello.ApplicationLease.Application
 	go func() {
 		defer close(stopped)
-		sequence := uint64(0)
 		for {
 			_, wire, err := controller.Read(ctx)
 			if err != nil {
@@ -76,20 +84,10 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 			}
 			switch body := frame.Payload.(type) {
 			case *pb.Envelope_Ingress:
-				in := body.Ingress
-				reply(&pb.Envelope{Payload: &pb.Envelope_RouteResult{RouteResult: &pb.RouteResult{Outcome: pb.RouteResult_ACCEPTED}}})
-				admission := pb.OwnerIngest_EXISTING_FLOW
-				if parsed, parseErr := sip.ParseMessage(in.Message.Wire); parseErr == nil && parsed.To() != nil && parsed.To().Params.Has("tag") {
-					admission = pb.OwnerIngest_TLS_DIALOG_CONTINUITY
-				}
-				ingest := &pb.OwnerIngest{Context: in.Context, Application: app, Flow: in.Flow, Wire: in.Message.Wire, Authenticated: true, PrincipalId: "fixture-phone", BindingId: "fixture-binding", Admission: admission}
-				if err = send(&pb.Envelope{CorrelationId: uuid.NewString(), RemainingBudgetMs: 2000, Payload: &pb.Envelope_Ingest{Ingest: ingest}}); err != nil {
-					fail(err)
-					return
-				}
+				fail(fmt.Errorf("unexpected old ingress handshake: %T", body))
+				return
 			case *pb.Envelope_Request:
 				request := body.Request
-				reply(&pb.Envelope{Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}}})
 				parsed, parseErr := sip.ParseMessage(request.Message.Wire)
 				if parseErr != nil {
 					fail(parseErr)
@@ -100,9 +98,14 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 				if parsed.CSeq().MethodName == sip.INVITE && seq == 3 {
 					continue
 				}
-				sequence++
-				command := &pb.Command{Context: request.Snapshot.Context, Sequence: sequence, Admission: &pb.CommandAdmission{DirectoryEpoch: "fixture-directory", ExpiresAtMs: uint64(time.Now().Add(2 * time.Second).UnixMilli()), ExpectedDelivery: request.Snapshot.Delivery}, Action: &pb.Command_Respond{Respond: &pb.Respond{RequestId: request.RequestId, Status: 200, PrincipalId: "fixture-phone", BindingId: "fixture-binding"}}}
-				if err = send(&pb.Envelope{CorrelationId: uuid.NewString(), RemainingBudgetMs: 2000, Payload: &pb.Envelope_Command{Command: command}}); err != nil {
+				decision := &pb.RequestDecision{Context: request.Snapshot.Context, RequestId: request.RequestId, Sequence: request.Snapshot.CommandSequence + 1,
+					Admission: &pb.CommandAdmission{DirectoryEpoch: "fixture-directory", ExpiresAtMs: uint64(time.Now().Add(2 * time.Second).UnixMilli()), ExpectedDelivery: request.Snapshot.Delivery},
+					Basis:     pb.OwnerIngest_AUTHENTICATED_BINDING, PrincipalId: "fixture-phone", BindingId: "fixture-binding", Status: 200}
+				if proposal := request.FlowAdoption; proposal != nil {
+					decision.Basis = pb.OwnerIngest_TLS_DIALOG_CONTINUITY
+					decision.Delivery = &pb.ContextDelivery{Flow: proposal.Flow, NativeRevision: proposal.NativeRevision, DirectoryEpoch: "fixture-directory", RegistrationTicket: "fixture"}
+				}
+				if err = send(&pb.Envelope{CorrelationId: uuid.NewString(), RemainingBudgetMs: 2000, Payload: &pb.Envelope_RequestDecision{RequestDecision: decision}}); err != nil {
 					fail(err)
 					return
 				}
@@ -111,6 +114,12 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 				reply(&pb.Envelope{Payload: &pb.Envelope_FlowAdoptionResult{FlowAdoptionResult: &pb.FlowAdoptionResult{Receipt: &pb.ContextDelivery{Flow: p.Flow, NativeRevision: p.NativeRevision, DirectoryEpoch: "fixture-directory", RegistrationTicket: "fixture"}}}})
 			case *pb.Envelope_DialogEvent:
 				reply(&pb.Envelope{Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}}})
+				if body.DialogEvent.Kind == pb.DialogEvent_ACKNOWLEDGED {
+					select {
+					case acknowledged <- struct{}{}:
+					default:
+					}
+				}
 			case *pb.Envelope_Result:
 				if body.Result.Error != "" {
 					fail(fmt.Errorf("control result: %s", body.Result.Error))
@@ -153,6 +162,13 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 	}
 	if _, err = phone.Write(ack.Wire); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-acknowledged:
+	case err := <-failures:
+		t.Fatal(err)
+	case <-ctx.Done():
+		t.Fatal("initial ACK was not committed")
 	}
 	replacement := dial()
 	replacementReader := bufio.NewReader(replacement)

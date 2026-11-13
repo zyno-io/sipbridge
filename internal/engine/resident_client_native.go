@@ -71,6 +71,9 @@ func (e *ResidentMemory) prepareResidentClientGrowth(c *residentContext, budget 
 	growth := residentClientGrowth{budget: budget, delta: delta}
 	var err error
 	growth.borrowed, err = e.chargeResidentBudgetLocked(c, budget, max(int64(0), delta))
+	if err != nil {
+		return residentClientGrowth{}, err
+	}
 	return growth, err
 }
 func (e *ResidentMemory) rollbackResidentClientGrowth(c *residentContext, growth residentClientGrowth) {

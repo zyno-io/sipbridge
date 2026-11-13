@@ -2,6 +2,7 @@ package control
 
 import (
 	"bytes"
+	"errors"
 	"math/rand"
 	"strings"
 	"testing"
@@ -205,4 +206,64 @@ func BenchmarkJSONProducer(b *testing.B) {
 			})
 		}
 	}
+}
+
+// Preceding producer validation, retained only as an independent test oracle.
+// ProtoJSON already guarantees canonical field names, scalar encodings, UTF-8
+// and unique object keys. Check the stricter profile constraints directly on
+// the owned producer value instead of parsing and decoding its JSON again.
+func validateJSONProducerMessage(message protoreflect.Message, depth int) error {
+	if depth >= 32 {
+		return errors.New("JSON nesting limit")
+	}
+	oneofs := message.Descriptor().Oneofs()
+	for i := 0; i < oneofs.Len(); i++ {
+		if message.WhichOneof(oneofs.Get(i)) == nil {
+			return errors.New("missing JSON variant")
+		}
+	}
+	var validationError error
+	message.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		switch {
+		case field.IsMap():
+			if depth+1 >= 32 {
+				validationError = errors.New("JSON nesting limit")
+				return false
+			}
+			value.Map().Range(func(_ protoreflect.MapKey, entry protoreflect.Value) bool {
+				validationError = validateJSONProducerScalar(entry, field.MapValue(), depth+2)
+				return validationError == nil
+			})
+		case field.IsList():
+			if depth+1 >= 32 {
+				validationError = errors.New("JSON nesting limit")
+				return false
+			}
+			entries := value.List()
+			for i := 0; i < entries.Len(); i++ {
+				validationError = validateJSONProducerScalar(entries.Get(i), field, depth+2)
+				if validationError != nil {
+					break
+				}
+			}
+		default:
+			validationError = validateJSONProducerScalar(value, field, depth+1)
+		}
+		return validationError == nil
+	})
+	return validationError
+}
+
+func validateJSONProducerScalar(value protoreflect.Value, field protoreflect.FieldDescriptor, depth int) error {
+	switch field.Kind() {
+	case protoreflect.MessageKind:
+		return validateJSONProducerMessage(value.Message(), depth)
+	case protoreflect.StringKind, protoreflect.BoolKind, protoreflect.Uint64Kind, protoreflect.Uint32Kind, protoreflect.BytesKind:
+		return nil
+	case protoreflect.EnumKind:
+		if field.Enum().Values().ByNumber(value.Enum()) != nil {
+			return nil
+		}
+	}
+	return errors.New("invalid JSON field type or value")
 }

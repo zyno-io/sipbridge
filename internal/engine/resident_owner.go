@@ -26,6 +26,9 @@ func (e *ResidentMemory) indexResidentOwnerLocked(c *residentContext) {
 // Both c.mu and e.mu are held for initial publication, so expiry cannot pass
 // between lease validation and insertion into its owner index.
 func (e *ResidentMemory) indexResidentOwnerUnderEngineLock(c *residentContext) {
+	if c.directUnbound {
+		return
+	}
 	key := residentOwnerIndexKey(c.snapshot.Application, c.snapshot.ApplicationLeaseTerm)
 	if c.ownerKey == key {
 		return

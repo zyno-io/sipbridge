@@ -49,7 +49,14 @@ func (e *ResidentMemory) prepareResidentSubscription(c *residentContext, tx *res
 		return nil, nil, portable.Message{}, err
 	}
 	request, ok := parsed.(*sip.Request)
-	if !ok || request.Method != sip.SUBSCRIBE || request.Contact() == nil || request.CSeq() == nil || request.From() == nil || response == nil || response.Status < 200 || response.Status >= 300 {
+	if !ok {
+		return nil, nil, portable.Message{}, errors.New("SUBSCRIBE request required")
+	}
+	return e.prepareResidentSubscriptionParsed(c, tx, response, now, request)
+}
+
+func (e *ResidentMemory) prepareResidentSubscriptionParsed(c *residentContext, tx *residentTransaction, response *pb.Respond, now time.Time, request *sip.Request) (*stateSubscription, *pb.ContextSnapshot, portable.Message, error) {
+	if request == nil || request.Method != sip.SUBSCRIBE || request.Contact() == nil || request.CSeq() == nil || request.From() == nil || response == nil || response.Status < 200 || response.Status >= 300 {
 		return nil, nil, portable.Message{}, errors.New("successful SUBSCRIBE with Contact required")
 	}
 	event, err := eventKey(request)

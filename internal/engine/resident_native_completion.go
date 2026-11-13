@@ -14,15 +14,25 @@ import (
 // tryNativeCompletion handles exact retained server transaction ACKs locally.
 // Business requests remain subject to controller routing and admission.
 func (e *ResidentMemory) tryNativeCompletion(ctx context.Context, flow *pb.FlowRef, received *pb.SipMessage) (bool, error) {
+	return e.TryNativeCompletionParsed(ctx, flow, received, nil)
+}
+
+// TryNativeCompletionParsed reuses only the parsed value from this ingress
+// operation. A caller without a framing parse supplies nil; nothing is retained.
+func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb.FlowRef, received *pb.SipMessage, parsed sip.Message) (bool, error) {
 	if flow == nil || received == nil {
 		return false, nil
 	}
-	parsed, err := parseObservedMessage(received.Wire)
-	if err != nil {
-		return false, err
+	if parsed == nil {
+		var err error
+		parsed, err = parseObservedMessage(received.Wire)
+		if err != nil {
+			return false, err
+		}
+		received = &pb.SipMessage{Wire: received.Wire, Selectors: observedMessageSelectors(parsed, false)}
 	}
 	if response, ok := parsed.(*sip.Response); ok {
-		return e.completeResidentClientParsed(ctx, flow, received.Wire, response)
+		return e.completeResidentClientParsed(ctx, flow, received.Wire, response, received.Selectors)
 	}
 	request, ok := parsed.(*sip.Request)
 	if !ok {
@@ -31,12 +41,12 @@ func (e *ResidentMemory) tryNativeCompletion(ctx context.Context, flow *pb.FlowR
 	if !request.IsAck() && !request.IsCancel() && request.Method != sip.BYE {
 		return false, nil
 	}
-	observed := &pb.SipMessage{Selectors: observedMessageSelectors(parsed, false)}
+	observed := received
 	if request.Method == sip.BYE {
-		return e.completeResidentRemoteBye(ctx, flow, received, observed)
+		return e.completeResidentRemoteByeParsed(ctx, flow, received, observed, request)
 	}
 	if request.IsCancel() {
-		return e.completeResidentCancel(ctx, flow, received, observed)
+		return e.completeResidentCancelParsed(ctx, flow, received, observed, request)
 	}
 	key, err := sip.ServerTxKeyMake(request)
 	if err != nil {
@@ -245,6 +255,14 @@ func (e *ResidentMemory) tryNativeCompletion(ctx context.Context, flow *pb.FlowR
 }
 
 func (e *ResidentMemory) completeResidentCancel(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, observed *pb.SipMessage) (bool, error) {
+	parsed, err := parseObservedMessage(message.Wire)
+	if err != nil {
+		return false, err
+	}
+	return e.completeResidentCancelParsed(ctx, flow, message, observed, parsed)
+}
+
+func (e *ResidentMemory) completeResidentCancelParsed(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, observed *pb.SipMessage, parsed sip.Message) (bool, error) {
 	e.mu.Lock()
 	var c *residentContext
 	for _, selector := range observed.Selectors {
@@ -258,10 +276,6 @@ func (e *ResidentMemory) completeResidentCancel(ctx context.Context, flow *pb.Fl
 		return false, nil
 	}
 	input := portable.Message{Wire: message.Wire, Transport: flow.Transport}
-	parsed, err := input.Parse()
-	if err != nil {
-		return true, err
-	}
 	cancelKey, err := sip.ServerTxKeyMake(parsed)
 	if err != nil {
 		return true, err
@@ -311,7 +325,7 @@ func (e *ResidentMemory) completeResidentCancel(ctx context.Context, flow *pb.Fl
 	}
 	var event *residentEvent
 	for _, effect := range effects {
-		if effect.Kind == portable.Cancelled {
+		if effect.Kind == portable.Cancelled && !c.directUnbound {
 			event, err = e.stageResidentEventLocked(c, pb.DialogEvent_CANCELLED, nil, "", time.Now().Add(2*time.Minute), invite.budget)
 			break
 		}
@@ -403,7 +417,7 @@ func (e *ResidentMemory) completeResidentCancel(ctx context.Context, flow *pb.Fl
 					break
 				}
 			}
-			if final != nil {
+			if final != nil && !invite.decisionPending {
 				dialogNext, dialogEffects, err = portable.StepDialog(dialog.native, portable.DialogInput{Kind: portable.DialogSendResponse, Now: time.Now().UnixMilli(), Message: *final})
 				if err == nil {
 					dialogGrowth, err = e.prepareResidentClientGrowth(c, dialog.budget, residentDialogBytes(dialogNext)-residentDialogBytes(dialog.native))
@@ -460,6 +474,9 @@ func (e *ResidentMemory) completeResidentCancel(ctx context.Context, flow *pb.Fl
 	}
 	oldInvite, oldCancel := invite.native, cancel.native
 	invite.native = nextInvite
+	if invite.decisionPending {
+		e.clearResidentDecisionLocked(c, invite)
+	}
 	if dialog != nil {
 		dialog.native = dialogNext
 		e.commitResidentClientGrowth(c, dialogGrowth, &dialog.borrowed)

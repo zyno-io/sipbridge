@@ -22,6 +22,7 @@ const (
 	residentEventDeadline
 	residentSubscriptionDeadline
 	residentContextRetirementDeadline
+	residentRequestDecisionDeadline
 )
 
 // A native key is opaque data, never a delimited string to decode. These fields

@@ -26,7 +26,15 @@ func (e *ResidentMemory) locate(ctx context.Context, message *pb.SipMessage) (*p
 	if err != nil {
 		return nil, err
 	}
-	selectors := observedMessageSelectors(parsed, false)
+	return e.locateResidentParsed(ctx, message.Wire, parsed, observedMessageSelectors(parsed, false), false)
+}
+
+// Direct lookup needs only immutable routing references. Public inspection still
+// receives the full isolated snapshot; no parsed object crosses this operation.
+func (e *ResidentMemory) locateResidentParsed(ctx context.Context, wire []byte, parsed sip.Message, selectors []string, direct bool) (*pb.ContextSnapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	callID := parsed.CallID().Value()
 	now := time.Now()
 	e.mu.Lock()
@@ -51,6 +59,9 @@ func (e *ResidentMemory) locate(ctx context.Context, message *pb.SipMessage) (*p
 		if selected.snapshot == nil || !e.residentContextCurrentLocked(selected, selected.snapshot.Context) || selected.snapshot.Ended || selected.snapshot.CallId != callID {
 			return nil, rejectIngest(481, "native context unavailable")
 		}
+		if direct {
+			return &pb.ContextSnapshot{Context: selected.snapshot.Context, Application: selected.snapshot.Application, Kind: selected.snapshot.Kind}, nil
+		}
 		return proto.Clone(selected.snapshot).(*pb.ContextSnapshot), nil
 	}
 	request, ok := parsed.(*sip.Request)
@@ -58,7 +69,7 @@ func (e *ResidentMemory) locate(ctx context.Context, message *pb.SipMessage) (*p
 		e.mu.Unlock()
 		return nil, rejectIngest(481, "unknown native context")
 	}
-	hash := sha256.Sum256(message.Wire)
+	hash := sha256.Sum256(wire)
 	if id := e.admissionByWire[hash]; id != "" {
 		entry := e.admissions[id]
 		if entry.callID == callID && now.Before(entry.expires) {
@@ -89,7 +100,7 @@ func (e *ResidentMemory) locate(ctx context.Context, message *pb.SipMessage) (*p
 }
 
 func (e *ResidentMemory) fireResidentDeadline(item residentDeadline) {
-	if e.fireResidentOutputDeadline(item) || e.fireResidentEventDeadline(item) || e.fireResidentSubscriptionDeadline(item) || e.fireResidentTransactionRetirement(item) || e.fireResidentOwnerCleanup(item) {
+	if e.fireResidentDecisionDeadline(item) || e.fireResidentOutputDeadline(item) || e.fireResidentEventDeadline(item) || e.fireResidentSubscriptionDeadline(item) || e.fireResidentTransactionRetirement(item) || e.fireResidentOwnerCleanup(item) {
 		return
 	}
 	if item.key.kind == residentContextRetirementDeadline {

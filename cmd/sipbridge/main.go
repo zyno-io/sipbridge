@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/emiago/sipgo/sip"
 	"github.com/google/uuid"
 	"sipbridge/internal/buildinfo"
 	"sipbridge/internal/capture"
@@ -171,11 +172,14 @@ func run() error {
 		}()
 	}
 	var stateNative nativeRuntime
+	var residentNative *engine.ResidentMemory
 	var ingress *engine.Ingress
 	capabilities := []string{engine.Capability, control.CommandBudgetCapability, engine.DialogContinuityCapability,
 		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability}
 	if stateConfig.Backend == state.RedisBackend {
 		capabilities = append(capabilities, control.ControllerReattachCapability)
+	} else {
+		capabilities = append(capabilities, control.RequestDecisionCapability)
 	}
 	if authPolicy != nil {
 		capabilities = append(capabilities, engine.LocalChallengeCapability)
@@ -222,16 +226,32 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	ingress = engine.NewIngress(process, server, *advertise, 4096, engine.IngressOptions{PreferredController: *initialController, SourceIP: sourceIP, Capture: sipCapture,
-		MethodPolicy: methodPolicy, AuthPolicy: authPolicy})
+	ingressOptions := engine.IngressOptions{PreferredController: *initialController, SourceIP: sourceIP, Capture: sipCapture,
+		MethodPolicy: methodPolicy, AuthPolicy: authPolicy}
+	if stateConfig.Backend != state.RedisBackend {
+		ingressOptions.DirectCompletion = func(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, parsed sip.Message) (bool, error) {
+			if residentNative == nil {
+				return false, errors.New("native completion authority unavailable")
+			}
+			return residentNative.TryNativeCompletionParsed(ctx, flow, message, parsed)
+		}
+		ingressOptions.DirectRequest = func(ctx context.Context, peer *control.Peer, flow *pb.FlowRef, message *pb.SipMessage, parsed sip.Message) error {
+			if residentNative == nil {
+				return errors.New("native request authority unavailable")
+			}
+			return residentNative.ReceiveRequestParsed(ctx, peer, flow, message, parsed)
+		}
+	}
+	ingress = engine.NewIngress(process, server, *advertise, 4096, ingressOptions)
 	engineConfig := engine.Config{Process: process, AdvertiseAddress: *advertise, PlainAdvertiseAddress: plainAdvertisement, ContactURI: *contact, OpenNetwork: ingress.OpenNetwork, LiveFlow: ingress.LiveFlow, StateIdentityKey: stateConfig.NamespaceKey}
 	engineConfig.WriteCommitted, engineConfig.InspectCommitted = ingress.WriteCommitted, ingress.InspectCommitted
 	if stateConfig.Backend == state.RedisBackend {
 		stateNative, err = engine.NewState(ctx, engineConfig, stateStore, server)
 	} else {
-		stateNative, err = engine.NewResidentMemory(ctx, engineConfig, engine.ResidentMemoryOptions{
+		residentNative, err = engine.NewResidentMemory(ctx, engineConfig, engine.ResidentMemoryOptions{
 			Authority: authority, MaxContexts: stateConfig.Memory.MaxGroups, MaxBytes: stateConfig.Memory.MaxBytes,
 		}, server)
+		stateNative = residentNative
 	}
 	if err != nil {
 		return err

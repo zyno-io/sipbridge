@@ -43,6 +43,7 @@ message Envelope {
     ApplicationStatus application_status = 42;
     ControllerContexts controller_contexts = 46;
     ControllerContextsResult controller_contexts_result = 47;
+    RequestDecision request_decision = 48;
   }
 }
 
@@ -182,7 +183,21 @@ message ContextSnapshot {
   string application_lease_term = 25;
   uint64 attachment_generation = 26;
 }
-message RequestPresented { ContextSnapshot snapshot = 1; string request_id = 2; SipMessage message = 3; FlowRef flow = 4; }
+message RequestPresented {
+  ContextSnapshot snapshot = 1; string request_id = 2; SipMessage message = 3; FlowRef flow = 4;
+  // Native-validated proposal; ordered publication is returned in RequestDecision.
+  FlowAdoptionRequest flow_adoption = 5;
+}
+// sip.request-decision.v1: one decision for one exact pending native request.
+// status=0 admits asynchronous handling; REGISTER/SUBSCRIBE require a final status.
+// Accepted SUBSCRIBE includes its required NOTIFY content before native commit.
+message RequestDecision {
+  ContextRef context = 1; string request_id = 2; uint64 sequence = 3;
+  CommandAdmission admission = 4; OwnerIngest.Admission basis = 5;
+  string principal_id = 6; string binding_id = 7; ContextDelivery delivery = 8;
+  uint32 status = 9; repeated Header headers = 10; bytes body = 11;
+  DialogRequest notify = 12;
+}
 // Trusted directory admission anchor for a business-selected response. Native
 // completion writes remain independently authorized by the SIP state owner.
 message ResponseAuthority { string directory_epoch = 1; string completion_scope = 2; }

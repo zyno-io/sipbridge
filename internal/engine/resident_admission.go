@@ -14,13 +14,19 @@ import (
 // an authenticated live owner with the next sequence and current policy can
 // consume a sequence. A subsequent semantic refusal retains that consumed
 // sequence's exact result but publishes no partial SIP transition.
-func (e *ResidentMemory) admitResidentCommandLocked(c *residentContext, peer *control.Peer, cmd *pb.Command, operation string, deadline time.Time) (*residentCommand, *pb.CommandAdmission, bool, error) {
+func (e *ResidentMemory) admitResidentCommandLocked(c *residentContext, peer *control.Peer, cmd *pb.Command, operation string, deadline time.Time, direct ...*residentDecision) (*residentCommand, *pb.CommandAdmission, bool, error) {
 	if c.snapshot == nil || cmd == nil || cmd.Context == nil || cmd.Context.Id != c.snapshot.GetContext().GetId() || peer == nil {
 		return nil, nil, false, errors.New("command owner mismatch")
 	}
 	application := peer.Application()
 	term := c.snapshot.ApplicationLeaseTerm
 	owner := sameProcess(c.snapshot.Application, application)
+	if c.directUnbound {
+		if len(direct) == 0 {
+			return nil, nil, false, errors.New("unbound request requires a direct decision")
+		}
+		owner, term = true, peer.ApplicationLease().GetTerm()
+	}
 	if !owner && c.subscription != nil && cmd.GetRespond() != nil {
 		tx := c.transactions[c.requests[cmd.GetRespond().RequestId]]
 		// Only the processor of this exact admitted renewal may respond before
@@ -47,7 +53,11 @@ func (e *ResidentMemory) admitResidentCommandLocked(c *residentContext, peer *co
 		return nil, nil, false, control.ErrApplicationLeaseFenced
 	}
 	// Fingerprint only the transient command, never a retained native graph.
-	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(cmd)
+	var input proto.Message = cmd
+	if len(direct) > 0 {
+		input = direct[0].value
+	}
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(input)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -61,7 +71,12 @@ func (e *ResidentMemory) admitResidentCommandLocked(c *residentContext, peer *co
 	if cmd.Sequence == 0 || cmd.Sequence > 1<<53-1 || c.snapshot.Revision >= 1<<53-1 || cmd.Sequence != c.snapshot.CommandSequence+1 {
 		return nil, nil, false, errors.New("stale command sequence or sequence gap")
 	}
-	policy, err := residentCommandPolicy(c, cmd, operation, deadline)
+	var policy *pb.CommandAdmission
+	if len(direct) > 0 {
+		policy, err = e.validateResidentDecisionLocked(c, peer, direct[0], operation, deadline)
+	} else {
+		policy, err = residentCommandPolicy(c, cmd, operation, deadline)
+	}
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -105,25 +120,37 @@ func (e *ResidentMemory) admitResidentCommandLocked(c *residentContext, peer *co
 }
 
 func residentCommandPolicy(c *residentContext, cmd *pb.Command, operation string, deadline time.Time) (*pb.CommandAdmission, error) {
+	if err := validateResidentCommandPolicy(c, cmd, operation, deadline); err != nil {
+		return nil, err
+	}
+	if cmd.Admission == nil {
+		return nil, nil
+	}
+	policy := proto.Clone(cmd.Admission).(*pb.CommandAdmission)
+	policy.ExpiresAtMs = min(policy.ExpiresAtMs, uint64(deadline.UnixMilli()))
+	return policy, nil
+}
+
+func validateResidentCommandPolicy(c *residentContext, cmd *pb.Command, operation string, deadline time.Time) error {
 	if !time.Now().Before(deadline) {
-		return nil, policyRefusal("command deadline elapsed")
+		return policyRefusal("command deadline elapsed")
 	}
 	decision := cmd.Admission
 	if decision == nil {
 		if cmd.GetCancel() != nil {
-			return nil, nil
+			return nil
 		}
-		return nil, policyRefusal("command admission required")
+		return policyRefusal("command admission required")
 	}
 	scope := &statePolicyAdmission{Decision: decision, Command: operation, Term: c.snapshot.ApplicationLeaseTerm}
 	if !scope.valid() || proto.Size(decision) > statePolicyAdmissionBytes {
-		return nil, policyRefusal("invalid scope or scope capacity")
+		return policyRefusal("invalid scope or scope capacity")
 	}
 	if c.snapshot.DirectoryEpoch != "" && c.snapshot.DirectoryEpoch != decision.DirectoryEpoch {
-		return nil, policyRefusal("directory epoch changed")
+		return policyRefusal("directory epoch changed")
 	}
 	if !proto.Equal(c.snapshot.Delivery, decision.ExpectedDelivery) {
-		return nil, policyRefusal("context delivery changed")
+		return policyRefusal("context delivery changed")
 	}
 	transport, binding := c.snapshot.Transport, c.snapshot.BindingId
 	if open := cmd.GetOpenUac(); open != nil {
@@ -131,19 +158,17 @@ func residentCommandPolicy(c *residentContext, cmd *pb.Command, operation string
 	}
 	selected := decision.SelectedFlow
 	if selected != nil && transport != "" && selected.Transport != transport {
-		return nil, policyRefusal("transport changed")
+		return policyRefusal("transport changed")
 	}
 	request := cmd.GetOpenUac() != nil || cmd.GetDialogRequest() != nil
 	if request && binding != "" && selected == nil {
-		return nil, policyRefusal("registered route missing")
+		return policyRefusal("registered route missing")
 	}
 	if (cmd.GetRespond() != nil || cmd.GetCancel() != nil) && selected != nil {
-		return nil, policyRefusal("unexpected route")
+		return policyRefusal("unexpected route")
 	}
-	policy := proto.Clone(decision).(*pb.CommandAdmission)
-	policy.ExpiresAtMs = min(policy.ExpiresAtMs, uint64(deadline.UnixMilli()))
-	if time.Now().UnixMilli() >= int64(policy.ExpiresAtMs) {
-		return nil, policyRefusal("policy deadline elapsed")
+	if time.Now().UnixMilli() >= int64(min(decision.ExpiresAtMs, uint64(deadline.UnixMilli()))) {
+		return policyRefusal("policy deadline elapsed")
 	}
-	return policy, nil
+	return nil
 }

@@ -1,8 +1,11 @@
 # Resident Memory core
 
-This is the locked architecture for the replacement Memory runtime, approved by
-Astra on 2026-11-13 before implementation. The deployed checkpoint runtime
-continues to follow [runtime](runtime.md) until its replacement is qualified.
+This is locked architecture revision two for the replacement Memory runtime,
+approved by Astra on 2026-11-13 before implementation. Native staging measurement
+found the idle work removed, but the controller exchanges still miss the matched
+CPU gate; revision two replaces those exchanges with the direct decision contract.
+The checkpoint runtime follows [runtime](runtime.md) until its replacement is
+qualified. Implementation review and the CPU gate remain separate requirements.
 
 ## One owner and one execution path
 
@@ -58,13 +61,22 @@ rejects stale notifications. Idle contexts do no periodic work. There is no
 coordinator election, worker-presence renewal, distributed queue or index repair
 in this runtime. Ordinary UDP retransmission state stays local.
 
-Fresh application requests go directly to the controller before its selected
-response is generated. Native ACK, response, retransmission and completion handling
-remains local wherever the existing protocol contract permits. There is no
-request-presentation queue. Controller decisions still supply account
-policy, credentials by reference, media and subscription content. Keep the current
-public schema, ingress method controls, initial digest challenges, transport
-checks, flow publication and command-time policy checks.
+Fresh application requests use the [direct decision contract](../PROTOCOL.md#direct-request-decision-memory-target):
+one native notification, one controller decision and one native committed result.
+Memory requires `sip.request-decision.v1`; it has no alternate routing/ingest/
+presentation handshake. Native completion remains local. The native transaction
+holds only the bounded pending request until its original deadline, using the same
+indexed deadline heap. There is no presentation queue or controller acknowledgement
+of the notification. A controller decision is the first application acceptance.
+
+The controller supplies account policy and response/content once. Accepted SUBSCRIBE
+stages the response and required NOTIFY content/transaction together before either
+is emitted. The committed result permits controller publication; it never claims a
+physical write. Initial INVITE and other asynchronous business handlers may admit
+the request and use ordinary commands afterward. Existing post-OK, ACK, fork,
+uncertainty, method, digest-challenge, transport, flow-publication and command-time
+policy rules remain in force. The canonical schema and generated consumers change
+together; the v1 major alone is not a compatibility receipt.
 
 An output obligation changes from authorized to started before one socket attempt.
 Completion records WRITTEN, proven NOT_WRITTEN, or UNKNOWN. UNKNOWN cannot authorize

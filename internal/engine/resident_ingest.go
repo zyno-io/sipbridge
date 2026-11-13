@@ -129,15 +129,22 @@ func (e *ResidentMemory) ingest(ctx context.Context, peer *control.Peer, in *pb.
 }
 
 func (e *ResidentMemory) ingestResidentExisting(ctx context.Context, c *residentContext, in *pb.OwnerIngest, deadline time.Time) (*pb.OperationResult, error) {
+	parsed, err := (portable.Message{Wire: in.Wire, Transport: in.Flow.Transport}).Parse()
+	if err != nil {
+		return nil, err
+	}
+	return e.ingestResidentExistingParsed(ctx, c, in, deadline, parsed, nil)
+}
+
+func (e *ResidentMemory) ingestResidentExistingParsed(ctx context.Context, c *residentContext, in *pb.OwnerIngest, deadline time.Time, parsed sip.Message, observed *pb.SipMessage) (*pb.OperationResult, error) {
 	c.mu.Lock()
 	if c.snapshot == nil || !proto.Equal(c.snapshot.Context.State, in.Context.State) || (!sameProcess(c.snapshot.Application, in.Application) && c.subscription == nil) || c.snapshot.Transport != in.Flow.Transport {
 		c.mu.Unlock()
 		return nil, errors.New("resident context authority mismatch")
 	}
 	message := portable.Message{Wire: in.Wire, Transport: in.Flow.Transport}
-	parsed, parseErr := message.Parse()
 	request, ok := parsed.(*sip.Request)
-	if parseErr == nil && ok {
+	if ok {
 		key, keyErr := sip.ServerTxKeyMake(request)
 		tx := c.transactions[key]
 		if keyErr == nil && tx != nil && tx.retired && tx.wireHash == sha256.Sum256(in.Wire) && residentReplayFlowAllowed(c, tx, in, request) {
@@ -145,6 +152,10 @@ func (e *ResidentMemory) ingestResidentExisting(ctx context.Context, c *resident
 			return &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}, nil
 		}
 		if keyErr == nil && tx != nil && !tx.retired && portable.MatchRequest(tx.native.Origin, message) && bytes.Equal(tx.native.Origin.Wire, in.Wire) && residentReplayFlowAllowed(c, tx, in, request) {
+			if tx.decisionPending {
+				c.mu.Unlock()
+				return &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}, nil
+			}
 			next, effects, err := portable.StepTransaction(tx.native, portable.Input{Kind: portable.ReceiveRequest, Now: time.Now().UnixMilli(), Message: message})
 			if err != nil {
 				c.mu.Unlock()
@@ -196,6 +207,9 @@ func (e *ResidentMemory) ingestResidentExisting(ctx context.Context, c *resident
 		}
 	}
 	c.mu.Unlock()
+	if observed != nil {
+		return e.receiveResidentExisting(ctx, c, in, deadline, observed, request)
+	}
 	return e.ingestResidentNewRequest(ctx, c, in, deadline)
 }
 

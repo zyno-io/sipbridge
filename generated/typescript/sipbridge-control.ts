@@ -48,6 +48,7 @@ export interface Envelope {
         | { $case: 'applicationStatus'; applicationStatus: ApplicationStatus }
         | { $case: 'controllerContexts'; controllerContexts: ControllerContexts }
         | { $case: 'controllerContextsResult'; controllerContextsResult: ControllerContextsResult }
+        | { $case: 'requestDecision'; requestDecision: RequestDecision }
         | undefined;
 }
 
@@ -466,6 +467,28 @@ export interface RequestPresented {
     requestId: string;
     message?: SipMessage | undefined;
     flow?: FlowRef | undefined;
+    /** Native-validated proposal; ordered publication is returned in RequestDecision. */
+    flowAdoption?: FlowAdoptionRequest | undefined;
+}
+
+/**
+ * sip.request-decision.v1: one decision for one exact pending native request.
+ * status=0 admits asynchronous handling; REGISTER/SUBSCRIBE require a final status.
+ * Accepted SUBSCRIBE includes its required NOTIFY content before native commit.
+ */
+export interface RequestDecision {
+    context?: ContextRef | undefined;
+    requestId: string;
+    sequence: bigint;
+    admission?: CommandAdmission | undefined;
+    basis: OwnerIngest_Admission;
+    principalId: string;
+    bindingId: string;
+    delivery?: ContextDelivery | undefined;
+    status: number;
+    headers: Header[];
+    body: Buffer;
+    notify?: DialogRequest | undefined;
 }
 
 /**
@@ -1120,7 +1143,22 @@ export const Envelope: MessageFns<Envelope> = {
                                                                                                                   object.controller_contexts_result
                                                                                                               )
                                                                                                       }
-                                                                                                    : undefined
+                                                                                                    : isSet(object.requestDecision)
+                                                                                                      ? {
+                                                                                                            $case: 'requestDecision',
+                                                                                                            requestDecision: RequestDecision.fromJSON(
+                                                                                                                object.requestDecision
+                                                                                                            )
+                                                                                                        }
+                                                                                                      : isSet(object.request_decision)
+                                                                                                        ? {
+                                                                                                              $case: 'requestDecision',
+                                                                                                              requestDecision:
+                                                                                                                  RequestDecision.fromJSON(
+                                                                                                                      object.request_decision
+                                                                                                                  )
+                                                                                                          }
+                                                                                                        : undefined
         };
     },
 
@@ -1191,6 +1229,8 @@ export const Envelope: MessageFns<Envelope> = {
             obj.controllerContexts = ControllerContexts.toJSON(message.payload.controllerContexts);
         } else if (message.payload?.$case === 'controllerContextsResult') {
             obj.controllerContextsResult = ControllerContextsResult.toJSON(message.payload.controllerContextsResult);
+        } else if (message.payload?.$case === 'requestDecision') {
+            obj.requestDecision = RequestDecision.toJSON(message.payload.requestDecision);
         }
         return obj;
     }
@@ -2462,7 +2502,12 @@ export const RequestPresented: MessageFns<RequestPresented> = {
                   ? globalThis.String(object.request_id)
                   : '',
             message: isSet(object.message) ? SipMessage.fromJSON(object.message) : undefined,
-            flow: isSet(object.flow) ? FlowRef.fromJSON(object.flow) : undefined
+            flow: isSet(object.flow) ? FlowRef.fromJSON(object.flow) : undefined,
+            flowAdoption: isSet(object.flowAdoption)
+                ? FlowAdoptionRequest.fromJSON(object.flowAdoption)
+                : isSet(object.flow_adoption)
+                  ? FlowAdoptionRequest.fromJSON(object.flow_adoption)
+                  : undefined
         };
     },
 
@@ -2479,6 +2524,82 @@ export const RequestPresented: MessageFns<RequestPresented> = {
         }
         if (message.flow !== undefined) {
             obj.flow = FlowRef.toJSON(message.flow);
+        }
+        if (message.flowAdoption !== undefined) {
+            obj.flowAdoption = FlowAdoptionRequest.toJSON(message.flowAdoption);
+        }
+        return obj;
+    }
+};
+
+export const RequestDecision: MessageFns<RequestDecision> = {
+    fromJSON(value: unknown): RequestDecision {
+        const object = isObject(value) ? value : {};
+        return {
+            context: isSet(object.context) ? ContextRef.fromJSON(object.context) : undefined,
+            requestId: isSet(object.requestId)
+                ? globalThis.String(object.requestId)
+                : isSet(object.request_id)
+                  ? globalThis.String(object.request_id)
+                  : '',
+            sequence: isSet(object.sequence) ? BigInt(globalThis.String(object.sequence)) : 0n,
+            admission: isSet(object.admission) ? CommandAdmission.fromJSON(object.admission) : undefined,
+            basis: isSet(object.basis) ? ownerIngest_AdmissionFromJSON(object.basis) : 0,
+            principalId: isSet(object.principalId)
+                ? globalThis.String(object.principalId)
+                : isSet(object.principal_id)
+                  ? globalThis.String(object.principal_id)
+                  : '',
+            bindingId: isSet(object.bindingId)
+                ? globalThis.String(object.bindingId)
+                : isSet(object.binding_id)
+                  ? globalThis.String(object.binding_id)
+                  : '',
+            delivery: isSet(object.delivery) ? ContextDelivery.fromJSON(object.delivery) : undefined,
+            status: isSet(object.status) ? globalThis.Number(object.status) : 0,
+            headers: globalThis.Array.isArray(object?.headers) ? object.headers.map((e: unknown) => Header.fromJSON(e)) : [],
+            body: isSet(object.body) ? Buffer.from(bytesFromBase64(globalThis.String(object.body))) : Buffer.alloc(0),
+            notify: isSet(object.notify) ? DialogRequest.fromJSON(object.notify) : undefined
+        };
+    },
+
+    toJSON(message: RequestDecision): unknown {
+        const obj: Record<string, unknown> = {};
+        if (message.context !== undefined) {
+            obj.context = ContextRef.toJSON(message.context);
+        }
+        if (message.requestId !== '') {
+            obj.requestId = message.requestId;
+        }
+        if (message.sequence !== 0n) {
+            obj.sequence = message.sequence.toString();
+        }
+        if (message.admission !== undefined) {
+            obj.admission = CommandAdmission.toJSON(message.admission);
+        }
+        if (message.basis !== 0) {
+            obj.basis = ownerIngest_AdmissionToJSON(message.basis);
+        }
+        if (message.principalId !== '') {
+            obj.principalId = message.principalId;
+        }
+        if (message.bindingId !== '') {
+            obj.bindingId = message.bindingId;
+        }
+        if (message.delivery !== undefined) {
+            obj.delivery = ContextDelivery.toJSON(message.delivery);
+        }
+        if (message.status !== 0) {
+            obj.status = message.status;
+        }
+        if (message.headers?.length) {
+            obj.headers = message.headers.map(e => Header.toJSON(e));
+        }
+        if (message.body.length !== 0) {
+            obj.body = base64FromBytes(message.body);
+        }
+        if (message.notify !== undefined) {
+            obj.notify = DialogRequest.toJSON(message.notify);
         }
         return obj;
     }

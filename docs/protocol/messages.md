@@ -21,7 +21,8 @@ In the tables, **C** is the controller and **S** is sipbridge.
 | `ping` (`pong`) | Both | Heartbeat. |
 | `ingress` (`routeResult`) | S → C | "A SIP message arrived; what should happen to it?" Carries the original message, the connection it arrived on (`flow`) and, if it belongs to something sipbridge already tracks, the `context`. The controller has up to two seconds to answer. |
 | `ingest` (`result`) | C → S | "Accept this message into SIP processing." The controller sends back the original bytes for a specific context, with the reason it may proceed (the admission basis, below). The result says whether sipbridge's SIP layer took the message, not whether anything was sent or the call succeeded. |
-| `request` | S → C | An accepted SIP request, handed to the controller that owns it, with a snapshot of the context and a `requestId` to quote when answering. |
+| `request` | S → C | Direct Memory pending-request notification, or checkpoint request presentation, with a snapshot, observed flow and exact request handle. |
+| `requestDecision` (`result`) | C → S | One direct Memory policy/response decision; accepted SUBSCRIBE includes its required NOTIFY. The result proves native commitment, not physical delivery. |
 | `dialogEvent` | S → C | Something happened on a dialog: `PROVISIONAL`, `ANSWERED`, `ACKNOWLEDGED`, `CANCELLED`, `ENDED`, `FAILED` or `SUBSCRIPTION_EXPIRED`. |
 | `command` (`result`) | C → S | Tells sipbridge to do something on a context: `respond`, `openUac`, `dialogRequest` or `cancel`. See [Commands and Outcomes](./commands.md). |
 | `flowAdoption` (`flowAdoptionResult`) | S → C | A client continued a dialog on a new connection and sipbridge has validated it. The controller confirms, so that later messages for that dialog are delivered on the new connection. The reply carries a `ContextDelivery` receipt. |
@@ -31,9 +32,11 @@ In the tables, **C** is the controller and **S** is sipbridge.
 
 ### Acknowledging requests and events
 
-sipbridge wants to know that the controller received each `request` and
-`dialogEvent`, so the controller acknowledges them with a `result` that repeats
-the message's `correlationId`:
+Direct Memory `request` notifications are not separately acknowledged: the
+controller sends the decision described in the
+[native contract](../spec/protocol.md#direct-request-decision-memory-target).
+Checkpoint request presentations and `dialogEvent` use a `result` repeating the
+message's `correlationId`:
 
 ```json
 {"correlationId":"effect-1","sessionId":"session-1","result":{"certainty":"ACCEPTED"}}
@@ -42,14 +45,16 @@ the message's `correlationId`:
 This only says "received". It does not answer the SIP request; that still takes
 a `command`.
 
-If the acknowledgement is lost, sipbridge delivers the message again with the
-same `correlationId`. Your controller therefore has to recognize duplicates:
-record each `correlationId` before acknowledging it, and when one arrives a
-second time, acknowledge it again without repeating the work. Otherwise a lost
-acknowledgement could make your application handle the same INVITE twice.
-Acknowledge promptly, before starting any slow application logic.
+Lifecycle events can be delivered again with the same `correlationId` under their
+original finite bound. Recognize those duplicates before repeating callbacks.
+Fresh request presentation is one-shot and is not retried when its acknowledgement
+is lost. Acknowledgement means receiver acceptance, not a completed business
+handler or SIP response.
 
 ### Routing outcomes
+
+This routing exchange and the following `ingest` apply to checkpoint peers.
+Direct Memory uses the notification/decision contract above.
 
 The controller answers `ingress` with a `routeResult` whose `outcome` is one of:
 

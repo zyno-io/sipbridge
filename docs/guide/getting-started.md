@@ -128,9 +128,9 @@ The program below does the minimum a controller must do to hold a session: it
 connects with its client certificate, sends `hello`, prints the `helloAck`
 reply, declares itself ready with `status` and answers heartbeats for one
 minute. It stops short of being a real controller because it does not answer
-the `ingress` messages that ask where to route a SIP request. A SIP request
-sent during the demo therefore still fails once its two-second routing budget
-runs out.
+the Memory `request` notifications with `requestDecision`, or perform the
+checkpoint routing exchange. A SIP request sent during the demo therefore still
+fails once its original two-second decision budget runs out.
 
 Create a separate module outside the repository and save this as `main.go`:
 
@@ -168,7 +168,7 @@ type envelope struct {
 const helloTemplate = `{"correlationId":"hello-1","hello":{"controller":{"instanceId":"controller-a","epoch":%q},` +
 	`"connectionAttempt":"1","major":1,"minMinor":0,"maxMinor":0,` +
 	`"capabilities":["sip.v1","sip.state.v1","sip.native-completion.v1",` +
-	`"sip.command-admission.v1","sip.command-budget.v1","sip.dialog-continuity.v1"],` +
+	`"sip.command-admission.v1","sip.command-budget.v1","sip.dialog-continuity.v1","sip.request-decision.v1"],` +
 	`"bounds":{"maxEnvelopeBytes":1048576}}}`
 
 func main() {

@@ -5,7 +5,7 @@
   "sha256": {
     "cmd/sipbridge-state-inspect/main.go": "468a7fe16aca768608faa61e73b8bf5dd095a54c3e989841523a19306ec0224a",
     "dependencies/sipgo.sha256": "01a67df9f2b29cffe4812237004b6f5de1cec1484a9ef58742eaba203dcddab5",
-    "internal/engine/ingress.go": "50c56397435135f2bd248b2d0d332b78f56e1c0be39ea1f570186850d7d8da92",
+    "internal/engine/ingress.go": "2051a6f57c197bf12bb7d32547a04f1dca8e492f97b9569c60183d85b928c68b",
     "internal/engine/ingress_drain.go": "85c32cfb608ab5469ba20cdaa8b4168dc1dac48e7d0037cec1fb0b130e7f5916",
     "internal/engine/state_engine.go": "7c142ddc7e655c01ef5d2cad19b21ffaaae63fa3bac553211c99ad528d9d23af",
     "internal/engine/state_engine_admission.go": "5d2c0e410fc2507747da9619e906ad2dad4f34008a9c9808074739cf08bb8dd9",
@@ -70,7 +70,7 @@
     "internal/storagecodec/receipt.go": "dab34b88e2d867248a28dd9b307b656b40546ea0a7057e734e2ec7c5cc8fc1ea",
     "internal/storagecodec/validated_frame.go": "dd859f6c5897301cb765345f0441d54a64835fa11c609ac47b390568b37b1ec4",
     "internal/storagepb/sipbridge-storage.pb.go": "ce34f1d5a1a8d9b756c7883af0e8649a35eaadfa2e4ba52c4d6d373d900a66c9",
-    "proto/sipbridge-control.proto": "a9469f04fcf6af2047826ad925acce125d159e12b8602de5a0711c0c4d0bd622",
+    "proto/sipbridge-control.proto": "cf48454294dda7578a2172f0fc012aad829a7747e357bfeaa23a0688816bc09d",
     "proto/sipbridge-storage.fields.json": "f1c5f0080944b8ff9d3dc844cf8895808af630fb7178b9d030995f8b11a8ee7a",
     "proto/sipbridge-storage.proto": "9e1c2e5b7bd62f37b62d2f135c6bb8e6c04d9109844d67c2f4674bd7ebc26d64",
     "scripts/gen-state-storage.py": "93a4737907c6b57b055865a6311f70349bacbcc2027482f955c1d9687510d58e",

@@ -55,6 +55,11 @@ func residentTransactionBytes(tx *residentTransaction) int64 {
 	if tx.credential != nil {
 		size += int64(unsafe.Sizeof(*tx.credential)) + int64(len(tx.credential.Id)+len(tx.credential.Version))
 	}
+	size += int64(len(tx.requestDialog))
+	if p := tx.decisionProposal; p != nil {
+		size += int64(unsafe.Sizeof(*p)) + residentProcessBytes(p.Application) + residentFlowBytes(p.Flow) + int64(len(p.PrincipalId)+len(p.BindingId))
+		// Context is immutable and shared with the owning snapshot.
+	}
 	for _, selector := range tx.selectors {
 		size += int64(len(selector)) + 32
 	}

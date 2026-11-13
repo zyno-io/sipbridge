@@ -116,8 +116,11 @@ controller checkpoint recovery. Initial setup can fail during a process outage.
 5. Only after the Memory CPU gate passes, implement Redis continuity.
 
 The CPU gate is at most the larger of **1.25 times Drachtio CPU** or
-**Drachtio CPU plus 2 millicores** under matched steady traffic. Repeat at 17 and
-130 registrations; measure truly idle CPU separately. Require no protocol failures,
+**Drachtio CPU plus 2 millicores** under matched steady traffic. Compare the SIP
+processes alone: sipbridge against Drachtio, excluding application controllers
+and sidecars. Controllers handle application updates; routine OPTIONS and native SIP
+transaction maintenance remain inside the SIP process. Repeat at 17 and 130
+registrations; measure truly idle CPU separately. Require no protocol failures,
 no periodic context scanning and no growth with retired history. Record allocations,
 GC, retained bytes, latency and successful operations alongside CPU. The live
 production Drachtio observation is context, not a controlled comparison.

@@ -51,10 +51,7 @@ func (e *StateEngine) schedule() {
 		lease, err := e.store.LeaseScheduler(ctx, token, true)
 		stop()
 		if err == nil && !lease.Held {
-			err = e.waitSchedulerLease(lease)
-			if err == nil {
-				continue
-			}
+			lease, err = e.waitSchedulerLease(token, lease)
 		}
 		if err == nil {
 			e.scheduler.acquisitions.Add(1)
@@ -74,23 +71,80 @@ func (e *StateEngine) schedule() {
 	}
 }
 
-func (e *StateEngine) waitSchedulerLease(lease state.SchedulerLease) error {
-	ctx, cancel := context.WithDeadline(e.ctx, lease.Until)
-	defer cancel()
-	for ctx.Err() == nil {
-		next, err := e.store.WaitSchedulerLease(ctx, lease.Cursor)
-		if err != nil {
-			if ctx.Err() == nil {
-				e.scheduler.fail(schedulerWatchFailure, err)
-				return err
+// waitSchedulerLease keeps one role-scoped notification watch while successive
+// conservative holder deadlines trigger fresh atomic lease observations.
+func (e *StateEngine) waitSchedulerLease(token string, lease state.SchedulerLease) (state.SchedulerLease, error) {
+	ctx, cancel := context.WithCancel(e.ctx)
+	wake := make(chan struct{}, 1)
+	failed := make(chan error, 1)
+	done := make(chan struct{})
+	go func(cursor string) {
+		defer close(done)
+		for ctx.Err() == nil {
+			next, err := e.store.WaitSchedulerLease(ctx, cursor)
+			if err != nil {
+				if ctx.Err() == nil {
+					failed <- err
+				}
+				return
 			}
-			return nil
+			if next != cursor {
+				cursor = next
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+			}
 		}
-		if next != lease.Cursor {
-			return nil
+	}(lease.Cursor)
+	defer func() { cancel(); <-done }()
+	timer := time.NewTimer(max(0, time.Until(lease.Until)))
+	defer timer.Stop()
+	for {
+		select {
+		case <-e.ctx.Done():
+			return state.SchedulerLease{}, e.ctx.Err()
+		case err := <-failed:
+			e.scheduler.fail(schedulerWatchFailure, err)
+			return state.SchedulerLease{}, err
+		case <-wake:
+		case <-timer.C:
 		}
+		select {
+		case err := <-failed:
+			e.scheduler.fail(schedulerWatchFailure, err)
+			return state.SchedulerLease{}, err
+		default:
+		}
+		call, stop := context.WithTimeout(e.ctx, 100*time.Millisecond)
+		next, err := e.store.LeaseScheduler(call, token, true)
+		stop()
+		if err != nil {
+			return state.SchedulerLease{}, err
+		}
+		if next.Held {
+			cancel()
+			<-done
+			select {
+			case err := <-failed:
+				e.scheduler.fail(schedulerWatchFailure, err)
+				return state.SchedulerLease{}, err
+			default:
+			}
+			if !time.Now().Before(next.Until) {
+				return state.SchedulerLease{}, state.ErrStale
+			}
+			return next, nil
+		}
+		lease = next
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(max(0, time.Until(lease.Until)))
 	}
-	return nil
 }
 
 func (e *StateEngine) scheduleLeader(token string, until time.Time) {

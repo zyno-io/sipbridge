@@ -360,15 +360,16 @@ func TestSchedulerPairAbruptLeaderLossRebuildsAndDispatches(t *testing.T) {
 			ref := schedulerSeedTimer(t, s, due)
 			lost := time.Now()
 			leader.cancel()
-			// The lease-loss budget starts at cancellation, after seed admission.
-			schedulerAwait(t, lost.Add(state.SchedulerLeaseLifetime+750*time.Millisecond), func() bool {
+			// The loss budget includes the lease lifetime, up to one blocked
+			// notification read to join, and the existing post-handoff work budget.
+			schedulerAwait(t, lost.Add(state.SchedulerLeaseLifetime+time.Second+750*time.Millisecond), func() bool {
 				record, err := s.Load(context.Background(), ref)
 				return follower.SchedulerStatistics().Leader && err == nil && len(record.Payload.Timers) == 0
 			})
 			if follower.SchedulerStatistics().Acquisitions != 1 {
 				t.Fatal("follower did not acquire fresh leadership")
 			}
-			t.Logf("abrupt failover timer dispatched with %s lag across 64 partitions", time.Since(due))
+			t.Logf("abrupt failover completed %s after leader cancellation; timer lag %s across 64 partitions", time.Since(lost), time.Since(due))
 		})
 	}
 }

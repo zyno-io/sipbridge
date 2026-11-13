@@ -848,6 +848,13 @@ expiry or a lease-handoff notification instead of retrying on a fixed cadence.
 Conditional release cannot erase a successor and wakes contenders only after its
 own release commits. Renewal does not wake contenders. A lost wake is covered by
 the remembered expiry; it cannot postpone acquisition indefinitely.
+The follower watch lasts for the follower role, not one lease observation.
+Healthy contention updates the acquisition deadline without cancelling an
+in-flight notification read. The watch advances its explicit cursor as wakes
+arrive; a new observation does not rewind it. Acquisition, a watch/authority
+error or shutdown ends the watch. Cancel and join it before starting the leader
+watch, retaining the acquired lease's original conservative deadline throughout.
+A lease that expires during that join grants no usable leadership.
 The handoff stream retains at most one constant marker with a 120-second idle
 TTL. Its type and required command permissions are checked before lease mutation.
 
@@ -870,6 +877,9 @@ validation. Worker and coordinator watches cannot occupy the execution pool.
 Follower handoff and leader scheduling watches replace one another: cancel and
 finish the former before starting the latter. Together with the independent
 dispatch watch, they fit the two-connection notification pool.
+Cancellation can wait for the remainder of the one-second blocking read.
+That join contributes to failover latency and consumes the acquired lease's
+original deadline; it never starts a new lease or extends permission.
 Each watch reads from an explicit cursor without consuming another worker's wake.
 A cached head may fire early after a deadline is extended; that causes one fresh
 head read. Earlier work emits a wake in the same atomic mutation. Empty queues

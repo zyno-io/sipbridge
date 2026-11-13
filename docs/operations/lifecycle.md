@@ -70,16 +70,22 @@ Sources: [worker loop](../../internal/engine/state_engine_scheduler_physical.go)
 ```mermaid
 flowchart TD
     A[Atomically acquire or observe coordinator lease] --> B{Held?}
-    B -- No --> C[Wait observed expiry or handoff wake]
+    A -- Authority failure --> H
+    B -- No --> C[Keep follower watch; wait observed expiry or handoff wake]
     C --> A
-    B -- Yes --> D[Renew independently; observe deadline head and cursor]
+    C -- Watch or authority failure --> H
+    B -- Yes --> I[Cancel and join follower watch within acquired lease]
+    I --> K{Lease still valid?}
+    K -- Yes --> D[Renew independently; observe deadline head and cursor]
+    K -- No --> H
     D --> E{Any class due?}
     E -- No --> F[Wait earliest deadline or earlier-head wake]
     F --> D
     E -- Yes --> G[Serve bounded due class fairly]
     G --> D
     D -- Lease or watch failure --> H[Cancel and finish role watch; conditional release]
-    H --> A
+    H --> J[Bounded failure backoff]
+    J --> A
 ```
 
 The three classes are unowned protocol work, application-owner expiry and orphaned
@@ -97,8 +103,12 @@ validated before mutation.
 One finite metadata repair pass starts after acquisition or corrupt hints. Its
 paced timer stops at pass end. Worker dispatch remains independent of leadership;
 follower handoff and leader scheduling watches replace one another and share the
-notification pool's remaining connection. Exact timing/bounds and the required
-coordinated upgrade are in [runtime](../runtime.md#owned-scheduling).
+notification pool's remaining connection. Healthy lease observations update a
+local expiry timer while keeping the follower read and its advancing cursor;
+they do not cancel or reopen the notification connection. A successful acquisition
+retains its exact conservative expiry while joining that watch. See
+[runtime](../runtime.md#owned-scheduling) for timing and bounds, and the
+[deployment guide](../guide/deployment.md) for coordinated upgrades.
 
 Sources: [coordinator](../../internal/engine/state_engine_scheduler.go),
 [lease/head store](../../internal/state/scheduler.go), [takeover](../../internal/state/timer_workers.go).

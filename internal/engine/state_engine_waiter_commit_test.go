@@ -184,7 +184,7 @@ func TestNotifyWaiterIgnoresIntermediateWriteAndUnrelatedIngest(t *testing.T) {
 		t.Fatal("intermediate NOTIFY write woke command waiter")
 	}
 	result = f.apply(t, ref, "unrelated-subscribe-replay", stateEngineInput{Kind: "ingest", Application: f.app, ApplicationLeaseTerm: f.term,
-		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: c.Origin.Wire}})
+		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: c.Origin.WireBytes()}})
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}

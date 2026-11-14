@@ -73,6 +73,12 @@ func TestRetainedEncoderFieldsRemainLexicallyOrdered(t *testing.T) {
 		var keys []string
 		for index := 0; index < typ.NumField(); index++ {
 			field := typ.Field(index)
+			if field.PkgPath != "" {
+				if field.Tag.Get("json") != "-" {
+					t.Fatalf("%s.%s must explicitly exclude private runtime data", typ.Name(), field.Name)
+				}
+				continue
+			}
 			key := strings.Split(field.Tag.Get("json"), ",")[0]
 			if key == "" || key == "-" || field.Anonymous {
 				t.Fatalf("%s.%s needs an explicit retained JSON key", typ.Name(), field.Name)

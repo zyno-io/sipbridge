@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
+	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 )
@@ -20,8 +21,8 @@ type residentCommand struct {
 	certainty       pb.OperationResult_Certainty
 	status          uint32
 	err             string
-	requestWire     []byte
-	responseWire    []byte
+	requestMessage  portable.Message
+	responseMessage portable.Message
 	engine          *ResidentMemory
 	budget          *residentBudget
 	borrowed        int64
@@ -135,11 +136,11 @@ func releaseResidentCommandWireLocked(c *residentContext, command *residentComma
 	if command == nil || residentCommandVisible(c, command) {
 		return
 	}
-	bytes := int64(len(command.requestWire) + len(command.responseWire))
+	bytes := command.requestMessage.RetainedBytes() + command.responseMessage.RetainedBytes()
 	if bytes > 0 && command.engine != nil {
 		_ = command.engine.refundResidentBudgetLocked(c, command.budget, bytes, command.borrowed)
 	}
-	command.requestWire, command.responseWire, command.borrowed = nil, nil, 0
+	command.requestMessage, command.responseMessage, command.borrowed = portable.Message{}, portable.Message{}, 0
 	if command.registered && command.engine != nil {
 		returned := int64(0)
 		if command.baseBudget != nil && command.baseBudget.open {
@@ -155,11 +156,11 @@ func releaseResidentCommandWireLocked(c *residentContext, command *residentComma
 // exact request/response bytes are historical; Snapshot projects current state.
 func residentCommandResultLocked(c *residentContext, command *residentCommand) *pb.OperationResult {
 	result := &pb.OperationResult{Certainty: command.certainty, SipStatus: command.status, Error: command.err}
-	if len(command.requestWire) != 0 {
-		result.Request = mustObserve(append([]byte(nil), command.requestWire...), true)
+	if !command.requestMessage.IsZero() {
+		result.Request, _ = projectNativeMessage(command.requestMessage, true)
 	}
-	if len(command.responseWire) != 0 {
-		result.Response = mustObserve(append([]byte(nil), command.responseWire...), false)
+	if !command.responseMessage.IsZero() {
+		result.Response, _ = projectNativeMessage(command.responseMessage, false)
 	}
 	if c.snapshot != nil {
 		result.Snapshot = proto.Clone(c.snapshot).(*pb.ContextSnapshot)
@@ -174,6 +175,21 @@ func finishResidentCommandLocked(c *residentContext, command *residentCommand, r
 // finishResidentCommandWireLocked retains only immutable wire evidence; rich
 // DTOs are materialized later when a public result is actually requested.
 func finishResidentCommandWireLocked(c *residentContext, command *residentCommand, certainty pb.OperationResult_Certainty, status uint32, failure string, requestWire, responseWire []byte) {
+	transport := "tls"
+	if c.snapshot != nil && c.snapshot.Transport != "" {
+		transport = c.snapshot.Transport
+	}
+	var request, response portable.Message
+	if len(requestWire) > 0 {
+		request = portable.RestoreMessage(requestWire, transport, "", "")
+	}
+	if len(responseWire) > 0 {
+		response = portable.RestoreMessage(responseWire, transport, "", "")
+	}
+	finishResidentCommandMessageLocked(c, command, certainty, status, failure, request, response)
+}
+
+func finishResidentCommandMessageLocked(c *residentContext, command *residentCommand, certainty pb.OperationResult_Certainty, status uint32, failure string, request, response portable.Message) {
 	if command == nil {
 		return
 	}
@@ -185,10 +201,17 @@ func finishResidentCommandWireLocked(c *residentContext, command *residentComman
 		}
 	}
 	if !residentCommandVisible(c, command) {
-		requestWire, responseWire = nil, nil
+		request, response = portable.Message{}, portable.Message{}
 	}
-	oldBytes := int64(len(command.requestWire) + len(command.responseWire))
-	newBytes := int64(len(requestWire) + len(responseWire))
+	// Any raw control result is prepared before charging its retained facts.
+	if !request.IsZero() {
+		_, _ = request.Facts()
+	}
+	if !response.IsZero() {
+		_, _ = response.Facts()
+	}
+	oldBytes := command.requestMessage.RetainedBytes() + command.responseMessage.RetainedBytes()
+	newBytes := request.RetainedBytes() + response.RetainedBytes()
 	delta := newBytes - oldBytes
 	if delta > 0 && command.engine != nil {
 		borrowed, err := command.engine.chargeResidentBudgetLocked(c, command.budget, delta)
@@ -201,7 +224,7 @@ func finishResidentCommandWireLocked(c *residentContext, command *residentComman
 			// Do not assert a known result when its required replay evidence could
 			// not be retained. Admission should reserve this continuation space.
 			certainty, status, failure = pb.OperationResult_UNKNOWN, 0, "command evidence capacity unavailable"
-			requestWire, responseWire, newBytes, delta = nil, nil, 0, -oldBytes
+			request, response, newBytes, delta = portable.Message{}, portable.Message{}, 0, -oldBytes
 		} else {
 			command.borrowed += borrowed
 		}
@@ -223,8 +246,7 @@ func finishResidentCommandWireLocked(c *residentContext, command *residentComman
 		}
 		command.errorReserve -= errorDelta
 	}
-	command.requestWire = append([]byte(nil), requestWire...)
-	command.responseWire = append([]byte(nil), responseWire...)
+	command.requestMessage, command.responseMessage = request, response
 	command.certainty, command.status, command.err = certainty, status, errText
 	wasFinished := command.finished
 	command.finished = true

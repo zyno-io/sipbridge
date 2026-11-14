@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -25,7 +24,7 @@ func (r *stateReduction) findEffect(id string, drain ...*state.LocalDrainObserva
 				return 0, effect, stateEngineEffect{}, state.ErrCorrupt
 			}
 			var body stateEngineEffect
-			if body.unmarshalBinary(effect.Payload, false, drain...) != nil {
+			if r.unmarshalEffectMetadata(&body, effect, drain...) != nil {
 				return 0, effect, body, state.ErrCorrupt
 			}
 			return index, effect, body, nil
@@ -42,19 +41,18 @@ func (r *stateReduction) reject() error {
 	if r.in.Context == nil || r.in.Flow == nil || r.in.Message == nil || r.in.Status < 300 || r.in.Status > 699 {
 		return errors.New("invalid rejection input")
 	}
-	m := portable.Message{Wire: r.in.Message.Wire, Transport: r.in.Flow.Transport}
-	parsed, err := m.Parse()
+	m := r.incomingMessage(r.in.Message.Wire, r.in.Flow, false)
+	facts, err := m.Facts()
 	if err != nil {
 		return err
 	}
-	request, ok := parsed.(*sip.Request)
-	if !ok {
+	if !facts.IsRequest {
 		return errors.New("request response not permitted")
 	}
-	if parsed.CallID().Value() != r.record.Ref.CallID {
+	if facts.CallID != r.record.Ref.CallID {
 		return errors.New("rejection group mismatch")
 	}
-	if request.IsAck() {
+	if facts.Method == sip.ACK {
 		return r.ackRejection(m)
 	}
 	if r.requestFence == nil {
@@ -87,26 +85,25 @@ func (r *stateReduction) reject() error {
 		r.group.Contexts[r.in.Context.Id] = c
 	}
 	if !c.Rejection || c.Snapshot.Kind != pb.ContextSnapshot_TRANSACTION || !c.Snapshot.Ended ||
-		!proto.Equal(c.Flow, r.in.Flow) || !bytes.Equal(c.Origin.Wire, m.Wire) || len(c.Snapshot.Selectors) != 0 {
+		!proto.Equal(c.Flow, r.in.Flow) || !c.Origin.EqualWire(m) || len(c.Snapshot.Selectors) != 0 {
 		return errors.New("rejection context conflict")
 	}
 	for _, tx := range c.Transactions {
-		if !portable.MatchRequest(tx.Native.Origin, m) || !bytes.Equal(tx.Native.Origin.Wire, m.Wire) ||
+		if !portable.MatchRequest(tx.Native.Origin, m) || !tx.Native.Origin.EqualWire(m) ||
 			!proto.Equal(tx.Flow, r.in.Flow) || tx.Native.LastResponse == nil {
 			return errors.New("rejection transaction conflict")
 		}
-		response, err := tx.Native.LastResponse.Parse()
+		refusal, err := tx.Native.LastResponse.Facts()
 		if err != nil {
 			return err
 		}
-		refusal, ok := response.(*sip.Response)
-		if !ok || refusal.StatusCode != int(r.in.Status) {
+		if refusal.IsRequest || refusal.Status != int(r.in.Status) {
 			return errors.New("rejection response conflict")
 		}
 		return r.send(c, tx, *tx.Native.LastResponse, true)
 	}
 	family := portable.NonInviteServer
-	if request.IsInvite() {
+	if facts.Method == sip.INVITE {
 		family = portable.InviteServer
 	}
 	native, err := portable.NewTransaction(family, m, portable.DefaultTimers(), c.Tag)
@@ -138,11 +135,10 @@ func (r *stateReduction) ackRejection(message portable.Message) error {
 	// These contexts deliberately publish no routing selectors. Only the exact
 	// physical flow and retained native INVITE/final-response identity may stop
 	// their negative-response procedure; this cannot admit business/dialog work.
-	parsed, err := message.Parse()
+	facts, err := message.Facts()
 	if err != nil {
 		return err
 	}
-	request := parsed.(*sip.Request)
 	for _, c := range r.group.Contexts {
 		if !c.Rejection || !proto.Equal(c.Flow, r.in.Flow) {
 			continue
@@ -150,12 +146,11 @@ func (r *stateReduction) ackRejection(message portable.Message) error {
 		for _, tx := range c.Transactions {
 			if tx.Native.Family == portable.InviteServer && proto.Equal(tx.Flow, r.in.Flow) &&
 				portable.MatchRequest(tx.Native.Origin, message) && tx.Native.LastResponse != nil {
-				parsed, err := tx.Native.LastResponse.Parse()
+				response, err := tx.Native.LastResponse.Facts()
 				if err != nil {
 					return err
 				}
-				response, ok := parsed.(*sip.Response)
-				if !ok || tag(request.To().Params) != tag(response.To().Params) {
+				if response.IsRequest || facts.ToTag != response.ToTag {
 					continue
 				}
 				return r.stepTransaction(c, tx, portable.Input{Kind: portable.ReceiveRequest, Now: r.now, Message: message})
@@ -593,10 +588,13 @@ func (r *stateReduction) openUAC() error {
 	if open.Network != nil && open.Network.Credential != nil {
 		c.Credential = proto.Clone(open.Network.Credential).(*pb.CredentialRef)
 	}
-	parsed, _ := m.Parse()
-	c.Snapshot.LocalTag = tag(parsed.From().Params)
-	c.Snapshot.LocalUri = parsed.From().Address.String()
-	c.Snapshot.RemoteUri = parsed.To().Address.String()
+	facts, err := m.Facts()
+	if err != nil {
+		return err
+	}
+	c.Snapshot.LocalTag = facts.FromTag
+	c.Snapshot.LocalUri = facts.FromURI
+	c.Snapshot.RemoteUri = facts.ToURI
 	if method != sip.INVITE {
 		c.Snapshot.Kind = pb.ContextSnapshot_TRANSACTION
 	}
@@ -619,18 +617,18 @@ func (r *stateReduction) openUAC() error {
 	} else if err = r.startClient(c); err != nil {
 		return err
 	}
-	c.Result = &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED, Snapshot: stateSnapshot(c, r.engine.cfg.Process), Request: mustObserve(m.Wire, true)}
+	c.Result = &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED, Snapshot: stateSnapshot(c, r.engine.cfg.Process), Request: stateProjectMessage(m, true)}
 	r.result = proto.Clone(c.Result).(*pb.OperationResult)
 	return nil
 }
 
 func (r *stateReduction) startClient(c *stateContext) error {
-	m, err := c.Origin.Parse()
+	m, err := c.Origin.Facts()
 	if err != nil {
 		return err
 	}
 	family := portable.NonInviteClient
-	if m.CSeq().MethodName == sip.INVITE {
+	if m.CSeqMethod == sip.INVITE {
 		family = portable.InviteClient
 	}
 	native, err := portable.NewTransaction(family, c.Origin, portable.DefaultTimers(), "")

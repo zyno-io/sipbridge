@@ -27,7 +27,7 @@ func TestResidentCredentialReferenceLookupAndDigestRetry(t *testing.T) {
 				errors <- err
 				done <- result
 			}()
-			origin := portable.Message{Wire: <-writes, Transport: "tls"}
+			origin := portable.RestoreMessage(<-writes, "tls", "", "")
 			headerName := "WWW-Authenticate"
 			if status == 407 {
 				headerName = "Proxy-Authenticate"
@@ -36,7 +36,7 @@ func TestResidentCredentialReferenceLookupAndDigestRetry(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			observed, err := Observe(challenge.Wire, false)
+			observed, err := Observe(challenge.WireBytes(), false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -47,8 +47,8 @@ func TestResidentCredentialReferenceLookupAndDigestRetry(t *testing.T) {
 			}
 			const secret = "synthetic-carrier-secret"
 			writeControllerEnvelope(t, ctx, connection, &pb.Envelope{SessionId: session, CorrelationId: lookup.CorrelationId, Payload: &pb.Envelope_CredentialResult{CredentialResult: &pb.CredentialResult{Username: "phone", Password: secret, Version: credential.Version}}})
-			retry := portable.Message{Wire: <-writes, Transport: "tls"}
-			parsed, err := retry.Parse()
+			retry := portable.RestoreMessage(<-writes, "tls", "", "")
+			parsed, err := sip.ParseMessage(retry.WireBytes())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,14 +57,14 @@ func TestResidentCredentialReferenceLookupAndDigestRetry(t *testing.T) {
 				authName = "Proxy-Authorization"
 			}
 			authorization := header(parsed, authName)
-			if parsed.CSeq().SeqNo != 2 || !strings.Contains(authorization, `username="phone"`) || bytes.Contains(retry.Wire, []byte(secret)) {
+			if parsed.CSeq().SeqNo != 2 || !strings.Contains(authorization, `username="phone"`) || bytes.Contains(retry.WireBytes(), []byte(secret)) {
 				t.Fatal("invalid or secret-bearing digest retry")
 			}
 			final, err := portable.BuildResponseWithHeaders(retry, 200, "OK", nil, "carrier", "", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			finalObserved, err := Observe(final.Wire, false)
+			finalObserved, err := Observe(final.WireBytes(), false)
 			if err != nil {
 				t.Fatal(err)
 			}

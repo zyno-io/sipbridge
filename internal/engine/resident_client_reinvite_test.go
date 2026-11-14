@@ -36,12 +36,12 @@ func TestResidentUASLocalReinviteLateOfferUsesLocalTransaction(t *testing.T) {
 	if err != nil || result.Certainty != pb.OperationResult_COMPLETED {
 		t.Fatal("initial answer failed", result, err)
 	}
-	serverResponse := portable.Message{Wire: <-writes, Transport: "tls"}
+	serverResponse := portable.RestoreMessage(<-writes, "tls", "", "")
 	writeControllerEnvelope(t, ctx, conn, &pb.Envelope{SessionId: session, CorrelationId: presented.CorrelationId, Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}}})
 	if err = <-ingestDone; err != nil {
 		t.Fatal(err)
 	}
-	remote, err := portable.NewDialog(portable.UAC, portable.Message{Wire: incoming.Wire, Transport: "tls"}, serverResponse, portable.DefaultTimers())
+	remote, err := portable.NewDialog(portable.UAC, portable.RestoreMessage(incoming.Wire, "tls", "", ""), serverResponse, portable.DefaultTimers())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestResidentUASLocalReinviteLateOfferUsesLocalTransaction(t *testing.T) {
 	}
 	ackDone := make(chan error, 1)
 	go func() {
-		_, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: initialACK.Wire})
+		_, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: initialACK.WireBytes()})
 		ackDone <- err
 	}()
 	event := readControllerEnvelope(t, ctx, conn)
@@ -91,11 +91,11 @@ func TestResidentUASLocalReinviteLateOfferUsesLocalTransaction(t *testing.T) {
 	localKey := current.localTransaction
 	c.mu.Unlock()
 	offer := []byte("v=0\r\no=peer 1 1 IN IP4 192.0.2.1\r\ns=-\r\nt=0 0\r\n")
-	final, err := portable.BuildResponseWithHeaders(portable.Message{Wire: localWire, Transport: "tls"}, 200, "OK", offer, "remote-tag", "sip:alice@phone.example.test:5061;transport=tls", []portable.Header{{Name: "Content-Type", Value: "application/sdp"}})
+	final, err := portable.BuildResponseWithHeaders(portable.RestoreMessage(localWire, "tls", "", ""), 200, "OK", offer, "remote-tag", "sip:alice@phone.example.test:5061;transport=tls", []portable.Header{{Name: "Content-Type", Value: "application/sdp"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := Observe(final.Wire, false)
+	observed, err := Observe(final.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,11 +160,11 @@ func TestResidentUASLocalReinviteLateOfferUsesLocalTransaction(t *testing.T) {
 		if !retired {
 			t.Fatal("superseded re-INVITE did not release its procedure")
 		}
-		response, buildErr := portable.BuildResponseWithHeaders(portable.Message{Wire: inviteWire, Transport: "tls"}, 200, "OK", nil, "remote-tag", "sip:alice@phone.example.test:5061;transport=tls", nil)
+		response, buildErr := portable.BuildResponseWithHeaders(portable.RestoreMessage(inviteWire, "tls", "", ""), 200, "OK", nil, "remote-tag", "sip:alice@phone.example.test:5061;transport=tls", nil)
 		if buildErr != nil {
 			t.Fatal(buildErr)
 		}
-		observed, observeErr := Observe(response.Wire, false)
+		observed, observeErr := Observe(response.WireBytes(), false)
 		if observeErr != nil {
 			t.Fatal(observeErr)
 		}

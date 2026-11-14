@@ -1,9 +1,12 @@
 # Resident Memory core
 
-This is locked architecture revision two for the replacement Memory runtime,
-approved by Astra on 2026-11-13 before implementation. Native staging measurement
-found the idle work removed, but the controller exchanges still miss the matched
-CPU gate; revision two replaces those exchanges with the direct decision contract.
+This is locked architecture revision three for the replacement Memory runtime,
+approved by independent Sol review on 2026-11-13 before implementation.
+Revision two's direct decision contract is implemented; its matched 130-phone
+SIP-process CPU gate remains unmet. Revision three removes repeated SIP parsing
+and wire reconstruction through one immutable native message representation.
+This is the implementation target; it is not a statement that the serving
+revision already implements the representation below.
 The checkpoint runtime follows [runtime](runtime.md) until its replacement is
 qualified. Implementation review and the CPU gate remain separate requirements.
 
@@ -34,6 +37,116 @@ values. Release state locks before controller/socket IO or waiting for a result.
 Only immutable instructions and boundary DTOs cross that gap. Revalidate the
 original identity, revision and deadline when applying an asynchronous result.
 Exact physical completion remains recordable after unrelated revision changes.
+
+## Parse once and retain only required message data
+
+The same native reducers continue to decide SIP transaction and dialog behavior.
+Change their message representation, not their protocol state machines. There
+is one in-process message API and one transition implementation, not a second
+cached FSM or parallel prepared/wire execution engines.
+
+A received UDP datagram or TCP/TLS frame is parsed once. The ingress parser's
+exact bytes and parsed value belong to the same observed frame. Native code
+freezes an owned immutable message from that pair, retaining the validated
+identity and the compact facts needed by matching, construction and projection.
+Do not parse the same bytes again to prove a fact already established by that
+boundary. Raw controller or stored messages pass through their own decode and
+validation boundary once; caller-supplied metadata is not native proof.
+
+```mermaid
+flowchart LR
+    A[Observed frame] --> B[Parse and validate once]
+    B --> C[Owned immutable native message]
+    D[Native structured construction] --> C
+    C --> E[Match and reduce using facts]
+    E --> F[Construct changed output privately]
+    F --> G[Finalize observed routing and render once]
+    G --> H[Stage exact bytes and facts]
+    H --> I[Write without SIP parsing]
+```
+
+The native dependency owns the opaque message and immutable facts. No caller
+can mutate exported wire and leave cached identities describing different bytes.
+Facts include the native method/status and request URI, Call-ID, directional
+tags, CSeq, Via and observed transport, native transaction keys and any routes,
+Contact or header/body material the procedure actually needs. Derive keys and
+normalization with sipgo's existing rules. Preserve exact digest request-URI and
+body semantics. Observed admission and portable identity validation keep their
+existing distinct requirements and rejection behavior.
+
+The frozen value must own its data: changing the read buffer, source parsed
+headers, a later builder or another reducer candidate cannot change it. Do not
+retain a mutable `sip.Request`/`sip.Response` graph or an entire large packet
+indirectly through small metadata slices. Share immutable facts and byte evidence
+where ownership permits, rather than deep-copying them at every transition.
+Mutable SIP objects remain private construction/projection temporaries.
+
+Native structured builders produce both their validated facts and final wire.
+Response construction, ACK/CANCEL association and construction, digest retry,
+in-dialog requests and required NOTIFY must not render a packet merely to parse
+it again. Header changes such as response To-tags, retry Authorization/CSeq/Via
+or observed Via received/rport create a new value; they never modify an admitted
+origin. Keep the selected native response's exact conflict/replay identity
+separate from an immutable physical emission derived for an admitted flow.
+An approved replacement TLS flow can change Via received/rport without changing
+that selected response or constituting a conflicting application final. These
+are variants of the same message API, not separate transition engines. Render
+once per distinct finalized value; reuse existing bytes when no change is needed.
+Finalize physical return-flow routing before rendering and fingerprinting that
+emission. The dispatcher writes those exact bytes and records their outcome;
+it does not parse, patch or regenerate them.
+
+Reducer validation checks phase, identity, sequence and obligation invariants
+against the immutable facts. Matching and timer inputs reuse those facts. A
+timer does not parse an old request to classify it or construct its response.
+Keep full response/fork/ACK/CANCEL and transport-sensitive matching checks;
+prepared facts are not permission to reduce validation to a branch lookup.
+
+| Message use | Required retained data |
+| --- | --- |
+| Admitted procedure | Immutable identity, construction/matching facts and the exact bytes still needed by its protocol or public evidence contract |
+| Quiet dialog/subscription | Compact dialog/subscription facts; no whole parsed packet graph as its source of truth |
+| UDP retry or successful INVITE awaiting ACK | The exact selected output and existing original deadlines/identity |
+| Required NOTIFY or uncertain physical output | Its exact message/flow and completion evidence until the existing obligation ends |
+| Original command waiter or lifecycle event | Its own immutable historical outcome/message evidence until acknowledgement or the existing cutoff |
+| Retired disposition | Existing minimal selector/hash/flow/cutoff evidence; no message data without a remaining obligation |
+
+Public control DTOs are projections of the frozen message, built only at their
+actual delivery/observation boundary. Original result evidence must not take a
+wire-to-rich-DTO-to-wire detour or reparse its wire on every lookup. Keep the
+exact original receipt pointer and original outcome/bytes while snapshots retain
+their documented current-projection meaning. Snapshot/event copies that freeze
+mutable state across IO remain necessary; immutable message sharing does not
+justify borrowing a mutable live snapshot.
+
+This revision changes the consolidated dependency through its reviewed export
+workflow; the checked-in pinned snapshot is never patched in place. Update all
+native producers, reducers, matchers, builders, writers, public projections and
+storage conversions to the same message API. The existing checkpoint adapter
+continues to encode its current byte representation and validates decoded SIP
+bytes at most once when that message is consumed within an operation. Preserve
+lazy selected-field validation: decoding a group or reserving a selected write
+must not eagerly parse unrelated stored origins, responses or cached results.
+Map the opaque native message explicitly into the existing storage shape;
+reflection must not silently omit private fields. Preserve field numbers,
+descriptor identity, exact bytes, nil/empty/presence and direct-reader/protobuf
+oracle parity. In-process pointers and caches are not serialized;
+this does not implement the later Redis adapter or add a resident
+authoritative cache to checkpoint execution.
+
+Stored physical effects that fail the existing SIP observation checks remain
+opaque for classification and completion. Do not add a weaker parser fallback
+to recover method, status or identity from malformed historical packets. This
+does not relax uncertainty or authorize another write. Valid effects reuse
+their immutable message within the operation, including freshly staged native
+outputs and lifecycle events. No compatibility migration or cleanup is required.
+
+The public JSON profile, schema, controller handshake and SIP replay/retirement
+contract stay unchanged in this revision. Its strict JSON validator cannot be
+deleted on the assumption that ProtoJSON enforces the same null, enum, alias,
+base64, duplicate-key and nesting rules. Reliable REGISTER history is a separate
+lifetime decision; parsing changes alone do not authorize duplicate business
+mutation, early UNKNOWN release or loss of an original waiter's result.
 
 ## What lives in memory
 

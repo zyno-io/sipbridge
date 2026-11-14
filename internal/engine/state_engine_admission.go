@@ -52,18 +52,18 @@ func (r *stateReduction) pruneAdmissions() {
 }
 
 func (r *stateReduction) reserveAdmission() error {
-	message, err := Observe(r.in.Message.Wire, false)
+	parsed, err := parseObservedMessage(r.in.Message.Wire)
 	if err != nil {
 		return err
 	}
-	callID, err := stateMessageCallID(message.Wire)
-	if err != nil || callID != r.record.Ref.CallID {
+	message := projectObservedMessage(r.in.Message.Wire, parsed, false)
+	if parsed.CallID().Value() != r.record.Ref.CallID {
 		return errors.New("allocation Call-ID mismatch")
 	}
 	for _, selector := range message.Selectors {
 		if id := r.group.Selectors[selector]; id != "" && r.group.Contexts[id] != nil {
 			c := r.group.Contexts[id]
-			if err := stateRetiredInvite(c, message, r.now); err != nil {
+			if err := stateRetiredInviteParsed(c, message.Wire, parsed, r.now); err != nil {
 				return err
 			}
 			r.result.Snapshot = stateSnapshot(c, r.engine.cfg.Process)
@@ -72,9 +72,8 @@ func (r *stateReduction) reserveAdmission() error {
 	}
 	// This allocator admits only initial requests. Matching retained completion
 	// has a read-only ingress path and never allocates here.
-	parsed, err := sip.ParseMessage(message.Wire)
 	request, ok := parsed.(*sip.Request)
-	if err != nil || !ok || request.To() == nil || tag(request.To().Params) != "" || request.IsAck() || request.IsCancel() {
+	if !ok || request.To() == nil || tag(request.To().Params) != "" || request.IsAck() || request.IsCancel() {
 		return &portable.ProtocolError{Status: 481, Reason: "unknown native context"}
 	}
 	r.pruneAdmissions()
@@ -100,10 +99,23 @@ func (r *stateReduction) reserveAdmission() error {
 
 // Refusal needs no business routing, but retained transactions must keep their
 // normal replay and identity checks before an irrevocable dialog refusal wins.
-func stateRetiredInvite(c *stateContext, message *pb.SipMessage, now int64) error {
-	parsed, err := sip.ParseMessage(message.Wire)
+func stateRetiredInvite(c *stateContext, message *pb.SipMessage, now int64, observed ...sip.Message) error {
+	var parsed sip.Message
+	if len(observed) > 0 {
+		parsed = observed[0]
+	} else {
+		var err error
+		parsed, err = sip.ParseMessage(message.Wire)
+		if err != nil {
+			return nil
+		}
+	}
+	return stateRetiredInviteParsed(c, message.Wire, parsed, now)
+}
+
+func stateRetiredInviteParsed(c *stateContext, wire []byte, parsed sip.Message, now int64) error {
 	request, ok := parsed.(*sip.Request)
-	if err != nil || !ok || !request.IsInvite() || request.To() == nil || request.From() == nil {
+	if !ok || !request.IsInvite() || request.To() == nil || request.From() == nil {
 		return nil
 	}
 	key, err := sip.ServerTxKeyMake(request)
@@ -116,7 +128,10 @@ func stateRetiredInvite(c *stateContext, message *pb.SipMessage, now int64) erro
 	}
 	// Lookup has no physical flow. This retained transport proves only a
 	// negative dialog decision; the ordinary rejection path scopes its response.
-	m := portable.Message{Wire: message.Wire, Transport: dialog.Transport}
+	m, err := portable.FreezeMessage(wire, request, dialog.Transport, "", "")
+	if err != nil {
+		return nil
+	}
 	if !portable.MatchDialogRequest(dialog, m) {
 		return nil
 	}

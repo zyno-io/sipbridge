@@ -55,7 +55,7 @@ func TestStateNativeProcessReliableFinalNoStartRecoversOnUnchangedTLS(t *testing
 	after, retained := processWaitRecord(h, callID, func(_ state.Record, c *stateContext) bool {
 		for _, tx := range c.Transactions {
 			if tx.Native.Family == portable.NonInviteServer && tx.Native.LastResponse != nil && tx.FinalResponse != nil && tx.FinalResponse.Written {
-				parsed, _ := tx.Native.Origin.Parse()
+				parsed, _ := sip.ParseMessage(tx.Native.Origin.WireBytes())
 				if parsed.CSeq().MethodName == sip.BYE {
 					return tx.Native.Phase == portable.Terminated && tx.Emissions == 2
 				}
@@ -117,7 +117,7 @@ func processWaitRecord(h *processHarness, callID string, predicate func(state.Re
 
 func processOriginalTransaction(t *testing.T, c *stateContext, invite *sip.Request) *stateTransaction {
 	t.Helper()
-	origin := portable.Message{Wire: []byte(invite.String()), Transport: "tls"}
+	origin := portable.RestoreMessage([]byte(invite.String()), "tls", "", "")
 	for _, tx := range c.Transactions {
 		if tx.Native.Family == portable.InviteClient && portable.MatchRequest(tx.Native.Origin, origin) {
 			return tx
@@ -256,10 +256,10 @@ func TestStateNativeProcessNon2xxACKRetainedAcrossWriterDeath(t *testing.T) {
 	before, group := h.record(callID)
 	c := processOnlyContext(t, group)
 	tx := processOriginalTransaction(t, c, invite)
-	if tx.Native.ACK == nil || tx.Native.Phase != portable.Terminated || tx.CompletionScope == "" || !bytes.Equal(tx.Native.ACK.Wire, []byte(first.String())) {
+	if tx.Native.ACK == nil || tx.Native.Phase != portable.Terminated || tx.CompletionScope == "" || !bytes.Equal(tx.Native.ACK.WireBytes(), []byte(first.String())) {
 		t.Fatal("reliable non-2xx ACK was not retained with its exact native transaction/scope")
 	}
-	oldACK := append([]byte(nil), tx.Native.ACK.Wire...)
+	oldACK := append([]byte(nil), tx.Native.ACK.WireBytes()...)
 	h.kill(a)
 	replacement := h.phone(b)
 	replacement.send(t, []byte(final.String()))
@@ -308,13 +308,13 @@ func TestStateNativeProcessNon2xxServerACKCompletesOnReplacementTLS(t *testing.T
 			}
 		}
 	}
-	ack, err := portable.BuildNon2xxACK(portable.Message{Wire: initial, Transport: "tls"}, portable.Message{Wire: []byte(final.String()), Transport: "tls"})
+	ack, err := portable.BuildNon2xxACK(portable.RestoreMessage(initial, "tls", "", ""), portable.RestoreMessage([]byte(final.String()), "tls", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.kill(a)
 	replacement := h.phone(b)
-	replacement.send(t, ack.Wire)
+	replacement.send(t, ack.WireBytes())
 	after, ended := processWaitRecord(h, callID, func(_ state.Record, c *stateContext) bool {
 		return c.Transactions[originalKey] != nil && c.Transactions[originalKey].Native.Phase == portable.Terminated
 	})
@@ -438,7 +438,7 @@ func processCancelledLateForksCleanupAfterOwnerDeath(t *testing.T, harness func(
 			}
 			byes := make(map[string]int)
 			for _, tx := range c.Transactions {
-				message, err := tx.Native.Origin.Parse()
+				message, err := sip.ParseMessage(tx.Native.Origin.WireBytes())
 				if err == nil && message.CSeq().MethodName == sip.BYE {
 					byes[tag(message.To().Params)]++
 				}

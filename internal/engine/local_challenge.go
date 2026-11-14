@@ -160,13 +160,19 @@ func localChallengeTag(key []byte, request *sip.Request, flow *pb.FlowRef) strin
 	return "local-auth-" + hex.EncodeToString(proof[:16])
 }
 
-func (i *Ingress) localChallengeACK(message *pb.SipMessage, flow *pb.FlowRef) bool {
+func (i *Ingress) localChallengeACK(message *pb.SipMessage, flow *pb.FlowRef, parsed sip.Message) bool {
 	if i.authPolicy == nil || !i.authPolicy.RequireInvite || message == nil || flow == nil || message.Status != 0 || message.Method != "ACK" {
 		return false
 	}
-	parsed, err := sip.ParseMessage(message.Wire)
+	if parsed == nil {
+		var err error
+		parsed, err = sip.ParseMessage(message.Wire)
+		if err != nil {
+			return false
+		}
+	}
 	request, ok := parsed.(*sip.Request)
-	if err != nil || !ok || request.To() == nil {
+	if !ok || request.To() == nil {
 		return false
 	}
 	tag := request.To().Params.GetOr("tag", "")
@@ -205,16 +211,16 @@ func (i *Ingress) requiresLocalChallenge(message *pb.SipMessage) bool {
 	return false
 }
 
-func (i *Ingress) challengeLocally(ctx context.Context, flow *physicalFlow, message *pb.SipMessage) {
+func (i *Ingress) challengeLocally(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, parsed sip.Message) {
 	policy := i.challengePolicy()
 	if policy == nil {
-		i.localResponseWithin(ctx, flow, message, 503, "auth-unavailable-", []*pb.Header{{Name: "Retry-After", Value: "1"}})
+		i.localResponseWithParsedWithin(ctx, flow, message, parsed, 503, "auth-unavailable-", []*pb.Header{{Name: "Retry-After", Value: "1"}})
 		return
 	}
 	bucket := time.Now().Unix() / 120 * 120
 	nonce := localChallengeNonce(policy, message, bucket)
 	challenge := fmt.Sprintf("Digest realm=%q, nonce=%q, algorithm=MD5, qop=\"auth\"", policy.Realm, nonce)
-	i.localResponseWithin(ctx, flow, message, 401, "local-auth-", []*pb.Header{{Name: "WWW-Authenticate", Value: challenge}}, func(request *sip.Request) string {
+	i.localResponseWithParsedWithin(ctx, flow, message, parsed, 401, "local-auth-", []*pb.Header{{Name: "WWW-Authenticate", Value: challenge}}, func(request *sip.Request) string {
 		return localChallengeTag(policy.SigningKey, request, flow.ref)
 	})
 }

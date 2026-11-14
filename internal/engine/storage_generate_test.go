@@ -45,6 +45,18 @@ func TestGenerateStorageTypes(t *testing.T) {
 		}
 		item := map[string]interface{}{"kind": typ.Kind().String(), "name": typ.Name(), "package": typ.PkgPath()}
 		types[name] = item
+		// Message is an opaque immutable runtime value. Its existing storage
+		// shape remains explicit; private facts and lazy validation never enter
+		// the descriptor or silently erase these retained fields.
+		if name == "github.com/emiago/sipgo/sip/portable.Message" {
+			item["fields"] = []map[string]string{
+				{"name": "Wire", "type": "[]uint8", "json": "wire"},
+				{"name": "Transport", "type": "string", "json": "transport"},
+				{"name": "Source", "type": "string", "json": "source"},
+				{"name": "Destination", "type": "string", "json": "destination"},
+			}
+			return name
+		}
 		if typ.Kind() == reflect.Struct {
 			var fields []map[string]string
 			for n := 0; n < typ.NumField(); n++ {

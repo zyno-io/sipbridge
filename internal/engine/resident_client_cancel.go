@@ -39,12 +39,12 @@ func (e *ResidentMemory) residentPairedCancelLocked(c *residentContext, invite *
 	if err != nil {
 		return nil, err
 	}
-	observed, err := Observe(message.Wire, true)
+	selectors, err := nativeMessageSelectors(*message, true)
 	if err != nil {
 		return nil, err
 	}
 	tx := &residentTransaction{native: next, flow: proto.Clone(invite.flow).(*pb.FlowRef), application: proto.Clone(invite.application).(*pb.ProcessRef),
-		cleanup: true, budget: invite.budget, selectors: append([]string(nil), observed.Selectors...)}
+		cleanup: true, budget: invite.budget, selectors: append([]string(nil), selectors...)}
 	tx.charged = residentTransactionBytes(tx)
 	tx.borrowed, err = e.chargeResidentBudgetLocked(c, tx.budget, tx.charged)
 	if err != nil {

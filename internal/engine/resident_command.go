@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/emiago/sipgo/sip"
@@ -99,16 +100,11 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 	if tx == nil || tx.native.Phase == portable.Terminated || tx.native.Phase == portable.Completed || tx.native.Phase == portable.Confirmed {
 		return refuse(errors.New("server transaction cannot select response"))
 	}
-	var original sip.Message
-	if direct != nil {
-		original = direct.request
-	} else {
-		original, err = tx.native.Origin.Parse()
-	}
+	original, err := tx.native.Origin.Facts()
 	if err != nil {
 		return refuse(err)
 	}
-	method := original.CSeq().MethodName
+	method := original.CSeqMethod
 	if response.PrincipalId != "" && c.snapshot.PrincipalId != "" && c.snapshot.PrincipalId != response.PrincipalId {
 		return refuse(errors.New("principal mismatch"))
 	}
@@ -156,20 +152,19 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 				return refuse(errors.New("subscription authority changed during flow adoption"))
 			}
 		}
-		subscription, snapshot, message, err = e.prepareResidentSubscriptionParsed(c, tx, response, time.Now(), original.(*sip.Request))
+		subscription, snapshot, message, err = e.prepareResidentSubscription(c, tx, response, time.Now())
 		if err == nil && delivery != nil {
 			snapshot.Delivery = delivery
 			snapshot.ApplicationLeaseTerm = peer.ApplicationLease().Term
 		}
 	} else {
 		var contact string
-		contact, _, err = advertisement(e.cfg, tx.native.Origin.Transport)
+		contact, _, err = advertisement(e.cfg, tx.native.Origin.Transport())
 		if err == nil && method == sip.REFER && response.Status >= 200 && response.Status < 300 {
-			request, ok := original.(*sip.Request)
-			if !ok || request.To() == nil || request.From() == nil {
+			if !original.IsRequest {
 				err = errors.New("REFER identity unavailable")
-			} else if tag(request.To().Params) != "" {
-				dialog := c.dialogs[tag(request.To().Params)+"/"+tag(request.From().Params)]
+			} else if original.ToTag != "" {
+				dialog := c.dialogs[original.ToTag+"/"+original.FromTag]
 				if dialog == nil || !portable.MatchDialogRequest(dialog.native, tx.native.Origin) || dialog.native.Contact == "" {
 					err = errors.New("successful in-dialog REFER requires retained native Contact")
 				} else {
@@ -212,11 +207,11 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 			return refuse(err)
 		}
 		notifyTx.charged = notifyBytes
-		parsedNotify, parseErr := parseObservedMessage(notifyTx.native.Origin.Wire)
+		selectors, parseErr := nativeMessageSelectors(notifyTx.native.Origin, true)
 		if parseErr != nil {
 			return refuse(parseErr)
 		}
-		notifyTx.selectors = observedMessageSelectors(parsedNotify, true)
+		notifyTx.selectors = selectors
 		extra := residentTransactionBytes(notifyTx) - notifyTx.charged
 		if extra > 0 {
 			extraBorrowed, chargeErr := e.chargeResidentBudgetLocked(c, requiredNotify, extra)
@@ -255,7 +250,7 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 			if dialogErr != nil {
 				return refuse(dialogErr)
 			}
-			_, candidate.SentBy, dialogErr = advertisement(e.cfg, tx.native.Origin.Transport)
+			_, candidate.SentBy, dialogErr = advertisement(e.cfg, tx.native.Origin.Transport())
 			if dialogErr != nil {
 				return refuse(dialogErr)
 			}
@@ -279,7 +274,10 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 			if response.Status < 300 {
 				inviteSnapshot.Answered = true
 				inviteSnapshot.LocalSdp = append([]byte(nil), response.Body...)
-				inviteSnapshot.RemoteSdp = append([]byte(nil), original.Body()...)
+				inviteSnapshot.RemoteSdp, err = tx.native.Origin.Body()
+				if err != nil {
+					return refuse(err)
+				}
 				inviteSnapshot.DialogId = sip.DialogIDMake(candidate.CallID, candidate.LocalTag, candidate.RemoteTag)
 				inviteSnapshot.LocalTag, inviteSnapshot.RemoteTag, inviteSnapshot.RemoteTarget = candidate.LocalTag, candidate.RemoteTag, candidate.Target
 			}
@@ -296,8 +294,10 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 	}
 	var dialogSelector string
 	if dialog != nil || subscription != nil {
-		if parsed, parseErr := parseObservedMessage(message.Wire); parseErr == nil {
-			dialogSelector = observedDialogSelector(parsed)
+		if facts, factsErr := message.Facts(); factsErr == nil && facts.FromTag != "" && facts.ToTag != "" {
+			tags := []string{facts.FromTag, facts.ToTag}
+			sort.Strings(tags)
+			dialogSelector = opaque("dlg:", facts.CallID, tags[0], tags[1])
 		}
 	}
 	next, effects, err := portable.StepTransaction(tx.native, portable.Input{Kind: portable.SendResponse, Now: time.Now().UnixMilli(), Message: message})
@@ -542,11 +542,7 @@ func (e *ResidentMemory) residentOutputCompleted(c *residentContext, output *res
 	if output.status == 0 && result.Outcome == pb.DeliveryResult_WRITTEN {
 		if output.method == "BYE" {
 			if tx := c.transactions[output.transaction]; tx != nil && !tx.cleanup {
-				request, err := Observe(tx.native.Origin.Wire, true)
-				if err != nil {
-					return nil, err
-				}
-				finishResidentCommandLocked(c, output.command, &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED, Request: request})
+				finishResidentCommandMessageLocked(c, output.command, pb.OperationResult_ACCEPTED, 0, "", tx.native.Origin, portable.Message{})
 			}
 		}
 		return nil, nil

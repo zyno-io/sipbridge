@@ -248,7 +248,7 @@ func (e *ResidentMemory) residentOwnerByeLocked(c *residentContext, key string, 
 	if err != nil {
 		return nil, err
 	}
-	observed, err := Observe(origin.Wire, true)
+	selectors, err := nativeMessageSelectors(*origin, true)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,7 @@ func (e *ResidentMemory) residentOwnerByeLocked(c *residentContext, key string, 
 	if dialog.completionFlow != nil {
 		cleanupFlow = dialog.completionFlow
 	}
-	tx := &residentTransaction{native: started, flow: proto.Clone(cleanupFlow).(*pb.FlowRef), application: proto.Clone(c.snapshot.Application).(*pb.ProcessRef), cleanup: true, budget: dialog.budget, selectors: append([]string(nil), observed.Selectors...)}
+	tx := &residentTransaction{native: started, flow: proto.Clone(cleanupFlow).(*pb.FlowRef), application: proto.Clone(c.snapshot.Application).(*pb.ProcessRef), cleanup: true, budget: dialog.budget, selectors: append([]string(nil), selectors...)}
 	tx.charged = residentTransactionBytes(tx)
 	tx.borrowed, err = e.chargeResidentBudgetLocked(c, tx.budget, tx.charged)
 	if err != nil {

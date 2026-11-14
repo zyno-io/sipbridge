@@ -42,7 +42,7 @@ func (e *ResidentMemory) failResidentPresentation(c *residentContext, requestID 
 		c.mu.Unlock()
 		return nil
 	}
-	contact, _, err := advertisement(e.cfg, tx.native.Origin.Transport)
+	contact, _, err := advertisement(e.cfg, tx.native.Origin.Transport())
 	if err != nil {
 		c.mu.Unlock()
 		return err
@@ -67,9 +67,9 @@ func (e *ResidentMemory) failResidentPresentation(c *residentContext, requestID 
 	var dialogNext portable.Dialog
 	var dialogEffects []portable.Effect
 	var growth residentClientGrowth
-	origin, parseErr := tx.native.Origin.Parse()
-	if request, ok := origin.(*sip.Request); parseErr == nil && ok && request.IsInvite() && request.To() != nil && request.From() != nil {
-		dialogKey = tag(request.To().Params) + "/" + tag(request.From().Params)
+	origin, parseErr := tx.native.Origin.Facts()
+	if parseErr == nil && origin.IsRequest && origin.Method == sip.INVITE {
+		dialogKey = origin.ToTag + "/" + origin.FromTag
 		dialog = c.dialogs[dialogKey]
 		// An undecided direct request has not changed its dialog. Native
 		// refusal must still complete its transaction if later dialog input

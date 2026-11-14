@@ -52,7 +52,7 @@ func advertiseFixture(t *testing.T, transport string, method sip.RequestMethod, 
 	// This fixture constructs the original admitted server procedure directly.
 	// Persist the same exact initial-flow evidence real ingest commits.
 	r.deadline = r.now + 2000
-	if _, err = r.admitRequestFlow(tx, c.Flow, m.Wire); err != nil {
+	if _, err = r.admitRequestFlow(tx, c.Flow, m.WireBytes()); err != nil {
 		t.Fatal(err)
 	}
 	r.deadline = 0
@@ -145,7 +145,7 @@ func TestStateUASAdvertisementMatchesActualTransportThroughBye(t *testing.T) {
 				response := advertiseWire(t, r, sip.INVITE, true)
 				assertAdvertiseContact(t, response, transport, host, port)
 				// Admit the exact remote ACK before requesting native local BYE.
-				parsed, err := tx.Native.Origin.Parse()
+				parsed, err := sip.ParseMessage(tx.Native.Origin.WireBytes())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -153,7 +153,7 @@ func TestStateUASAdvertisementMatchesActualTransportThroughBye(t *testing.T) {
 				ack.Method, ack.CSeq().MethodName = sip.ACK, sip.ACK
 				ack.To().Params.Add("tag", c.Tag)
 				ack.SetBody(nil)
-				d, _, err := portable.StepDialog(c.Dialogs[c.Dialog], portable.DialogInput{Kind: portable.DialogReceiveRequest, Now: r.now, Message: portable.Message{Wire: []byte(ack.String()), Transport: transport}})
+				d, _, err := portable.StepDialog(c.Dialogs[c.Dialog], portable.DialogInput{Kind: portable.DialogReceiveRequest, Now: r.now, Message: portable.RestoreMessage([]byte(ack.String()), transport, "", "")})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -272,7 +272,7 @@ func TestStateUASIPv6AdvertisementRetainsCanonicalSentBy(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			parsed, err := request.Parse()
+			parsed, err := sip.ParseMessage(request.WireBytes())
 			if err != nil {
 				t.Fatal(err)
 			}

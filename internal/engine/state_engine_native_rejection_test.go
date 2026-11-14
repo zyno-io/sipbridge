@@ -41,7 +41,7 @@ func TestNativeRefusalACKAndLateCreatorNeedNoController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := Observe(ack.Wire, false)
+	observed, err := Observe(ack.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

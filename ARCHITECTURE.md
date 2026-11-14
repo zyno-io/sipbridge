@@ -23,7 +23,8 @@ Consumers pin the full receipt and an immutable image; major `1` alone does not
 establish compatibility. Native retained storage has its own schema identity.
 
 The replacement Memory runtime follows [Resident Memory core](docs/memory-core.md).
-That target is approved and locked before its implementation. The deployed
+Its message representation revision is independently reviewed and locked before
+implementation; SIP reducers remain the sole semantic authority. The deployed
 checkpoint runtime below remains the serving implementation until the replacement
 passes its protocol and CPU gates. Redis implementation follows that Memory gate.
 
@@ -85,6 +86,9 @@ facts rather than retaining a parsed request as a quiet dialog's source of truth
 Classification and selector lookup reuse one transient parse at each received
 boundary. Construct rich SIP control DTOs only when delivering them publicly;
 receipt storage accepts immutable wire directly without building a DTO first.
+The Memory target further requires owned immutable native message facts through
+matching, reducers, construction, output and retirement, as defined in its
+[parse-once contract](docs/memory-core.md#parse-once-and-retain-only-required-message-data).
 Exact replay policy and cutoffs belong to [runtime](docs/runtime.md); terminating
 a reliable transaction is not by itself permission to erase its unsettled output.
 All records, packets, results, queues and transient work have explicit bounds.

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -171,6 +170,8 @@ type stateReduction struct {
 	fingerprint       string
 	ordinal           int
 	result            *pb.OperationResult
+	requestMessage    *portable.Message             // Operation-local immutable input, never stored.
+	effectMessages    map[string]stateEffectMessage // Selected effect payloads, scoped to this reduction.
 	requestFence      *stateRequestFence
 	finishedBudget    stateCompletionBudget // Pure result of the latest successful finish, never retained.
 	policy            *statePolicyAdmission // Current command selection; never a second authoritative aggregate.
@@ -249,12 +250,14 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 		return record.Payload, outcome, execution.ErrReadOnly
 	}
 
+	var requestMessage *portable.Message
 	if in.Kind == "native-ingest" && in.NativeCompletion && in.Ingest == nil {
 		selection := &stateReduction{engine: e, record: record, group: g, in: in, now: now}
 		if err := selection.selectNativeCompletion(); err != nil {
 			return record.Payload, nil, err
 		}
 		in = selection.in
+		requestMessage = selection.requestMessage
 	}
 
 	var originalRevision uint64
@@ -265,8 +268,12 @@ func (e *StateEngine) reduce(record state.Record, input state.Input, now int64) 
 			originalRevision = c.Snapshot.Revision
 		}
 	}
-	r := &stateReduction{engine: e, record: record, group: g, payload: record.Payload, in: in, now: now, deadline: input.DeadlineMS, fingerprint: input.Fingerprint, result: &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}}
-	if e.usesCAS() && record.Pending == nil && !r.autonomousProtocolInput() && stateControlPreflightNeeded(in, g.Contexts[in.Context.GetId()]) {
+	r := &stateReduction{engine: e, record: record, group: g, payload: record.Payload, in: in, now: now, deadline: input.DeadlineMS, fingerprint: input.Fingerprint, result: &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}, requestMessage: requestMessage}
+	var prepared portable.Message
+	if in.Kind == "ingest" && in.Ingest != nil && in.Ingest.Flow != nil {
+		prepared = r.incomingMessage(in.Ingest.Wire, in.Ingest.Flow, true)
+	}
+	if e.usesCAS() && record.Pending == nil && !r.autonomousProtocolInput() && stateControlPreflightNeeded(in, g.Contexts[in.Context.GetId()], prepared) {
 		return record.Payload, nil, errStateControlPreflight
 	}
 	r.payload.Effects = append([]state.Effect(nil), record.Payload.Effects...)
@@ -426,8 +433,21 @@ func (r *stateReduction) touch(c *stateContext) {
 	c.Snapshot.Executor = proto.Clone(r.engine.cfg.Process).(*pb.ProcessRef)
 	c.Snapshot.Context.Owner = proto.Clone(r.engine.cfg.Process).(*pb.ProcessRef)
 }
+
+func (r *stateReduction) incomingMessage(wire []byte, flow *pb.FlowRef, observedSource bool) portable.Message {
+	source := ""
+	if observedSource {
+		source = net.JoinHostPort(flow.SourceIp, strconv.Itoa(int(flow.SourcePort)))
+	}
+	if r.requestMessage != nil && r.requestMessage.Transport() == flow.Transport && r.requestMessage.Source() == source && r.requestMessage.EqualWireBytes(wire) {
+		return *r.requestMessage
+	}
+	message := portable.RestoreMessage(wire, flow.Transport, source, "")
+	r.requestMessage = &message
+	return message
+}
 func (r *stateReduction) index(c *stateContext, m portable.Message, outbound bool) {
-	selectors, err := r.selectorsForWire(m.Wire, outbound)
+	selectors, err := stateSelectorsForMessage(m, outbound)
 	if err != nil {
 		return
 	}
@@ -462,8 +482,20 @@ func (r *stateReduction) addEffect(kind string, c *stateContext, body stateEngin
 	}
 	data, _ := body.MarshalBinary()
 	r.payload.Effects = append(r.payload.Effects, state.Effect{ID: id, Kind: kind, Status: state.EffectPending, DeadlineMS: deadline, Payload: data})
+	if !body.prepared.IsZero() {
+		retained := stateEffectForStorage(body)
+		r.rememberEffectMessage(id, body.prepared, retained.Wire)
+	}
 }
 func (r *stateReduction) event(c *stateContext, kind pb.DialogEvent_Kind, message *pb.SipMessage, operation string, failure ...string) {
+	r.eventWithProgress(c, kind, message, operation, "", portable.Message{}, failure...)
+}
+
+func (r *stateReduction) eventNative(c *stateContext, kind pb.DialogEvent_Kind, message portable.Message, operation string, facts portable.MessageFacts) {
+	r.eventWithProgress(c, kind, stateProjectMessage(message, false), operation, stateProgressKeyFacts(facts), message)
+}
+
+func (r *stateReduction) eventWithProgress(c *stateContext, kind pb.DialogEvent_Kind, message *pb.SipMessage, operation, progress string, native portable.Message, failure ...string) {
 	if c.OwnerLost {
 		return
 	}
@@ -471,7 +503,10 @@ func (r *stateReduction) event(c *stateContext, kind pb.DialogEvent_Kind, messag
 		if c.ProgressEmissions == nil {
 			c.ProgressEmissions = make(map[string]uint32)
 		}
-		key := stateProgressKey(message)
+		key := progress
+		if key == "" {
+			key = stateProgressKey(message)
+		}
 		if _, exists := c.ProgressEmissions[key]; !exists && len(c.ProgressEmissions) >= stateForkDialogs+1 {
 			return
 		}
@@ -485,7 +520,7 @@ func (r *stateReduction) event(c *stateContext, kind pb.DialogEvent_Kind, messag
 	if len(failure) > 0 {
 		event.Error = failure[0]
 	}
-	r.addEffect("event", c, stateEngineEffect{Envelope: &pb.Envelope{Payload: &pb.Envelope_DialogEvent{DialogEvent: event}}}, r.now+2000)
+	r.addEffect("event", c, stateEngineEffect{prepared: native, Envelope: &pb.Envelope{Payload: &pb.Envelope_DialogEvent{DialogEvent: event}}}, r.now+2000)
 }
 
 func (r *stateReduction) ingest() error {
@@ -493,15 +528,15 @@ func (r *stateReduction) ingest() error {
 	if in == nil || in.Context == nil || in.Flow == nil || !sameProcess(in.Application, r.in.Application) {
 		return errors.New("invalid ingest authority")
 	}
-	m := portable.Message{Wire: append([]byte(nil), in.Wire...), Transport: in.Flow.Transport, Source: net.JoinHostPort(in.Flow.SourceIp, strconv.Itoa(int(in.Flow.SourcePort)))}
-	parsed, err := m.Parse()
+	m := r.incomingMessage(in.Wire, in.Flow, true)
+	facts, err := m.Facts()
 	if err != nil {
 		return err
 	}
-	if parsed.CallID().Value() != r.record.Ref.CallID {
+	if facts.CallID != r.record.Ref.CallID {
 		return errors.New("ingest Call-ID mismatch")
 	}
-	if request, ok := parsed.(*sip.Request); ok && !request.IsAck() {
+	if facts.IsRequest && facts.Method != sip.ACK {
 		if r.requestFence == nil {
 			if err := r.protectRequestFence(); err != nil {
 				return err
@@ -519,7 +554,7 @@ func (r *stateReduction) ingest() error {
 		return &portable.ProtocolError{Status: 481, Reason: "rejection context cannot admit SIP work"}
 	}
 	if c == nil {
-		if request, ok := parsed.(*sip.Request); ok && r.deadline > 0 && r.now >= r.deadline && !request.IsAck() && !request.IsCancel() && request.Method != sip.BYE {
+		if facts.IsRequest && r.deadline > 0 && r.now >= r.deadline && facts.Method != sip.ACK && facts.Method != sip.CANCEL && facts.Method != sip.BYE {
 			return r.handledRequest()
 		}
 		if r.engine.autonomousCompletion() {
@@ -530,17 +565,16 @@ func (r *stateReduction) ingest() error {
 		if r.group.Retired[in.Context.Id] > r.now {
 			return &portable.ProtocolError{Status: 481, Reason: "native context retired"}
 		}
-		request, ok := parsed.(*sip.Request)
-		if !ok || tag(request.To().Params) != "" || request.IsAck() || request.IsCancel() {
+		if !facts.IsRequest || facts.ToTag != "" || facts.Method == sip.ACK || facts.Method == sip.CANCEL {
 			return &portable.ProtocolError{Status: 481, Reason: "unknown native context"}
 		}
 		if len(r.group.Contexts) >= 32 {
 			return errors.New("context group capacity")
 		}
 		ref := r.engine.contextRef(r.record.Ref, in.Context.Id)
-		c = &stateContext{Snapshot: &pb.ContextSnapshot{Context: ref, Application: proto.Clone(in.Application).(*pb.ProcessRef), BindingId: in.BindingId, PrincipalId: in.PrincipalId, Kind: pb.ContextSnapshot_TRANSACTION, CallId: parsed.CallID().Value(), RemoteTag: tag(parsed.From().Params), RemoteUri: parsed.From().Address.String(), LocalUri: parsed.To().Address.String(), Transport: in.Flow.Transport}, Flow: proto.Clone(in.Flow).(*pb.FlowRef), Origin: m.Clone(), Tag: r.engine.id("tag", r.record.Ref.Incarnation, in.Context.Id)[:32], Transactions: make(map[string]*stateTransaction), Requests: make(map[string]string), Dialogs: make(map[string]portable.Dialog)}
+		c = &stateContext{Snapshot: &pb.ContextSnapshot{Context: ref, Application: proto.Clone(in.Application).(*pb.ProcessRef), BindingId: in.BindingId, PrincipalId: in.PrincipalId, Kind: pb.ContextSnapshot_TRANSACTION, CallId: facts.CallID, RemoteTag: facts.FromTag, RemoteUri: facts.FromURI, LocalUri: facts.ToURI, Transport: in.Flow.Transport}, Flow: proto.Clone(in.Flow).(*pb.FlowRef), Origin: m.Clone(), Tag: r.engine.id("tag", r.record.Ref.Incarnation, in.Context.Id)[:32], Transactions: make(map[string]*stateTransaction), Requests: make(map[string]string), Dialogs: make(map[string]portable.Dialog)}
 		c.Snapshot.LocalTag = c.Tag
-		if request.IsInvite() {
+		if facts.Method == sip.INVITE {
 			c.Snapshot.Kind = pb.ContextSnapshot_UAS
 		}
 		if err := r.pinNativeOwner(c); err != nil {
@@ -555,9 +589,9 @@ func (r *stateReduction) ingest() error {
 	if c.Snapshot.Transport != in.Flow.Transport {
 		return errors.New("retained transport cannot change")
 	}
-	if request, ok := parsed.(*sip.Request); ok {
-		if !request.IsAck() {
-			key, err := sip.ServerTxKeyMake(request)
+	if facts.IsRequest {
+		if facts.Method != sip.ACK {
+			key, err := m.ServerTxKey()
 			if err != nil {
 				return err
 			}
@@ -569,8 +603,8 @@ func (r *stateReduction) ingest() error {
 		processedDialog := c.Dialog
 		for _, tx := range c.Transactions {
 			if (tx.Native.Family == portable.InviteServer || tx.Native.Family == portable.NonInviteServer) && portable.MatchRequest(tx.Native.Origin, m) {
-				if request.IsCancel() && tx.Native.Family == portable.InviteServer {
-					key, err := sip.ServerTxKeyMake(request)
+				if facts.Method == sip.CANCEL && tx.Native.Family == portable.InviteServer {
+					key, err := m.ServerTxKey()
 					if err != nil {
 						return err
 					}
@@ -578,15 +612,15 @@ func (r *stateReduction) ingest() error {
 						continue // A replay belongs to CANCEL's own retained transaction.
 					}
 				}
-				if err := r.validateReplayFlow(c, tx, request, in); err != nil {
+				if err := r.validateReplayFlow(c, tx, m, in); err != nil {
 					return err
 				}
-				cancelReplay := request.IsCancel() && tx.Native.Family == portable.NonInviteServer
-				if !request.IsAck() && (!request.IsCancel() || cancelReplay) && !bytes.Equal(tx.Native.Origin.Wire, m.Wire) {
+				cancelReplay := facts.Method == sip.CANCEL && tx.Native.Family == portable.NonInviteServer
+				if facts.Method != sip.ACK && (facts.Method != sip.CANCEL || cancelReplay) && !tx.Native.Origin.EqualWire(m) {
 					return &portable.ProtocolError{Status: 481, Reason: "transaction replay payload mismatch"}
 				}
-				if !request.IsAck() && !request.IsCancel() || cancelReplay {
-					admitted, err := r.admitRequestFlow(tx, in.Flow, m.Wire)
+				if facts.Method != sip.ACK && facts.Method != sip.CANCEL || cancelReplay {
+					admitted, err := r.admitRequestFlow(tx, in.Flow, in.Wire)
 					if err != nil {
 						return err
 					}
@@ -595,30 +629,30 @@ func (r *stateReduction) ingest() error {
 					}
 				}
 				tx.Flow = proto.Clone(in.Flow).(*pb.FlowRef)
-				if tx.Native.Phase == portable.Terminated && tx.Native.LastResponse != nil && !request.IsAck() && (!request.IsCancel() || cancelReplay) ||
-					(!sameProcess(c.Snapshot.Application, in.Application) || r.in.NativeCompletion && c.OwnerLost) && stateCompletionFinalReplay(c, tx, m, request) {
+				if tx.Native.Phase == portable.Terminated && tx.Native.LastResponse != nil && facts.Method != sip.ACK && (facts.Method != sip.CANCEL || cancelReplay) ||
+					(!sameProcess(c.Snapshot.Application, in.Application) || r.in.NativeCompletion && c.OwnerLost) && stateCompletionFinalReplay(c, tx, m) {
 					if err := r.send(c, tx, *tx.Native.LastResponse, true); err != nil {
 						return err
 					}
 					r.result.Certainty = pb.OperationResult_ACCEPTED
 					return nil
 				}
-				if request.IsCancel() && tx.Native.Family == portable.InviteServer {
+				if facts.Method == sip.CANCEL && tx.Native.Family == portable.InviteServer {
 					return r.cancelIncoming(c, tx, m)
 				}
-				if request.IsAck() && tx.Native.Phase == portable.Accepted {
+				if facts.Method == sip.ACK && tx.Native.Phase == portable.Accepted {
 					break
 				}
 				return r.stepTransaction(c, tx, portable.Input{Kind: portable.ReceiveRequest, Now: r.now, Message: m})
 			}
 		}
-		if r.deadline > 0 && r.now >= r.deadline && !request.IsAck() && !request.IsCancel() && request.Method != sip.BYE {
+		if r.deadline > 0 && r.now >= r.deadline && facts.Method != sip.ACK && facts.Method != sip.CANCEL && facts.Method != sip.BYE {
 			return r.handledRequest()
 		}
-		if err := r.ownerGuardRequest(c, request, in); err != nil {
+		if err := r.ownerGuardRequest(c, facts.Method, in); err != nil {
 			return err
 		}
-		if err := r.transactionCapacity(); err != nil && !request.IsAck() && request.Method != sip.BYE {
+		if err := r.transactionCapacity(); err != nil && facts.Method != sip.ACK && facts.Method != sip.BYE {
 			return err
 		}
 		if !proto.Equal(c.Flow, in.Flow) {
@@ -635,22 +669,25 @@ func (r *stateReduction) ingest() error {
 				return &portable.ProtocolError{Status: 481, Reason: "replacement flow admission required"}
 			}
 		}
-		if c.Snapshot.Ended && !request.IsAck() && !(request.Method == sip.BYE && len(c.Dialogs) != 0) {
+		if c.Snapshot.Ended && facts.Method != sip.ACK && !(facts.Method == sip.BYE && len(c.Dialogs) != 0) {
 			return &portable.ProtocolError{Status: 481, Reason: "dialog ended"}
 		}
 		if c.Subscription != nil {
-			if err := r.validateSubscription(c, request, in); err != nil {
+			if err := r.validateSubscription(c, m, in); err != nil {
 				return err
 			}
 		}
-		if c.Dialog == "" && c.Subscription == nil && tag(request.To().Params) == "" {
-			origin, _ := c.Origin.Parse()
-			if tag(origin.From().Params) != tag(request.From().Params) || origin.From().Address.String() != request.From().Address.String() || origin.To().Address.String() != request.To().Address.String() {
+		if c.Dialog == "" && c.Subscription == nil && facts.ToTag == "" {
+			origin, err := c.Origin.Facts()
+			if err != nil {
+				return err
+			}
+			if origin.FromTag != facts.FromTag || origin.FromURI != facts.FromURI || origin.ToURI != facts.ToURI {
 				return &portable.ProtocolError{Status: 481, Reason: "initial context identity mismatch"}
 			}
 		}
 		if c.Dialog != "" || len(c.Dialogs) != 0 {
-			dialogKey := tag(request.To().Params) + "/" + tag(request.From().Params)
+			dialogKey := facts.ToTag + "/" + facts.FromTag
 			processedDialog = dialogKey
 			d, exists := c.Dialogs[dialogKey]
 			if !exists {
@@ -662,7 +699,7 @@ func (r *stateReduction) ingest() error {
 			}
 			c.Dialogs[dialogKey] = next
 			dialogEffects = effects
-			if request.IsAck() {
+			if facts.Method == sip.ACK {
 				r.result.Certainty = pb.OperationResult_ACCEPTED
 				acknowledged := false
 				for _, effect := range effects {
@@ -692,7 +729,7 @@ func (r *stateReduction) ingest() error {
 			}
 		}
 		family := portable.NonInviteServer
-		if request.IsInvite() {
+		if facts.Method == sip.INVITE {
 			family = portable.InviteServer
 		}
 		native, err := portable.NewTransaction(family, m, portable.DefaultTimers(), c.Tag)
@@ -707,13 +744,13 @@ func (r *stateReduction) ingest() error {
 			application = in.Application
 		}
 		tx := &stateTransaction{Native: native, Flow: proto.Clone(in.Flow).(*pb.FlowRef), RequestID: "r-" + r.engine.id("request", r.record.Ref.Incarnation, native.Key)[:48], Application: application, Admission: in.Admission}
-		if _, err := r.admitRequestFlow(tx, in.Flow, m.Wire); err != nil {
+		if _, err := r.admitRequestFlow(tx, in.Flow, in.Wire); err != nil {
 			return err
 		}
 		c.Transactions[native.Key] = tx
 		c.Requests[tx.RequestID] = native.Key
-		if c.Subscription != nil && request.Method == sip.SUBSCRIBE {
-			c.Subscription.RemoteSequence = request.CSeq().SeqNo
+		if c.Subscription != nil && facts.Method == sip.SUBSCRIBE {
+			c.Subscription.RemoteSequence = facts.CSeq
 			c.Subscription.Pending = native.Key
 		}
 		r.index(c, m, false)
@@ -729,22 +766,21 @@ func (r *stateReduction) ingest() error {
 				return err
 			}
 			if tx.Native.Family == portable.InviteClient && tx.Native.Phase == portable.Terminated {
-				response, _ := m.Parse()
-				if response.(*sip.Response).IsSuccess() {
+				if facts.Status >= 200 && facts.Status < 300 {
 					// Native transaction retention is finished, but the exact
 					// retained origin still owes late successful branch cleanup.
 					_, err := r.forkResponse(c, tx, m)
 					return err
 				}
-				if response.(*sip.Response).StatusCode >= 300 && tx.Native.ACK != nil {
+				if facts.Status >= 300 && tx.Native.ACK != nil {
 					if err := tx.Native.Validate(); err != nil {
 						return err
 					}
-					ack, err := tx.Native.ACK.Parse()
+					ack, err := tx.Native.ACK.Facts()
 					if err != nil {
 						return err
 					}
-					if tag(response.To().Params) == tag(ack.To().Params) {
+					if facts.ToTag == ack.ToTag {
 						// Reliable transport ended the native client transaction,
 						// but its exact retained ACK still completes a final replay.
 						return r.send(c, tx, *tx.Native.ACK, true)
@@ -758,8 +794,7 @@ func (r *stateReduction) ingest() error {
 }
 
 func (r *stateReduction) cancelIncoming(c *stateContext, tx *stateTransaction, m portable.Message) error {
-	request, _ := m.Parse()
-	key, err := sip.ServerTxKeyMake(request)
+	key, err := m.ServerTxKey()
 	if err != nil {
 		return err
 	}
@@ -791,7 +826,7 @@ func (r *stateReduction) cancelIncoming(c *stateContext, tx *stateTransaction, m
 	}
 	candidate := *cancelTX
 	candidate.Native = cancel
-	admitted, err := r.admitRequestFlow(&candidate, r.in.Ingest.Flow, m.Wire)
+	admitted, err := r.admitRequestFlow(&candidate, r.in.Ingest.Flow, r.in.Ingest.Wire)
 	if err != nil {
 		return err
 	}
@@ -857,7 +892,7 @@ func (r *stateReduction) transactionEffects(c *stateContext, tx *stateTransactio
 				return err
 			}
 		case portable.PresentRequest:
-			if parsed, err := tx.Native.Origin.Parse(); err == nil && parsed.CSeq().MethodName == sip.BYE && len(c.Dialogs) != 0 {
+			if facts, err := tx.Native.Origin.Facts(); err == nil && facts.CSeqMethod == sip.BYE && len(c.Dialogs) != 0 {
 				continue
 			}
 			if err := r.presentRequest(c, tx); err != nil {
@@ -896,7 +931,7 @@ func (r *stateReduction) sendOnFlow(c *stateContext, tx *stateTransaction, m por
 	if err != nil {
 		return err
 	}
-	message, err := Observe(m.Wire, true)
+	message, err := projectNativeMessage(m, true)
 	if err != nil {
 		return err
 	}
@@ -914,7 +949,7 @@ func (r *stateReduction) sendOnFlow(c *stateContext, tx *stateTransaction, m por
 		authority = pb.EffectAuthorization_NATIVE_COMPLETION
 	}
 	r.ordinal++
-	id := "e-" + r.engine.id("wire", r.record.Ref.Incarnation, c.Snapshot.Context.Id, tx.Native.Key, fmt.Sprint(c.Snapshot.Revision), fmt.Sprint(r.ordinal), string(m.Wire))[:48]
+	id := "e-" + r.engine.id("wire", r.record.Ref.Incarnation, c.Snapshot.Context.Id, tx.Native.Key, fmt.Sprint(c.Snapshot.Revision), fmt.Sprint(r.ordinal), string(message.Wire))[:48]
 	ref := &pb.StateEffectRef{Context: proto.Clone(c.Snapshot.Context).(*pb.ContextRef), Id: id, AttemptId: "a-" + r.engine.id("attempt", id)[:32]}
 	sendDeadline := r.now + 2000
 	if len(until) > 0 {
@@ -953,15 +988,17 @@ func (r *stateReduction) sendOnFlow(c *stateContext, tx *stateTransaction, m por
 		auth.CompletionScope = r.engine.nativeCompletionScope(c.Snapshot.Context)
 	}
 	snapshot := stateSnapshot(c, r.engine.cfg.Process)
-	if parsed, err := m.Parse(); err == nil {
-		if request, ok := parsed.(*sip.Request); ok && (request.IsAck() || tx.Cleanup) {
-			// Completion belongs to this exact native branch, while the retained
-			// application snapshot continues to identify the winning dialog.
-			snapshot.LocalTag, snapshot.RemoteTag = tag(request.From().Params), tag(request.To().Params)
-			if dialog, exists := c.Dialogs[snapshot.LocalTag+"/"+snapshot.RemoteTag]; exists {
-				snapshot.DialogId = sip.DialogIDMake(dialog.CallID, dialog.LocalTag, dialog.RemoteTag)
-				snapshot.RemoteTarget = dialog.Target
-			}
+	facts, err := m.Facts()
+	if err != nil {
+		return err
+	}
+	if facts.IsRequest && (facts.Method == sip.ACK || tx.Cleanup) {
+		// Completion belongs to this exact native branch, while the retained
+		// application snapshot continues to identify the winning dialog.
+		snapshot.LocalTag, snapshot.RemoteTag = facts.FromTag, facts.ToTag
+		if dialog, exists := c.Dialogs[snapshot.LocalTag+"/"+snapshot.RemoteTag]; exists {
+			snapshot.DialogId = sip.DialogIDMake(dialog.CallID, dialog.LocalTag, dialog.RemoteTag)
+			snapshot.RemoteTarget = dialog.Target
 		}
 	}
 	if message.Status == 0 {
@@ -987,16 +1024,14 @@ func (r *stateReduction) sendOnFlow(c *stateContext, tx *stateTransaction, m por
 	ref.Id = id
 	auth.Fingerprint = fingerprint
 	snapshot.LocalSdp, snapshot.RemoteSdp, snapshot.Selectors = nil, nil, nil
-	body := stateEngineEffect{Rejection: c.Rejection, Context: c.Snapshot.Context.Id, Application: c.Snapshot.Application, Transaction: tx.Native.Key, Command: tx.Command, Wire: append([]byte(nil), m.Wire...), Flow: flow, Authorization: auth}
+	body := stateEngineEffect{Rejection: c.Rejection, Context: c.Snapshot.Context.Id, Application: c.Snapshot.Application, Transaction: tx.Native.Key, Command: tx.Command, Wire: m.WireBytes(), Flow: flow, Authorization: auth}
 	if stateServerTransaction(tx) && message.Status > 0 && message.Status != tx.RespondStatus {
 		body.Command = "" // A protocol-generated response is not another Respond's write proof.
 	}
-	body.WireHash = stateACKHash(m.Wire)
+	body.WireHash = stateNativeACKHash(m)
 	body.WireMethod = message.Method
 	body.WireStatus = message.Status
-	if parsed, err := m.Parse(); err == nil && parsed.CSeq() != nil {
-		body.WireSequence = parsed.CSeq().SeqNo
-	}
+	body.WireSequence = facts.CSeq
 
 	if err := stateAnnotateACKDependency(c, tx, m, &body); err != nil {
 		return err
@@ -1028,6 +1063,7 @@ func (r *stateReduction) sendOnFlow(c *stateContext, tx *stateTransaction, m por
 	body.Envelope = &pb.Envelope{CorrelationId: id, RemainingBudgetMs: 2000, Payload: &pb.Envelope_Egress{Egress: &pb.EgressRequest{Snapshot: snapshot, Message: message, ReturnFlow: flow, Authorization: auth}}}
 	data, _ := body.MarshalBinary()
 	r.payload.Effects = append(r.payload.Effects, state.Effect{ID: id, Kind: "wire", Status: state.EffectPending, DeadlineMS: sendDeadline, Payload: data, ApplicationLease: leaseGuard})
+	r.rememberEffectMessage(id, m, body.Wire)
 	return nil
 }
 
@@ -1053,8 +1089,8 @@ func (r *stateReduction) command() error {
 	if !owner && c.Subscription != nil && cmd.GetRespond() != nil {
 		tx := c.Transactions[c.Requests[cmd.GetRespond().RequestId]]
 		if tx != nil && c.Subscription.Pending == tx.Native.Key && sameProcess(tx.Application, r.in.Application) {
-			original, err := tx.Native.Origin.Parse()
-			owner = err == nil && original.CSeq().MethodName == sip.SUBSCRIBE
+			original, err := tx.Native.Origin.Facts()
+			owner = err == nil && original.CSeqMethod == sip.SUBSCRIBE
 		}
 	}
 	if !owner {
@@ -1122,8 +1158,11 @@ func (r *stateReduction) command() error {
 		if action.Respond.Status >= 300 && c.Subscription != nil {
 			c.Subscription.Pending = ""
 		}
-		originalRequest, _ := tx.Native.Origin.Parse()
-		if originalRequest.CSeq().MethodName == sip.SUBSCRIBE && action.Respond.Status >= 200 && action.Respond.Status < 300 {
+		originalRequest, err := tx.Native.Origin.Facts()
+		if err != nil {
+			return err
+		}
+		if originalRequest.CSeqMethod == sip.SUBSCRIBE && action.Respond.Status >= 200 && action.Respond.Status < 300 {
 			return r.acceptSubscription(c, tx, action.Respond)
 		}
 		m, err := r.buildResponse(c, tx.Native.Origin, int(action.Respond.Status), reason(action.Respond.Status), action.Respond.Body, stateHeaders(action.Respond.Headers))
@@ -1131,7 +1170,7 @@ func (r *stateReduction) command() error {
 			return err
 		}
 		if action.Respond.Status >= 300 && tx.Native.Family == portable.InviteServer {
-			key := tag(originalRequest.To().Params) + "/" + tag(originalRequest.From().Params)
+			key := originalRequest.ToTag + "/" + originalRequest.FromTag
 			if d, exists := c.Dialogs[key]; exists {
 				next, _, err := portable.StepDialog(d, portable.DialogInput{Kind: portable.DialogSendResponse, Now: r.now, Message: m})
 				if err != nil {
@@ -1170,13 +1209,12 @@ func (r *stateReduction) command() error {
 			_ = effects
 			c.Snapshot.Answered = true
 			c.Snapshot.LocalSdp = append([]byte(nil), action.Respond.Body...)
-			original, _ := tx.Native.Origin.Parse()
-			c.Snapshot.RemoteSdp = append([]byte(nil), original.Body()...)
+			c.Snapshot.RemoteSdp = stateMessageBody(tx.Native.Origin)
 			c.Snapshot.DialogId = sip.DialogIDMake(d.CallID, d.LocalTag, d.RemoteTag)
 			c.Snapshot.LocalTag = d.LocalTag
 			c.Snapshot.RemoteTag = d.RemoteTag
 			c.Snapshot.RemoteTarget = d.Target
-			if r.engine.autonomousCompletion() && tag(originalRequest.To().Params) == "" {
+			if r.engine.autonomousCompletion() && originalRequest.ToTag == "" {
 				if c.DialogScopes == nil {
 					c.DialogScopes = make(map[string]string)
 				}
@@ -1260,19 +1298,18 @@ func (r *stateReduction) receivedResponse(c *stateContext, tx *stateTransaction,
 	if handled, err := r.forkResponse(c, tx, m); handled || err != nil {
 		return err
 	}
-	parsed, err := m.Parse()
+	facts, err := m.Facts()
 	if err != nil {
 		return err
 	}
-	response, ok := parsed.(*sip.Response)
-	if !ok {
+	if facts.IsRequest {
 		return errors.New("response required")
 	}
 	// Only BYE has a dialog response procedure here; INVITE was handled above.
 	// Other methods complete their client transaction without entering the
 	// INVITE/BYE reducer or changing the dialog's SDP/target/lifecycle.
 	for key, d := range c.Dialogs {
-		if response.CSeq().MethodName != sip.BYE || !portable.MatchDialogResponse(d, m) {
+		if facts.CSeqMethod != sip.BYE || !portable.MatchDialogResponse(d, m) {
 			continue
 		}
 		next, effects, err := portable.StepDialog(d, portable.DialogInput{Kind: portable.DialogReceiveResponse, Now: r.now, Message: m})
@@ -1285,8 +1322,8 @@ func (r *stateReduction) receivedResponse(c *stateContext, tx *stateTransaction,
 		}
 		break
 	}
-	if tx.Command != "" && tx.Command == c.Operation && !response.IsProvisional() && !tx.Cleanup {
-		c.Result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: mustObserve(tx.Native.Origin.Wire, true), Response: mustObserve(m.Wire, false), Snapshot: stateSnapshot(c, r.engine.cfg.Process)}
+	if tx.Command != "" && tx.Command == c.Operation && !(facts.Status >= 100 && facts.Status < 200) && !tx.Cleanup {
+		c.Result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: stateProjectMessage(tx.Native.Origin, true), Response: stateProjectMessage(m, false), Snapshot: stateSnapshot(c, r.engine.cfg.Process)}
 	}
 	return nil
 }
@@ -1310,12 +1347,12 @@ func (r *stateReduction) dialogEffectsForClass(c *stateContext, dialog string, e
 			if effect.Message == nil {
 				continue
 			}
-			parsed, err := effect.Message.Parse()
+			facts, err := effect.Message.Facts()
 			if err != nil {
 				return err
 			}
 			family := portable.NonInviteClient
-			if parsed.CSeq().MethodName == sip.INVITE {
+			if facts.CSeqMethod == sip.INVITE {
 				family = portable.InviteClient
 			}
 			native, err := portable.NewTransaction(family, *effect.Message, portable.DefaultTimers(), "")
@@ -1326,7 +1363,7 @@ func (r *stateReduction) dialogEffectsForClass(c *stateContext, dialog string, e
 			if !tx.Cleanup {
 				tx.Policy = r.policy
 			}
-			if tx.Cleanup && parsed.CSeq().MethodName == sip.BYE {
+			if tx.Cleanup && facts.CSeqMethod == sip.BYE {
 				tx.CompletionScope = c.DialogScopes[dialog]
 			}
 			c.Transactions[native.Key] = tx
@@ -1336,8 +1373,11 @@ func (r *stateReduction) dialogEffectsForClass(c *stateContext, dialog string, e
 			}
 		case portable.Send, portable.Respond:
 			if effect.Message != nil {
-				parsed, _ := effect.Message.Parse()
-				if request, ok := parsed.(*sip.Request); ok && request.IsAck() {
+				facts, err := effect.Message.Facts()
+				if err != nil {
+					return err
+				}
+				if facts.IsRequest && facts.Method == sip.ACK {
 					d := c.Dialogs[dialog]
 					if d.LocalInvite == nil {
 						return errors.New("ACK has no retained INVITE")
@@ -1475,7 +1515,7 @@ func (r *stateReduction) finish() (state.Payload, error) {
 		}
 		if (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten || effect.Status == state.EffectCancelled) && effect.DeadlineMS+120000 <= r.now {
 			var body stateEngineEffect
-			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+			if err := r.unmarshalEffectMetadata(&body, effect); err != nil {
 				return state.Payload{}, err
 			}
 			if effect.Kind != "deliver" || body.Settled {
@@ -1484,7 +1524,7 @@ func (r *stateReduction) finish() (state.Payload, error) {
 		}
 		if (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten || effect.Status == state.EffectCancelled) && effect.Kind != "credential" && effect.Kind != "wire" {
 			var body stateEngineEffect
-			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+			if err := r.unmarshalEffectMetadata(&body, effect); err != nil {
 				return state.Payload{}, err
 			}
 			if body.Wire != nil || body.Envelope != nil {
@@ -1554,10 +1594,10 @@ func (r *stateReduction) projectDispatchWorkers() error {
 		var body stateEngineEffect
 		known := effect.Kind == "deliver" && (effect.Status == state.EffectWritten || effect.Status == state.EffectNotWritten)
 		if known {
-			if body.unmarshalMetadata(effect.Payload) != nil || body.Settled {
+			if r.unmarshalEffectMetadata(&body, *effect) != nil || body.Settled {
 				continue
 			}
-		} else if !stateDispatchableEffect(*effect, r.now) {
+		} else if !r.dispatchableEffect(*effect) {
 			continue
 		}
 		if effect.Kind == "open" && (effect.Status != state.EffectPending || effect.DeadlineMS <= r.now) {
@@ -1571,7 +1611,7 @@ func (r *stateReduction) projectDispatchWorkers() error {
 			continue
 		}
 		if !known {
-			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+			if err := r.unmarshalEffectMetadata(&body, *effect); err != nil {
 				return err
 			}
 		}
@@ -1587,4 +1627,14 @@ func (r *stateReduction) projectDispatchWorkers() error {
 		}
 	}
 	return nil
+}
+
+func (r *stateReduction) dispatchableEffect(effect state.Effect) bool {
+	if !stateSupportedEffectKind(effect.Kind) || effect.Kind == "owner" && effect.Status == state.EffectUnknown {
+		return false
+	}
+	if effect.Status != state.EffectPending && effect.Status != state.EffectAuthorized && effect.Status != state.EffectDispatching && effect.Status != state.EffectUnknown {
+		return false
+	}
+	return effect.Kind == "owner" || effect.DeadlineMS+120000 > r.now || stateHistoricalDelivery(effect) || r.historicalAuthorization(effect)
 }

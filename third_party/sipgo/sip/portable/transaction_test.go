@@ -14,8 +14,7 @@ func origin(t *testing.T, method sip.RequestMethod, transport string) Message {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Source = "192.0.2.1:5061"
-	m.Destination = "192.0.2.2:5061"
+	m = RestoreMessage(m.WireBytes(), m.Transport(), "192.0.2.1:5061", "192.0.2.2:5061")
 	return m
 }
 func reply(t *testing.T, m Message, status int, remoteTag string) Message {
@@ -120,9 +119,9 @@ func TestPortableInviteRejectedACKIsStable(t *testing.T) {
 	if s.Phase != Completed || s.ACK == nil || count(e, Send) != 1 {
 		t.Fatal("non-2xx ACK missing")
 	}
-	first := bytes.Clone(s.ACK.Wire)
+	first := bytes.Clone(s.ACK.WireBytes())
 	s, e = step(t, s, Input{Kind: ReceiveResponse, Message: final, Now: 1101})
-	if len(sent(e)) != 1 || !bytes.Equal(sent(e)[0].Wire, first) {
+	if len(sent(e)) != 1 || !bytes.Equal(sent(e)[0].WireBytes(), first) {
 		t.Fatal("ACK replay allocated new identity")
 	}
 	_, effects, err := StepTransaction(s, Input{Kind: ReceiveResponse, Message: mutate(t, final, func(v sip.Message) { v.CSeq().SeqNo++ }), Now: 1200})
@@ -193,7 +192,7 @@ func TestPortableServerTryingFinalAndACK(t *testing.T) {
 	if len(sent(e)) != 1 {
 		t.Fatal("Trying missing")
 	}
-	parsed, _ := response(sent(e)[0])
+	parsed, _ := testResponse(sent(e)[0])
 	if parsed.StatusCode != 100 || tag(parsed.To().Params) != "" {
 		t.Fatal("100 identity")
 	}
@@ -234,8 +233,8 @@ func TestPortableCancelIsItsOwnRetainedTransaction(t *testing.T) {
 	if len(writes) != 2 {
 		t.Fatalf("want CANCEL200 then INVITE487, %+v", e)
 	}
-	first, _ := response(writes[0])
-	second, _ := response(writes[1])
+	first, _ := testResponse(writes[0])
+	second, _ := testResponse(writes[1])
 	if first.CSeq().MethodName != sip.CANCEL || first.StatusCode != 200 || second.StatusCode != 487 || tag(first.To().Params) != "remote-tag" || tag(second.To().Params) != "remote-tag" {
 		t.Fatal("cancel response identity/order")
 	}
@@ -290,12 +289,12 @@ func TestPortableTimerGenerationAndInputImmutability(t *testing.T) {
 
 func mutate(t *testing.T, m Message, fn func(sip.Message)) Message {
 	t.Helper()
-	v, e := m.Parse()
+	v, e := sip.ParseMessage(m.WireBytes())
 	if e != nil {
 		t.Fatal(e)
 	}
 	fn(v)
-	m.Wire = []byte(v.String())
+	m = wire(v, m.Transport(), m.Source(), m.Destination())
 	return m
 }
 

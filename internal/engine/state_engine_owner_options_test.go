@@ -36,7 +36,7 @@ func TestNativeOwnerLossEndsUnsendableRetainedOptionsWithoutPhysicalRetry(t *tes
 			}
 			// Reconstruct a previously retained request, without passing the new
 			// ingress validation. The pinned reducer still owns its transaction.
-			parsed, err := tx.Native.Origin.Parse()
+			parsed, err := sip.ParseMessage(tx.Native.Origin.WireBytes())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -45,7 +45,7 @@ func TestNativeOwnerLossEndsUnsendableRetainedOptionsWithoutPhysicalRetry(t *tes
 				parsed.Via().Params.Add("branch", branch)
 			}
 			origin := tx.Native.Origin
-			origin.Wire = []byte(parsed.String())
+			origin = portable.RestoreMessage([]byte(parsed.String()), origin.Transport(), origin.Source(), origin.Destination())
 			native, err := portable.NewTransaction(portable.NonInviteServer, origin, portable.DefaultTimers(), c.Tag)
 			if err != nil {
 				t.Fatal(err)

@@ -19,7 +19,7 @@ func (e *ResidentMemory) tryNativeCompletion(ctx context.Context, flow *pb.FlowR
 
 // TryNativeCompletionParsed reuses only the parsed value from this ingress
 // operation. A caller without a framing parse supplies nil; nothing is retained.
-func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb.FlowRef, received *pb.SipMessage, parsed sip.Message) (bool, error) {
+func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb.FlowRef, received *pb.SipMessage, parsed sip.Message, frozen ...portable.Message) (bool, error) {
 	if flow == nil || received == nil {
 		return false, nil
 	}
@@ -32,7 +32,7 @@ func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb
 		received = &pb.SipMessage{Wire: received.Wire, Selectors: observedMessageSelectors(parsed, false)}
 	}
 	if response, ok := parsed.(*sip.Response); ok {
-		return e.completeResidentClientParsed(ctx, flow, received.Wire, response, received.Selectors)
+		return e.completeResidentClientParsed(ctx, flow, received.Wire, response, received.Selectors, frozen...)
 	}
 	request, ok := parsed.(*sip.Request)
 	if !ok {
@@ -43,10 +43,10 @@ func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb
 	}
 	observed := received
 	if request.Method == sip.BYE {
-		return e.completeResidentRemoteByeParsed(ctx, flow, received, observed, request)
+		return e.completeResidentRemoteByeParsed(ctx, flow, received, observed, request, frozen...)
 	}
 	if request.IsCancel() {
-		return e.completeResidentCancelParsed(ctx, flow, received, observed, request)
+		return e.completeResidentCancelParsed(ctx, flow, received, observed, request, frozen...)
 	}
 	key, err := sip.ServerTxKeyMake(request)
 	if err != nil {
@@ -73,8 +73,8 @@ func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb
 		// A non-2xx ACK belongs to its INVITE transaction even when the
 		// request also carries an established dialog tuple.
 		if transaction := c.transactions[key]; transaction != nil && transaction.native.Family == portable.InviteServer && transaction.native.LastResponse != nil {
-			final, parseErr := transaction.native.LastResponse.Parse()
-			if response, ok := final.(*sip.Response); parseErr == nil && ok && response.StatusCode >= 300 && response.To() != nil && request.To() != nil && tag(response.To().Params) == tag(request.To().Params) {
+			final, parseErr := transaction.native.LastResponse.Facts()
+			if parseErr == nil && !final.IsRequest && final.Status >= 300 && request.To() != nil && final.ToTag == tag(request.To().Params) {
 				dialog = nil
 			}
 		}
@@ -84,7 +84,11 @@ func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb
 				c.mu.Unlock()
 				return true, rejectIngest(481, "ACK flow mismatch")
 			}
-			message := portable.Message{Wire: received.Wire, Transport: flow.Transport}
+			message, freezeErr := residentObservedNative(received.Wire, parsed, flow, frozen...)
+			if freezeErr != nil {
+				c.mu.Unlock()
+				return true, freezeErr
+			}
 			next, effects, stepErr := portable.StepDialog(dialog.native, portable.DialogInput{Kind: portable.DialogReceiveRequest, Message: message, Now: time.Now().UnixMilli()})
 			if stepErr != nil {
 				c.mu.Unlock()
@@ -219,16 +223,19 @@ func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb
 	if !proto.Equal(tx.flow, flow) {
 		valid := validPolicyFlow(flow) && sameProcess(flow.Ingress, e.cfg.Process) && flow.Transport == "tls" && c.snapshot.Transport == "tls" && tx.native.LastResponse != nil
 		if valid {
-			parsedFinal, parseErr := tx.native.LastResponse.Parse()
-			response, responseOK := parsedFinal.(*sip.Response)
-			valid = parseErr == nil && responseOK && response.StatusCode >= 300 && response.To() != nil && request.To() != nil && tag(response.To().Params) == tag(request.To().Params)
+			final, parseErr := tx.native.LastResponse.Facts()
+			valid = parseErr == nil && !final.IsRequest && final.Status >= 300 && request.To() != nil && final.ToTag == tag(request.To().Params)
 		}
 		if !valid {
 			c.mu.Unlock()
 			return false, nil
 		}
 	}
-	message := portable.Message{Wire: received.Wire, Transport: flow.Transport}
+	message, err := residentObservedNative(received.Wire, request, flow, frozen...)
+	if err != nil {
+		c.mu.Unlock()
+		return true, err
+	}
 	next, effects, err := portable.StepTransaction(tx.native, portable.Input{Kind: portable.ReceiveRequest, Message: message, Now: time.Now().UnixMilli()})
 	if err != nil {
 		c.mu.Unlock()
@@ -262,7 +269,7 @@ func (e *ResidentMemory) completeResidentCancel(ctx context.Context, flow *pb.Fl
 	return e.completeResidentCancelParsed(ctx, flow, message, observed, parsed)
 }
 
-func (e *ResidentMemory) completeResidentCancelParsed(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, observed *pb.SipMessage, parsed sip.Message) (bool, error) {
+func (e *ResidentMemory) completeResidentCancelParsed(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, observed *pb.SipMessage, parsed sip.Message, frozen ...portable.Message) (bool, error) {
 	e.mu.Lock()
 	var c *residentContext
 	for _, selector := range observed.Selectors {
@@ -275,7 +282,10 @@ func (e *ResidentMemory) completeResidentCancelParsed(ctx context.Context, flow 
 	if c == nil {
 		return false, nil
 	}
-	input := portable.Message{Wire: message.Wire, Transport: flow.Transport}
+	input, err := residentObservedNative(message.Wire, parsed, flow, frozen...)
+	if err != nil {
+		return true, err
+	}
 	cancelKey, err := sip.ServerTxKeyMake(parsed)
 	if err != nil {
 		return true, err
@@ -401,9 +411,9 @@ func (e *ResidentMemory) completeResidentCancelParsed(ctx context.Context, flow 
 	var dialogNext portable.Dialog
 	var dialogEffects []portable.Effect
 	var dialogGrowth residentClientGrowth
-	origin, parseErr := invite.native.Origin.Parse()
-	if request, ok := origin.(*sip.Request); parseErr == nil && ok && request.To() != nil && request.From() != nil && tag(request.To().Params) != "" {
-		dialogKey = tag(request.To().Params) + "/" + tag(request.From().Params)
+	origin, parseErr := invite.native.Origin.Facts()
+	if parseErr == nil && origin.IsRequest && origin.ToTag != "" {
+		dialogKey = origin.ToTag + "/" + origin.FromTag
 		dialog = c.dialogs[dialogKey]
 		if dialog != nil {
 			var final *portable.Message
@@ -411,8 +421,8 @@ func (e *ResidentMemory) completeResidentCancelParsed(ctx context.Context, flow 
 				if effect.Message == nil || !portable.MatchResponse(invite.native.Origin, *effect.Message) {
 					continue
 				}
-				parsed, responseErr := effect.Message.Parse()
-				if response, ok := parsed.(*sip.Response); responseErr == nil && ok && response.StatusCode == 487 {
+				response, responseErr := effect.Message.Facts()
+				if responseErr == nil && !response.IsRequest && response.Status == 487 {
 					final = effect.Message
 					break
 				}

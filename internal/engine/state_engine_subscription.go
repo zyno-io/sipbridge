@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"math"
@@ -28,18 +27,22 @@ type stateSubscription struct {
 	Final          bool     `json:"final"`
 }
 
-func (r *stateReduction) validateSubscription(c *stateContext, request *sip.Request, in *pb.OwnerIngest) error {
+func (r *stateReduction) validateSubscription(c *stateContext, message portable.Message, in *pb.OwnerIngest) error {
 	sub := c.Subscription
-	event, err := eventKey(request)
-	if request.Method != sip.SUBSCRIBE || err != nil || event != sub.Event || request.Contact() == nil ||
-		tag(request.To().Params) != c.Snapshot.LocalTag || tag(request.From().Params) != c.Snapshot.RemoteTag ||
-		request.From().Address.String() != c.Snapshot.RemoteUri || request.To().Address.String() != c.Snapshot.LocalUri || sub.Terminating {
+	facts, err := message.Facts()
+	if err != nil {
+		return err
+	}
+	event, err := stateSubscriptionEvent(message)
+	if facts.Method != sip.SUBSCRIBE || err != nil || event != sub.Event || !facts.HasContact ||
+		facts.ToTag != c.Snapshot.LocalTag || facts.FromTag != c.Snapshot.RemoteTag ||
+		facts.FromURI != c.Snapshot.RemoteUri || facts.ToURI != c.Snapshot.LocalUri || sub.Terminating {
 		return &portable.ProtocolError{Status: 481, Reason: "subscription identity mismatch"}
 	}
 	if c.Snapshot.PrincipalId != "" && in.PrincipalId != "" && c.Snapshot.PrincipalId != in.PrincipalId || c.Snapshot.BindingId != "" && in.BindingId != "" && c.Snapshot.BindingId != in.BindingId {
 		return &portable.ProtocolError{Status: 481, Reason: "subscription binding mismatch"}
 	}
-	if request.CSeq().SeqNo <= sub.RemoteSequence {
+	if facts.CSeq <= sub.RemoteSequence {
 		return &portable.ProtocolError{Status: 500, Reason: "stale subscription sequence"}
 	}
 	if sub.Pending != "" {
@@ -52,8 +55,11 @@ func (r *stateReduction) presentRequest(c *stateContext, tx *stateTransaction) e
 	if r.deadline > 0 {
 		tx.PresentDeadlineMS = min(tx.PresentDeadlineMS, r.deadline)
 	}
-	request, _ := tx.Native.Origin.Parse()
-	if request.CSeq().MethodName == sip.SUBSCRIBE {
+	facts, err := tx.Native.Origin.Facts()
+	if err != nil {
+		return err
+	}
+	if facts.CSeqMethod == sip.SUBSCRIBE {
 		if c.Subscription != nil {
 			c.Subscription.Pending = tx.Native.Key
 		}
@@ -67,7 +73,7 @@ func (r *stateReduction) presentNow(c *stateContext, tx *stateTransaction) error
 	if deferred, err := r.deferForOwnerProof(c, tx); deferred || err != nil {
 		return err
 	}
-	message, err := Observe(tx.Native.Origin.Wire, false)
+	message, err := projectNativeMessage(tx.Native.Origin, false)
 	if err != nil {
 		return err
 	}
@@ -173,16 +179,15 @@ func (r *stateReduction) finishFlowAdoption(index int, effect state.Effect, body
 	return nil
 }
 func (r *stateReduction) acceptSubscription(c *stateContext, tx *stateTransaction, response *pb.Respond) error {
-	request, err := tx.Native.Origin.Parse()
+	facts, err := tx.Native.Origin.Facts()
 	if err != nil {
 		return err
 	}
-	req := request.(*sip.Request)
-	event, err := eventKey(req)
+	event, err := stateSubscriptionEvent(tx.Native.Origin)
 	if err != nil {
 		return err
 	}
-	if req.Contact() == nil {
+	if !facts.HasContact {
 		return errors.New("SUBSCRIBE Contact required")
 	}
 	if c.Subscription != nil && c.Subscription.Event != event {
@@ -201,9 +206,11 @@ func (r *stateReduction) acceptSubscription(c *stateContext, tx *stateTransactio
 	return r.commitSubscription(c, tx, response)
 }
 func (r *stateReduction) commitSubscription(c *stateContext, tx *stateTransaction, response *pb.Respond) error {
-	parsed, _ := tx.Native.Origin.Parse()
-	req := parsed.(*sip.Request)
-	event, err := eventKey(req)
+	facts, err := tx.Native.Origin.Facts()
+	if err != nil {
+		return err
+	}
+	event, err := stateSubscriptionEvent(tx.Native.Origin)
 	if err != nil {
 		return err
 	}
@@ -218,13 +225,15 @@ func (r *stateReduction) commitSubscription(c *stateContext, tx *stateTransactio
 	}
 	if c.Subscription == nil {
 		c.Subscription = &stateSubscription{Event: event}
-		for _, h := range req.GetHeaders("Record-Route") {
-			c.Subscription.Routes = append(c.Subscription.Routes, h.Value())
+		routes, routeErr := tx.Native.Origin.HeaderValues("Record-Route")
+		if routeErr != nil {
+			return routeErr
 		}
+		c.Subscription.Routes = append(c.Subscription.Routes, routes...)
 	}
 	sub := c.Subscription
-	sub.Target = req.Contact().Address.String()
-	sub.RemoteSequence = req.CSeq().SeqNo
+	sub.Target = facts.ContactURI
+	sub.RemoteSequence = facts.CSeq
 	sub.Pending = ""
 	sub.ExpiresMS = r.now + int64(expires)*1000
 	sub.Terminating = expires == 0
@@ -235,7 +244,7 @@ func (r *stateReduction) commitSubscription(c *stateContext, tx *stateTransactio
 	}
 	c.Snapshot.Kind = pb.ContextSnapshot_SUBSCRIPTION
 	c.Snapshot.LocalTag = c.Tag
-	c.Snapshot.RemoteTag = tag(req.From().Params)
+	c.Snapshot.RemoteTag = facts.FromTag
 	c.Snapshot.DialogId = sip.DialogIDMake(c.Snapshot.CallId, c.Tag, c.Snapshot.RemoteTag)
 	c.Snapshot.RemoteTarget = sub.Target
 	m, err := r.buildResponse(c, tx.Native.Origin, int(response.Status), reason(response.Status), response.Body, stateHeaders(response.Headers))
@@ -307,11 +316,15 @@ func (r *stateReduction) notifySubscription(c *stateContext, command *pb.DialogR
 	return r.stepTransaction(c, tx, portable.Input{Kind: portable.Start, Now: r.now})
 }
 
-func (r *stateReduction) validateReplayFlow(c *stateContext, tx *stateTransaction, request *sip.Request, in *pb.OwnerIngest) error {
+func (r *stateReduction) validateReplayFlow(c *stateContext, tx *stateTransaction, message portable.Message, in *pb.OwnerIngest) error {
 	if proto.Equal(tx.Flow, in.Flow) {
 		return nil
 	}
-	if request.Method == sip.REGISTER || request.Method == sip.SUBSCRIBE {
+	facts, err := message.Facts()
+	if err != nil {
+		return err
+	}
+	if facts.Method == sip.REGISTER || facts.Method == sip.SUBSCRIBE {
 		return &portable.ProtocolError{Status: 481, Reason: "initial replay requires exact current flow"}
 	}
 	if in.Flow.Transport != "tls" || c.Snapshot.Transport != "tls" {
@@ -320,8 +333,11 @@ func (r *stateReduction) validateReplayFlow(c *stateContext, tx *stateTransactio
 	if c.Snapshot.PrincipalId != "" && in.PrincipalId != "" && c.Snapshot.PrincipalId != in.PrincipalId || c.Snapshot.BindingId != "" && in.BindingId != "" && c.Snapshot.BindingId != in.BindingId {
 		return &portable.ProtocolError{Status: 481, Reason: "replay binding mismatch"}
 	}
-	original, _ := tx.Native.Origin.Parse()
-	if request.IsInvite() && tag(original.To().Params) == "" && bytes.Equal(tx.Native.Origin.Wire, in.Wire) {
+	original, err := tx.Native.Origin.Facts()
+	if err != nil {
+		return err
+	}
+	if facts.Method == sip.INVITE && original.ToTag == "" && tx.Native.Origin.EqualWireBytes(in.Wire) {
 		return nil
 	}
 	if in.Admission == pb.OwnerIngest_TLS_DIALOG_CONTINUITY {
@@ -357,7 +373,7 @@ func (r *stateReduction) endSubscriptionRequests(c *stateContext) error {
 		}
 		for _, effect := range r.payload.Effects {
 			var body stateEngineEffect
-			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+			if err := r.unmarshalEffectMetadata(&body, effect); err != nil {
 				return err
 			}
 			if body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key {
@@ -371,11 +387,11 @@ func (r *stateReduction) endSubscriptionRequests(c *stateContext) error {
 		if pending {
 			continue
 		}
-		origin, err := tx.Native.Origin.Parse()
+		origin, err := tx.Native.Origin.Facts()
 		if err != nil {
 			return err
 		}
-		if origin.CSeq().MethodName != sip.SUBSCRIBE {
+		if origin.CSeqMethod != sip.SUBSCRIBE {
 			continue
 		}
 		next, effects, err := portable.StepTransaction(tx.Native, portable.Input{Kind: portable.Terminate, Now: r.now})
@@ -412,17 +428,32 @@ func (r *stateReduction) settledNotifyRetirable(id string, tx *stateTransaction)
 	}
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil || body.Context == id {
+		if r.unmarshalEffectMetadata(&body, effect) != nil || body.Context == id {
 			return false
 		}
 	}
-	origin := r.projectionForWire(tx.Native.Origin.Wire)
-	final := r.projectionForWire(tx.Native.LastResponse.Wire)
-	if !origin.portableEligible || !origin.request || origin.identity.Method != sip.NOTIFY ||
-		!final.portableEligible || final.request || final.status < 200 || final.status >= 300 {
+	origin, err := tx.Native.Origin.Facts()
+	if err != nil {
+		return false
+	}
+	final, err := tx.Native.LastResponse.Facts()
+	if err != nil || !origin.IsRequest || origin.CSeqMethod != sip.NOTIFY ||
+		final.IsRequest || final.Status < 200 || final.Status >= 300 {
 		return false
 	}
 	// Preserve the pinned matcher's complete identity checks. Only a positive
 	// candidate reaches this parse, and successful retirement removes its wire.
 	return portable.MatchResponse(tx.Native.Origin, *tx.Native.LastResponse)
+}
+
+func stateSubscriptionEvent(message portable.Message) (string, error) {
+	values, err := message.HeaderValues("Event")
+	if err != nil {
+		return "", err
+	}
+	raw := ""
+	if len(values) > 0 {
+		raw = values[0]
+	}
+	return eventKeyValue(raw)
 }

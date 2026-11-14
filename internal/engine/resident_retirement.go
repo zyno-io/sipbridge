@@ -1,11 +1,9 @@
 package engine
 
 import (
-	"crypto/sha256"
 	"sort"
 	"time"
 
-	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 )
 
@@ -15,17 +13,16 @@ func (e *ResidentMemory) retireResidentTransactionLocked(c *residentContext, tx 
 	if tx == nil || tx.retired || tx.native.Phase != portable.Terminated {
 		return
 	}
-	parsed, err := tx.native.Origin.Parse()
+	facts, err := tx.native.Origin.Facts()
 	if err != nil {
 		return
 	}
-	request, ok := parsed.(*sip.Request)
-	if !ok {
+	if !facts.IsRequest {
 		return
 	}
 	// Initial client INVITEs anchor late successful forks; tagged in-dialog
 	// procedures can retire once their dialog association is superseded.
-	if tx.native.Family == portable.InviteClient && (request.To() == nil || tag(request.To().Params) == "") {
+	if tx.native.Family == portable.InviteClient && facts.ToTag == "" {
 		return
 	}
 	// Dialog timers and successful INVITE obligations can outlive their
@@ -43,7 +40,7 @@ func (e *ResidentMemory) retireResidentTransactionLocked(c *residentContext, tx 
 	command := tx.command
 	tx.command = nil
 	releaseResidentCommandLocked(c, command)
-	tx.wireHash = sha256.Sum256(tx.native.Origin.Wire)
+	tx.wireHash = tx.native.Origin.WireHash()
 	tx.native = portable.Transaction{Key: tx.native.Key}
 	tx.policy, tx.application, tx.credential = nil, nil, nil
 	tx.retired = true

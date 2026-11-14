@@ -41,7 +41,7 @@ func TestStateSubscriptionSameFlowRefreshPublishesMutationFence(t *testing.T) {
 				}
 				_, group := stateTestLoad(t, b, ref)
 				for handle, key := range group.Contexts[ref.Id].Requests {
-					if string(group.Contexts[ref.Id].Transactions[key].Native.Origin.Wire) == string(request.Wire) {
+					if string(group.Contexts[ref.Id].Transactions[key].Native.Origin.WireBytes()) == string(request.Wire) {
 						return handle
 					}
 				}

@@ -185,8 +185,8 @@ func TestPortableLooseAndStrictRouting(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	r, _ := request(m)
-	if r.Recipient.String() != d.Target || m.Destination != "proxy.example.test:5080" || len(r.GetHeaders("Route")) != 2 {
+	r, _ := testRequest(m)
+	if r.Recipient.String() != d.Target || m.Destination() != "proxy.example.test:5080" || len(r.GetHeaders("Route")) != 2 {
 		t.Fatal("loose routing")
 	}
 	d.Routes = []string{"<sip:strict.example.test:5080>", "<sip:next.example.test:5081;lr>"}
@@ -194,7 +194,7 @@ func TestPortableLooseAndStrictRouting(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	r, _ = request(m)
+	r, _ = testRequest(m)
 	routes := r.GetHeaders("Route")
 	if r.Recipient.Host != "strict.example.test" || len(routes) != 2 || routes[1].Value() != "<"+d.Target+">" {
 		t.Fatal("strict routing lost original target")

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/execution"
@@ -283,7 +284,7 @@ func TestReserveMetadataDefersUnrelatedSIPParsing(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range group.Contexts {
-		c.Origin.Wire = []byte("unrelated malformed retained SIP")
+		c.Origin = portable.RestoreMessage([]byte("unrelated malformed retained SIP"), c.Origin.Transport(), c.Origin.Source(), c.Origin.Destination())
 	}
 	record.Payload.ProtocolState, err = group.MarshalBinary()
 	if err != nil {

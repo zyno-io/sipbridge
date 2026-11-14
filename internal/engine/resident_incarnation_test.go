@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
@@ -28,11 +29,11 @@ func TestResidentOutboundBareIDReuseFencesOldIncarnation(t *testing.T) {
 	}
 	firstWire, firstProof := <-writes, <-proofs
 	firstRef := proto.Clone(first.Snapshot.Context).(*pb.ContextRef)
-	oldResponse, err := portable.BuildResponseWithHeaders(portable.Message{Wire: firstWire, Transport: "tls"}, 200, "OK", nil, "remote", "sip:phone@example.test", nil)
+	oldResponse, err := portable.BuildResponseWithHeaders(portable.RestoreMessage(firstWire, "tls", "", ""), 200, "OK", nil, "remote", "sip:phone@example.test", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldObserved, err := Observe(oldResponse.Wire, false)
+	oldObserved, err := Observe(oldResponse.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,11 +76,11 @@ func TestResidentOutboundBareIDReuseFencesOldIncarnation(t *testing.T) {
 	if firstRef.State.Incarnation == secondRef.State.Incarnation || firstRef.State.CallId == secondRef.State.CallId {
 		t.Fatal("recreated context reused native identity")
 	}
-	firstMessage, err := (portable.Message{Wire: firstWire, Transport: "tls"}).Parse()
+	firstMessage, err := sip.ParseMessage((portable.RestoreMessage(firstWire, "tls", "", "")).WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondMessage, err := (portable.Message{Wire: secondWire, Transport: "tls"}).Parse()
+	secondMessage, err := sip.ParseMessage((portable.RestoreMessage(secondWire, "tls", "", "")).WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}

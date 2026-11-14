@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -37,7 +36,15 @@ func (e *ResidentMemory) ingest(ctx context.Context, peer *control.Peer, in *pb.
 	if !admitted || !proto.Equal(in.Context.State, e.contextRef(admission.callID, in.Context.Id).State) || admission.callID != in.Context.State.CallId || admission.wireHash != sha256.Sum256(in.Wire) || !now.Before(admission.expires) {
 		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, SipStatus: 481, Error: "native admission unavailable"}, nil
 	}
-	candidate, tx, effects, err := e.prepareResidentInitial(in, deadline, now)
+	parsed, err := sip.ParseMessage(in.Wire)
+	if err != nil {
+		return nil, err
+	}
+	request, ok := parsed.(*sip.Request)
+	if !ok {
+		return nil, errors.New("initial request required")
+	}
+	candidate, tx, effects, err := e.prepareResidentInitialParsed(in, deadline, now, request)
 	if err != nil {
 		return nil, err
 	}
@@ -47,10 +54,10 @@ func (e *ResidentMemory) ingest(ctx context.Context, peer *control.Peer, in *pb.
 	}
 	candidate.snapshot.ApplicationLeaseTerm = lease.Term
 	candidate.snapshot.Executor = proto.Clone(e.cfg.Process).(*pb.ProcessRef)
-	observed, err := Observe(in.Wire, false)
-	if err != nil {
+	if err = validateObservedMessage(parsed); err != nil {
 		return nil, err
 	}
+	observed := projectObservedMessage(in.Wire, parsed, false)
 	candidate.snapshot.Selectors = append([]string(nil), observed.Selectors...)
 	tx.selectors = append([]string(nil), observed.Selectors...)
 	tx.charged = residentTransactionBytes(tx)
@@ -60,16 +67,15 @@ func (e *ResidentMemory) ingest(ctx context.Context, peer *control.Peer, in *pb.
 		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, SipStatus: 503, Error: "resident capacity"}, nil
 	}
 	limit := residentSmallBudget
-	requestMessage, parseErr := tx.native.Origin.Parse()
+	requestFacts, parseErr := tx.native.Origin.Facts()
 	if parseErr != nil {
 		_ = e.accountResidentLocked(candidate, -candidate.bytes, 0)
 		candidate.mu.Unlock()
 		return nil, parseErr
 	}
-	request := requestMessage.(*sip.Request)
-	if request.IsInvite() {
+	if requestFacts.Method == sip.INVITE {
 		limit = residentServerInviteBudget
-	} else if request.Method == sip.SUBSCRIBE {
+	} else if requestFacts.Method == sip.SUBSCRIBE {
 		limit = residentSubscriptionBudget
 	}
 	tx.budget, err = e.openResidentBudgetLocked(candidate, limit)
@@ -79,7 +85,7 @@ func (e *ResidentMemory) ingest(ctx context.Context, peer *control.Peer, in *pb.
 		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, SipStatus: 503, Error: "resident capacity"}, nil
 	}
 	candidate.budget = tx.budget
-	if request.Method == sip.SUBSCRIBE {
+	if requestFacts.Method == sip.SUBSCRIBE {
 		candidate.subscriptionBudget = tx.budget
 	}
 	writes, err := e.stageResidentOutputsLocked(candidate, tx, effects, nil, "", deadline)
@@ -129,20 +135,24 @@ func (e *ResidentMemory) ingest(ctx context.Context, peer *control.Peer, in *pb.
 }
 
 func (e *ResidentMemory) ingestResidentExisting(ctx context.Context, c *residentContext, in *pb.OwnerIngest, deadline time.Time) (*pb.OperationResult, error) {
-	parsed, err := (portable.Message{Wire: in.Wire, Transport: in.Flow.Transport}).Parse()
+	parsed, err := sip.ParseMessage(in.Wire)
 	if err != nil {
 		return nil, err
 	}
 	return e.ingestResidentExistingParsed(ctx, c, in, deadline, parsed, nil)
 }
 
-func (e *ResidentMemory) ingestResidentExistingParsed(ctx context.Context, c *residentContext, in *pb.OwnerIngest, deadline time.Time, parsed sip.Message, observed *pb.SipMessage) (*pb.OperationResult, error) {
+func (e *ResidentMemory) ingestResidentExistingParsed(ctx context.Context, c *residentContext, in *pb.OwnerIngest, deadline time.Time, parsed sip.Message, observed *pb.SipMessage, frozen ...portable.Message) (*pb.OperationResult, error) {
 	c.mu.Lock()
 	if c.snapshot == nil || !proto.Equal(c.snapshot.Context.State, in.Context.State) || (!sameProcess(c.snapshot.Application, in.Application) && c.subscription == nil) || c.snapshot.Transport != in.Flow.Transport {
 		c.mu.Unlock()
 		return nil, errors.New("resident context authority mismatch")
 	}
-	message := portable.Message{Wire: in.Wire, Transport: in.Flow.Transport}
+	message, err := residentObservedNative(in.Wire, parsed, in.Flow, frozen...)
+	if err != nil {
+		c.mu.Unlock()
+		return nil, err
+	}
 	request, ok := parsed.(*sip.Request)
 	if ok {
 		key, keyErr := sip.ServerTxKeyMake(request)
@@ -151,7 +161,7 @@ func (e *ResidentMemory) ingestResidentExistingParsed(ctx context.Context, c *re
 			c.mu.Unlock()
 			return &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}, nil
 		}
-		if keyErr == nil && tx != nil && !tx.retired && portable.MatchRequest(tx.native.Origin, message) && bytes.Equal(tx.native.Origin.Wire, in.Wire) && residentReplayFlowAllowed(c, tx, in, request) {
+		if keyErr == nil && tx != nil && !tx.retired && portable.MatchRequest(tx.native.Origin, message) && tx.native.Origin.EqualWire(message) && residentReplayFlowAllowed(c, tx, in, request) {
 			if tx.decisionPending {
 				c.mu.Unlock()
 				return &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}, nil
@@ -208,27 +218,22 @@ func (e *ResidentMemory) ingestResidentExistingParsed(ctx context.Context, c *re
 	}
 	c.mu.Unlock()
 	if observed != nil {
-		return e.receiveResidentExisting(ctx, c, in, deadline, observed, request)
+		return e.receiveResidentExisting(ctx, c, in, deadline, observed, request, message)
 	}
-	return e.ingestResidentNewRequest(ctx, c, in, deadline)
+	return e.ingestResidentNewRequest(ctx, c, in, deadline, parsed, message)
 }
 
 // ingestResidentNewRequest admits a fresh subscription renewal only after the
 // retained subscription identity and remote CSeq have been checked.
-func (e *ResidentMemory) ingestResidentNewRequest(ctx context.Context, c *residentContext, in *pb.OwnerIngest, deadline time.Time) (*pb.OperationResult, error) {
-	message := portable.Message{Wire: in.Wire, Transport: in.Flow.Transport}
-	parsed, err := message.Parse()
-	if err != nil {
-		return nil, err
-	}
+func (e *ResidentMemory) ingestResidentNewRequest(ctx context.Context, c *residentContext, in *pb.OwnerIngest, deadline time.Time, parsed sip.Message, message portable.Message) (*pb.OperationResult, error) {
 	request, ok := parsed.(*sip.Request)
 	if !ok || request.IsAck() || request.IsCancel() {
 		return nil, rejectIngest(481, "unknown resident request")
 	}
-	observed, err := Observe(in.Wire, false)
-	if err != nil {
+	if err := validateObservedMessage(parsed); err != nil {
 		return nil, err
 	}
+	observed := projectObservedMessage(in.Wire, parsed, false)
 	peer, err := e.control.Peer(in.Application)
 	if err != nil {
 		return nil, err

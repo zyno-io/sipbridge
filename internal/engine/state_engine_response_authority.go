@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"encoding/hex"
 	"errors"
 
@@ -35,15 +34,14 @@ func (r *stateReduction) retainResponseAuthority(c *stateContext, tx *stateTrans
 			return errors.New("invalid response completion scope")
 		}
 	}
-	parsed, err := tx.Native.Origin.Parse()
+	facts, err := tx.Native.Origin.Facts()
 	if err != nil {
 		return err
 	}
-	request, ok := parsed.(*sip.Request)
-	if !ok {
+	if !facts.IsRequest {
 		return errors.New("response request origin required")
 	}
-	initial := request.IsInvite() && tag(request.To().Params) == ""
+	initial := facts.Method == sip.INVITE && facts.ToTag == ""
 	if initial && response.Status >= 200 && response.Status < 300 && scope == "" {
 		return errors.New("successful initial INVITE response requires its admitted completion scope")
 	}
@@ -52,7 +50,7 @@ func (r *stateReduction) retainResponseAuthority(c *stateContext, tx *stateTrans
 			return errors.New("response transaction completion scope changed")
 		}
 		if initial && (c.CompletionScope != "" && c.CompletionScope != scope || c.ScopeOrigin != nil &&
-			(c.ScopeOrigin.Transport != tx.Native.Origin.Transport || !bytes.Equal(c.ScopeOrigin.Wire, tx.Native.Origin.Wire))) {
+			(c.ScopeOrigin.Transport() != tx.Native.Origin.Transport() || !c.ScopeOrigin.EqualWire(tx.Native.Origin))) {
 			return errors.New("initial response completion anchor changed")
 		}
 	}

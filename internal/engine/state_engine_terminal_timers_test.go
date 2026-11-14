@@ -69,7 +69,7 @@ func TestTerminalTimersKeepCancellationEffectsAndACKEvidence(t *testing.T) {
 	if tx.Native.Timers != nil || !reflect.DeepEqual(tx.Native, next) || tx.RetireMS != r.now+120000 {
 		t.Fatal("adapter changed more than stopped timer storage or lost retention")
 	}
-	if !portable.MatchResponse(tx.Native.Origin, *tx.Native.LastResponse) || !bytes.Equal(tx.Native.ACK.Wire, next.ACK.Wire) {
+	if !portable.MatchResponse(tx.Native.Origin, *tx.Native.LastResponse) || !bytes.Equal(tx.Native.ACK.WireBytes(), next.ACK.WireBytes()) {
 		t.Fatal("exact final/ACK identity lost")
 	}
 	// A later read/replayed no-op must not normalize historical terminal maps.
@@ -133,14 +133,14 @@ func TestTerminalTimersPairedCancelKeepsLiveInviteAndRetainedFinalProof(t *testi
 			}
 			cancelProof, inviteProof := cancelTX.stateRequestDisposition, invite.stateRequestDisposition
 			cancelFinal := *cancelTX.FinalResponse
-			finalWire := bytes.Clone(invite.Native.LastResponse.Wire)
+			finalWire := bytes.Clone(invite.Native.LastResponse.WireBytes())
 			inviteFinal := *invite.FinalResponse
 			ack, err := portable.BuildNon2xxACK(invite.Native.Origin, *invite.Native.LastResponse)
 			if err != nil {
 				t.Fatal(err)
 			}
 			ingestNativeCancelMessage(t, r, c, ack)
-			if invite.Native.Phase != portable.Terminated || invite.Native.Timers != nil || !bytes.Equal(invite.Native.LastResponse.Wire, finalWire) || !reflect.DeepEqual(*invite.FinalResponse, inviteFinal) || !reflect.DeepEqual(invite.stateRequestDisposition, inviteProof) {
+			if invite.Native.Phase != portable.Terminated || invite.Native.Timers != nil || !bytes.Equal(invite.Native.LastResponse.WireBytes(), finalWire) || !reflect.DeepEqual(*invite.FinalResponse, inviteFinal) || !reflect.DeepEqual(invite.stateRequestDisposition, inviteProof) {
 				t.Fatal("ACK terminal transition changed retained final or disposition proof")
 			}
 			// A historical already-terminated CANCEL replay stays untouched by

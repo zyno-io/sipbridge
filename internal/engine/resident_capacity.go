@@ -32,7 +32,7 @@ func (e *ResidentMemory) accountResidentLocked(c *residentContext, bytesDelta, r
 }
 
 func residentMessageBytes(message portable.Message) int64 {
-	return int64(len(message.Wire) + len(message.Transport) + len(message.Source) + len(message.Destination))
+	return message.RetainedBytes()
 }
 
 func residentTransactionBytes(tx *residentTransaction) int64 {

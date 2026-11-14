@@ -53,7 +53,7 @@ func receiverEvent(t *testing.T, f nativeOwnerFixture, ref *pb.ContextRef) (stat
 		t.Fatal(err)
 	}
 	result := f.apply(t, ref, "receiver-event-cancel", stateEngineInput{Kind: "ingest", Application: f.app, ApplicationLeaseTerm: f.term,
-		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: cancel.Wire, Admission: pb.OwnerIngest_EXISTING_FLOW}})
+		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: cancel.WireBytes(), Admission: pb.OwnerIngest_EXISTING_FLOW}})
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}
@@ -78,7 +78,7 @@ func TestNativeReceiverPendingAndUnknownCrossExecutionModes(t *testing.T) {
 						t.Fatal(err)
 					}
 					result := writer.apply(t, ref, "cancel", stateEngineInput{Kind: "ingest", Application: writer.app, ApplicationLeaseTerm: writer.term,
-						Ingest: &pb.OwnerIngest{Context: ref, Application: writer.app, Flow: writer.flow, Wire: cancel.Wire, Admission: pb.OwnerIngest_EXISTING_FLOW}})
+						Ingest: &pb.OwnerIngest{Context: ref, Application: writer.app, Flow: writer.flow, Wire: cancel.WireBytes(), Admission: pb.OwnerIngest_EXISTING_FLOW}})
 					if result.Error != "" {
 						t.Fatal(result.Error)
 					}

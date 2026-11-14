@@ -31,7 +31,7 @@ func TestResidentProvisionalDebtCannotConsumeMandatoryLifecycleSlots(t *testing.
 			t.Fatal("transient history accumulated behind an outstanding provisional", err)
 		}
 	}
-	if len(c.events) != 1 || first.message.Message != nil || !bytes.Equal(first.wire, message.Wire) || first.selectors[0] != "selected-header" {
+	if len(c.events) != 1 || first.message.Message != nil || !bytes.Equal(first.native.WireBytes(), message.Wire) || first.selectors[0] != "selected-header" {
 		t.Fatal("lifecycle debt retained parsed SIP or lost immutable wire metadata")
 	}
 	// Unrelated admissions must leave the accepted procedure's slots intact.

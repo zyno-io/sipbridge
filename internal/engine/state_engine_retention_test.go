@@ -168,7 +168,7 @@ func TestStateLongCallPrunesRetiredTransactionSelectors(t *testing.T) {
 		}
 		var latest *stateTransaction
 		for _, tx := range c.Transactions {
-			if bytes.Equal(tx.Native.Origin.Wire, request.Wire) {
+			if bytes.Equal(tx.Native.Origin.WireBytes(), request.Wire) {
 				latest = tx
 			}
 		}

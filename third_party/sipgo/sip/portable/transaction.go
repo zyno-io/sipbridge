@@ -1,7 +1,6 @@
 package portable
 
 import (
-	"bytes"
 	"errors"
 	"math"
 
@@ -149,25 +148,25 @@ func NewTransaction(f Family, origin Message, profile TimerProfile, localTag str
 	if f != InviteClient && f != InviteServer && f != NonInviteClient && f != NonInviteServer {
 		return Transaction{}, errors.New("unknown transaction family")
 	}
-	if o.IsAck() || o.IsInvite() != invite {
+	if (o.facts.Method == sip.ACK) || (o.facts.Method == sip.INVITE) != invite {
 		return Transaction{}, errors.New("transaction method/family mismatch")
 	}
 	var key string
 	if f == InviteClient || f == NonInviteClient {
-		key, e = sip.ClientTxKeyMake(o)
+		key, e = origin.ClientTxKey()
 	} else {
-		key, e = sip.ServerTxKeyMake(o)
+		key, e = origin.ServerTxKey()
 	}
 	if e != nil {
 		return Transaction{}, e
 	}
-	if tag(o.To().Params) != "" {
-		localTag = tag(o.To().Params)
+	if o.facts.ToTag != "" {
+		localTag = o.facts.ToTag
 	}
 	if (f == InviteServer || f == NonInviteServer) && localTag == "" {
 		return Transaction{}, errors.New("reserved response tag required")
 	}
-	s := Transaction{Version: Version, Family: f, Phase: Idle, Key: key, Origin: origin.Clone(), ResponseTag: localTag, Reliable: origin.Transport != "udp", Timers: make(map[Timer]Deadline), Profile: profile}
+	s := Transaction{Version: Version, Family: f, Phase: Idle, Key: key, Origin: origin.Clone(), ResponseTag: localTag, Reliable: origin.Transport() != "udp", Timers: make(map[Timer]Deadline), Profile: profile}
 	if err := s.Validate(); err != nil {
 		return Transaction{}, err
 	}
@@ -334,14 +333,14 @@ func (s Transaction) Validate() error {
 	}
 	client := s.Family == InviteClient || s.Family == NonInviteClient
 	invite := s.Family == InviteClient || s.Family == InviteServer
-	if s.Family != InviteClient && s.Family != NonInviteClient && s.Family != InviteServer && s.Family != NonInviteServer || o.IsInvite() != invite || o.IsAck() || s.Reliable != (s.Origin.Transport != "udp") {
+	if s.Family != InviteClient && s.Family != NonInviteClient && s.Family != InviteServer && s.Family != NonInviteServer || (o.facts.Method == sip.INVITE) != invite || (o.facts.Method == sip.ACK) || s.Reliable != (s.Origin.Transport() != "udp") {
 		return errors.New("transaction family/transport mismatch")
 	}
 	var key string
 	if client {
-		key, err = sip.ClientTxKeyMake(o)
+		key, err = s.Origin.ClientTxKey()
 	} else {
-		key, err = sip.ServerTxKeyMake(o)
+		key, err = s.Origin.ServerTxKey()
 	}
 	if err != nil || key != s.Key || !client && !validToken(s.ResponseTag) {
 		return errors.New("transaction identity mismatch")
@@ -364,7 +363,7 @@ func (s Transaction) Validate() error {
 	}
 	if s.ACK != nil {
 		a, e := request(*s.ACK)
-		if e != nil || !a.IsAck() || !MatchRequest(s.Origin, *s.ACK) {
+		if e != nil || !(a.facts.Method == sip.ACK) || !MatchRequest(s.Origin, *s.ACK) {
 			return errors.New("retained ACK origin mismatch")
 		}
 	}
@@ -391,18 +390,18 @@ func (t *transition) clientResponse(m Message) {
 	r, _ := response(m)
 	s := &t.state
 	if s.Family == InviteClient && s.Phase == Accepted {
-		if r.IsSuccess() {
+		if r.facts.Status >= 200 && r.facts.Status < 300 {
 			t.emit(ReportResponse, &m, true)
 		}
 		return
 	}
 	if s.Phase == Completed {
-		if s.Family == InviteClient && r.StatusCode >= 300 {
+		if s.Family == InviteClient && r.facts.Status >= 300 {
 			t.emit(Send, s.ACK, true)
 		}
 		return
 	}
-	if r.IsProvisional() {
+	if r.facts.Status < 200 {
 		s.LastResponse = cloneMessage(&m)
 		s.Phase = Proceeding
 		t.emit(ReportResponse, &m, false)
@@ -423,7 +422,7 @@ func (t *transition) clientResponse(m Message) {
 	t.stop(TimerE)
 	t.stop(TimerF)
 	t.stop(TimerCancel)
-	if s.Family == InviteClient && r.IsSuccess() {
+	if s.Family == InviteClient && (r.facts.Status >= 200 && r.facts.Status < 300) {
 		s.Phase = Accepted
 		t.schedule(TimerM, 64*s.Profile.T1, 0)
 		t.emit(ReportResponse, &m, false)
@@ -473,7 +472,7 @@ func StepServerCancel(invite Transaction, cancel *Transaction, in Input) (Transa
 		return invite, Transaction{}, nil, errors.New("INVITE server CANCEL input required")
 	}
 	r, err := request(in.Message)
-	if err != nil || !r.IsCancel() || !MatchRequest(invite.Origin, in.Message) {
+	if err != nil || !(r.facts.Method == sip.CANCEL) || !MatchRequest(invite.Origin, in.Message) {
 		return invite, Transaction{}, nil, reject(481, "CANCEL original identity mismatch")
 	}
 	if cancel != nil {
@@ -522,7 +521,7 @@ func StepServerCancel(invite Transaction, cancel *Transaction, in Input) (Transa
 func (t *transition) serverRequest(m Message) {
 	r, _ := request(m)
 	s := &t.state
-	if r.IsCancel() && s.Family == InviteServer {
+	if (r.facts.Method == sip.CANCEL) && s.Family == InviteServer {
 		c, e := ResponseFor(m, 200, "OK", nil, s.ResponseTag)
 		if e != nil {
 			t.err = e
@@ -541,12 +540,12 @@ func (t *transition) serverRequest(m Message) {
 		}
 		return
 	}
-	if r.IsAck() {
+	if r.facts.Method == sip.ACK {
 		if s.LastResponse == nil {
 			return
 		}
 		res, _ := response(*s.LastResponse)
-		if tag(r.To().Params) != tag(res.To().Params) {
+		if r.facts.ToTag != res.facts.ToTag {
 			t.err = reject(481, "ACK response tag mismatch")
 			return
 		}
@@ -565,7 +564,7 @@ func (t *transition) serverRequest(m Message) {
 		}
 		return
 	}
-	if !bytes.Equal(m.Wire, s.Origin.Wire) {
+	if !m.EqualWire(s.Origin) {
 		t.err = reject(481, "transaction replay payload mismatch")
 		return
 	}
@@ -579,18 +578,18 @@ func (t *transition) serverRequest(m Message) {
 func (t *transition) serverResponse(m Message) {
 	s := &t.state
 	r, _ := response(m)
-	if r.StatusCode != 100 && tag(r.To().Params) != s.ResponseTag {
+	if r.facts.Status != 100 && r.facts.ToTag != s.ResponseTag {
 		t.err = reject(481, "reserved response tag mismatch")
 		return
 	}
 	if s.Phase == Confirmed || s.Phase == Completed {
-		if s.LastResponse != nil && !bytes.Equal(s.LastResponse.Wire, m.Wire) {
+		if s.LastResponse != nil && !s.LastResponse.EqualWire(m) {
 			t.err = errors.New("conflicting transaction final")
 		}
 		return
 	}
 	if s.Phase == Accepted {
-		if r.IsSuccess() && s.LastResponse != nil && bytes.Equal(s.LastResponse.Wire, m.Wire) {
+		if (r.facts.Status >= 200 && r.facts.Status < 300) && s.LastResponse != nil && s.LastResponse.EqualWire(m) {
 			t.emit(Send, s.LastResponse, true)
 		} else {
 			t.err = errors.New("conflicting transaction final")
@@ -600,12 +599,12 @@ func (t *transition) serverResponse(m Message) {
 	t.stop(TimerTrying)
 	s.LastResponse = cloneMessage(&m)
 	t.emit(Send, &m, false)
-	if r.IsProvisional() {
+	if r.facts.Status < 200 {
 		s.Phase = Proceeding
 		return
 	}
 	if s.Family == InviteServer {
-		if r.IsSuccess() {
+		if r.facts.Status >= 200 && r.facts.Status < 300 {
 			s.Phase = Accepted
 			t.schedule(TimerL, 64*s.Profile.T1, 0)
 		} else {

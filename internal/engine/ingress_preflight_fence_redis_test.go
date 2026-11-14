@@ -75,7 +75,7 @@ func TestRedisAdmittedRegisterSurvivesExpiredDuplicatePreflight(t *testing.T) {
 	}
 	original := c.Transactions[transactionID]
 	if original == nil || original.Native.LastResponse != nil || len(original.AdmittedFlowProofs) != 1 ||
-		!proto.Equal(original.Flow, flow) || !bytes.Equal(original.Native.Origin.Wire, message.Wire) {
+		!proto.Equal(original.Flow, flow) || !bytes.Equal(original.Native.Origin.WireBytes(), message.Wire) {
 		t.Fatal("fixture did not retain an exact-flow, unanswered REGISTER admission")
 	}
 	if _, err = f.remote.WriteTo(message.Wire, f.listener.LocalAddr()); err != nil {
@@ -99,7 +99,7 @@ func TestRedisAdmittedRegisterSurvivesExpiredDuplicatePreflight(t *testing.T) {
 	retained := after.Contexts[ref.Id]
 	if retained == nil || retained.Requests[requestID] != transactionID || retained.Transactions[transactionID] == nil ||
 		retained.Transactions[transactionID].Native.LastResponse != nil ||
-		!bytes.Equal(retained.Transactions[transactionID].Native.Origin.Wire, message.Wire) {
+		!bytes.Equal(retained.Transactions[transactionID].Native.Origin.WireBytes(), message.Wire) {
 		t.Fatal("rejection arbitration changed the original unanswered REGISTER")
 	}
 	if err = f.remote.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {

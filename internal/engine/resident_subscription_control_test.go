@@ -62,11 +62,11 @@ func TestResidentSubscribeRequiresImmediateNotifyBudget(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("NOTIFY missing")
 	}
-	reply, err := portable.ResponseFor(portable.Message{Wire: notifyWire, Transport: "tls"}, 200, "OK", nil, "")
+	reply, err := portable.ResponseFor(portable.RestoreMessage(notifyWire, "tls", "", ""), 200, "OK", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	handled, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: reply.Wire})
+	handled, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: reply.WireBytes()})
 	if err != nil || !handled {
 		t.Fatal("NOTIFY response not handled", handled, err)
 	}
@@ -90,7 +90,7 @@ func TestResidentSubscribeRequiresImmediateNotifyBudget(t *testing.T) {
 		}
 		done := make(chan error, 1)
 		go func() {
-			_, err := e.ingest(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: flow, Wire: request.Wire}, time.Now().Add(2*time.Second))
+			_, err := e.ingest(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: flow, Wire: request.WireBytes()}, time.Now().Add(2*time.Second))
 			done <- err
 		}()
 		presented := readControllerEnvelope(t, ctx, conn)

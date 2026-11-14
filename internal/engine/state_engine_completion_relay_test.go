@@ -16,7 +16,7 @@ var completionRelayApplication = &pb.ProcessRef{InstanceId: "controller-b", Epoc
 
 func completionRelayIngest(r *stateReduction, c *stateContext, message portable.Message, flow *pb.FlowRef, admission pb.OwnerIngest_Admission) error {
 	r.deadline = r.now + 2000 // Each synthetic receive is a new immutable control input.
-	r.in = stateEngineInput{Kind: "ingest", Application: completionRelayApplication, Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: completionRelayApplication, Flow: flow, Wire: message.Wire, Admission: admission}}
+	r.in = stateEngineInput{Kind: "ingest", Application: completionRelayApplication, Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: completionRelayApplication, Flow: flow, Wire: message.WireBytes(), Admission: admission}}
 	r.result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}
 	return r.ingest()
 }
@@ -175,9 +175,9 @@ func TestStateCompletionRelayRejectsBusinessAndForeignNativeIdentityWithoutMutat
 					t.Fatal(err)
 				}
 			case "tag":
-				message.Wire = []byte(strings.Replace(string(message.Wire), "tag=server", "tag=foreign", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "tag=server", "tag=foreign", 1)), message.Transport(), message.Source(), message.Destination())
 			case "sequence":
-				message.Wire = []byte(strings.Replace(string(message.Wire), "CSeq: 12 ACK", "CSeq: 13 ACK", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "CSeq: 12 ACK", "CSeq: 13 ACK", 1)), message.Transport(), message.Source(), message.Destination())
 			case "unadmitted-flow":
 				flow.ConnectionId, admission = "unknown", pb.OwnerIngest_EXISTING_FLOW
 			case "transport":
@@ -187,7 +187,7 @@ func TestStateCompletionRelayRejectsBusinessAndForeignNativeIdentityWithoutMutat
 			}
 			before, _ := marshalRetainedFixture(c)
 			if scenario == "principal" {
-				r.in = stateEngineInput{Application: completionRelayApplication, Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: completionRelayApplication, Flow: flow, Wire: message.Wire, PrincipalId: "foreign"}}
+				r.in = stateEngineInput{Application: completionRelayApplication, Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: completionRelayApplication, Flow: flow, Wire: message.WireBytes(), PrincipalId: "foreign"}}
 				if err := r.ingest(); err == nil {
 					t.Fatal("foreign principal accepted")
 				}
@@ -268,15 +268,15 @@ func TestStateCompletionRelayCANCELAndNon2xxACKRequireExactRetainedServerTransac
 				}
 				switch foreign {
 				case "branch":
-					message.Wire = []byte(strings.Replace(string(message.Wire), "z9hG4bK-initial", "z9hG4bK-foreign", 1))
+					message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "z9hG4bK-initial", "z9hG4bK-foreign", 1)), message.Transport(), message.Source(), message.Destination())
 				case "tag":
 					if method == "ACK" {
-						message.Wire = []byte(strings.Replace(string(message.Wire), "tag=server-final", "tag=foreign", 1))
+						message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "tag=server-final", "tag=foreign", 1)), message.Transport(), message.Source(), message.Destination())
 					} else {
-						message.Wire = []byte(strings.Replace(string(message.Wire), "tag=local", "tag=foreign", 1))
+						message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "tag=local", "tag=foreign", 1)), message.Transport(), message.Source(), message.Destination())
 					}
 				case "sequence":
-					message.Wire = []byte(strings.Replace(string(message.Wire), "CSeq: 12 ", "CSeq: 13 ", 1))
+					message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "CSeq: 12 ", "CSeq: 13 ", 1)), message.Transport(), message.Source(), message.Destination())
 				}
 				before, _ := marshalRetainedFixture(c)
 				err = completionRelayIngest(r, c, message, c.Flow, pb.OwnerIngest_EXISTING_FLOW)
@@ -316,11 +316,11 @@ func TestStateCompletionRelayResponseRejectsForeignTransactionAndUnadmittedFlow(
 			admission := pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY
 			switch foreign {
 			case "branch":
-				message.Wire = []byte(strings.Replace(string(message.Wire), "z9hG4bK-initial", "z9hG4bK-foreign", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "z9hG4bK-initial", "z9hG4bK-foreign", 1)), message.Transport(), message.Source(), message.Destination())
 			case "from-tag":
-				message.Wire = []byte(strings.Replace(string(message.Wire), "tag=local", "tag=foreign", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "tag=local", "tag=foreign", 1)), message.Transport(), message.Source(), message.Destination())
 			case "sequence":
-				message.Wire = []byte(strings.Replace(string(message.Wire), "CSeq: 12 INVITE", "CSeq: 13 INVITE", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "CSeq: 12 INVITE", "CSeq: 13 INVITE", 1)), message.Transport(), message.Source(), message.Destination())
 			case "unadmitted-flow":
 				flow.ConnectionId, admission = "unknown", pb.OwnerIngest_EXISTING_FLOW
 			case "transport":
@@ -383,7 +383,7 @@ func TestStateCompletionRelayLateForksAcrossRedisWorkersPreserveOriginalOwner(t 
 	replacement.Ingress, replacement.ConnectionId = b.cfg.Process, "new-b"
 	for _, remote := range []string{"late-one", "late-two"} {
 		message := forkReply(t, initial, 200, remote)
-		result = stateTestApply(t, b, ref, "relay-"+remote, stateEngineInput{Kind: "ingest", Application: completionRelayApplication, Ingest: &pb.OwnerIngest{Context: ref, Application: completionRelayApplication, Flow: replacement, Wire: message.Wire, Admission: pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY}})
+		result = stateTestApply(t, b, ref, "relay-"+remote, stateEngineInput{Kind: "ingest", Application: completionRelayApplication, Ingest: &pb.OwnerIngest{Context: ref, Application: completionRelayApplication, Flow: replacement, Wire: message.WireBytes(), Admission: pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY}})
 		if result.Error != "" {
 			t.Fatal(result.Error)
 		}
@@ -415,14 +415,14 @@ func completionRelayFinalFixture(t *testing.T, method sip.RequestMethod, status 
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.in = stateEngineInput{Kind: "ingest", Application: c.Snapshot.Application, Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: request.Wire}}
+	r.in = stateEngineInput{Kind: "ingest", Application: c.Snapshot.Application, Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: request.WireBytes()}}
 	r.deadline = r.now + 2000
 	if err := r.ingest(); err != nil {
 		t.Fatal(err)
 	}
 	var selected *stateTransaction
 	for _, tx := range c.Transactions {
-		if bytes.Equal(tx.Native.Origin.Wire, request.Wire) {
+		if bytes.Equal(tx.Native.Origin.WireBytes(), request.WireBytes()) {
 			selected = tx
 		}
 	}
@@ -461,7 +461,7 @@ func TestStateCompletionRelayCachedFinalReplayPreservesUnknownAndBusinessState(t
 				t.Fatal("cached final did not return on admitted relay flow with original identity")
 			}
 			expected, err := stateRenderResponse(*tx.Native.LastResponse, flow)
-			if err != nil || !bytes.Equal(expected.Wire, body.Wire) {
+			if err != nil || !bytes.Equal(expected.WireBytes(), body.Wire) {
 				t.Fatal("relay changed selected final bytes beyond native return-flow rendering")
 			}
 			_, retained, _, err := r.findEffect(original.ID)
@@ -494,22 +494,22 @@ func TestStateCompletionRelayCachedFinalRejectsFreshAlteredAndExcludedRequests(t
 			admission := pb.OwnerIngest_TLS_DIALOG_CONTINUITY
 			switch scenario {
 			case "payload":
-				message.Wire = []byte(strings.Replace(string(message.Wire), "v=0", "v=1", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "v=0", "v=1", 1)), message.Transport(), message.Source(), message.Destination())
 			case "branch":
-				message.Wire = []byte(strings.Replace(string(message.Wire), "z9hG4bK-cached-final", "z9hG4bK-fresh", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "z9hG4bK-cached-final", "z9hG4bK-fresh", 1)), message.Transport(), message.Source(), message.Destination())
 			case "sequence":
-				message.Wire = []byte(strings.Replace(string(message.Wire), "CSeq: 13 ", "CSeq: 14 ", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "CSeq: 13 ", "CSeq: 14 ", 1)), message.Transport(), message.Source(), message.Destination())
 			case "to-tag":
-				message.Wire = []byte(strings.Replace(string(message.Wire), "tag=server", "tag=foreign", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "tag=server", "tag=foreign", 1)), message.Transport(), message.Source(), message.Destination())
 			case "from-tag":
-				message.Wire = []byte(strings.Replace(string(message.Wire), "tag=local", "tag=foreign", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), "tag=local", "tag=foreign", 1)), message.Transport(), message.Source(), message.Destination())
 			case "no-final":
 				tx.Native.LastResponse = nil
 			case "provisional":
 				final := forkReply(t, tx, 180, c.Tag)
 				tx.Native.LastResponse = &final
 			case "wrong-final":
-				tx.Native.LastResponse.Wire = []byte(strings.Replace(string(tx.Native.LastResponse.Wire), "CSeq: 13 ", "CSeq: 14 ", 1))
+				*tx.Native.LastResponse = portable.RestoreMessage([]byte(strings.Replace(string(tx.Native.LastResponse.WireBytes()), "CSeq: 13 ", "CSeq: 14 ", 1)), tx.Native.LastResponse.Transport(), tx.Native.LastResponse.Source(), tx.Native.LastResponse.Destination())
 			case "unadmitted-flow":
 				flow.ConnectionId, admission = "unadmitted-final", pb.OwnerIngest_EXISTING_FLOW
 			case "subscription":
@@ -517,7 +517,7 @@ func TestStateCompletionRelayCachedFinalRejectsFreshAlteredAndExcludedRequests(t
 			case "transaction-context":
 				c.Snapshot.Kind = pb.ContextSnapshot_TRANSACTION
 			case "out-of-dialog":
-				message.Wire = []byte(strings.Replace(string(message.Wire), ";tag=server", "", 1))
+				message = portable.RestoreMessage([]byte(strings.Replace(string(message.WireBytes()), ";tag=server", "", 1)), message.Transport(), message.Source(), message.Destination())
 				tx.Native.Origin = message.Clone()
 			}
 			before, _ := marshalRetainedFixture(c)

@@ -75,7 +75,7 @@ func TestStateResponseOnlyTLSReconnectACKUsesBWithoutChangingContextFlow(t *test
 		t.Fatal("initial INVITE transaction missing")
 	}
 	accepted := forkReply(t, original, 200, "winner")
-	result := stateTestApply(t, b, ref, "answer-on-b", stateEngineInput{Kind: "ingest", Application: application, Ingest: &pb.OwnerIngest{Context: ref, Application: application, Flow: replacement, Wire: accepted.Wire, Admission: pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY}})
+	result := stateTestApply(t, b, ref, "answer-on-b", stateEngineInput{Kind: "ingest", Application: application, Ingest: &pb.OwnerIngest{Context: ref, Application: application, Flow: replacement, Wire: accepted.WireBytes(), Admission: pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY}})
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}
@@ -92,7 +92,7 @@ func TestStateResponseOnlyTLSReconnectACKUsesBWithoutChangingContextFlow(t *test
 	losingFlow := proto.Clone(replacement).(*pb.FlowRef)
 	losingFlow.ConnectionId, losingFlow.SourcePort = "fork-c", 52000
 	loser := forkReply(t, original, 200, "loser")
-	result = stateTestApply(t, a, ref, "loser-on-c", stateEngineInput{Kind: "ingest", Application: application, Ingest: &pb.OwnerIngest{Context: ref, Application: application, Flow: losingFlow, Wire: loser.Wire, Admission: pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY}})
+	result = stateTestApply(t, a, ref, "loser-on-c", stateEngineInput{Kind: "ingest", Application: application, Ingest: &pb.OwnerIngest{Context: ref, Application: application, Flow: losingFlow, Wire: loser.WireBytes(), Admission: pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY}})
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}
@@ -101,7 +101,7 @@ func TestStateResponseOnlyTLSReconnectACKUsesBWithoutChangingContextFlow(t *test
 	if !proto.Equal(loserACK.Flow, losingFlow) || !proto.Equal(loserBYE.Flow, losingFlow) || !proto.Equal(group.Contexts[ref.Id].Flow, old) {
 		t.Fatal("losing branch completion flow crossed another branch or context route")
 	}
-	result = stateTestApply(t, b, ref, "winner-repeat-b", stateEngineInput{Kind: "ingest", Application: application, Ingest: &pb.OwnerIngest{Context: ref, Application: application, Flow: replacement, Wire: accepted.Wire, Admission: pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY}})
+	result = stateTestApply(t, b, ref, "winner-repeat-b", stateEngineInput{Kind: "ingest", Application: application, Ingest: &pb.OwnerIngest{Context: ref, Application: application, Flow: replacement, Wire: accepted.WireBytes(), Admission: pb.OwnerIngest_TLS_TRANSACTION_CONTINUITY}})
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}

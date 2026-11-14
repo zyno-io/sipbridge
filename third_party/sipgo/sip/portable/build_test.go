@@ -15,7 +15,7 @@ func TestPortableBuildersRequireExplicitNativeIdentity(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	r, _ := request(m)
+	r, _ := testRequest(m)
 	if tag(r.From().Params) != "local-tag" || r.From().DisplayName != "Caller" || r.To().Address.User != "bob" || r.GetHeader("Content-Type").Value() != "text/plain" || len(r.GetHeaders("X-Test")) != 2 {
 		t.Fatal("application headers/identity lost")
 	}
@@ -44,13 +44,13 @@ func TestPortableBuildersRequireExplicitNativeIdentity(t *testing.T) {
 
 func TestPortableResponseBuilderPreservesChosenTagAndBodies(t *testing.T) {
 	o := origin(t, sip.INVITE, "tls")
-	before := bytes.Clone(o.Wire)
+	before := bytes.Clone(o.WireBytes())
 	m, e := BuildResponseWithHeaders(o, 200, "OK", []byte("accepted"), "chosen-tag", "sip:controller@192.0.2.1:5061", []Header{{Name: "Content-Type", Value: "text/plain"}, {Name: "X-Test", Value: "kept"}})
 	if e != nil {
 		t.Fatal(e)
 	}
-	r, _ := response(m)
-	if tag(r.To().Params) != "chosen-tag" || r.Contact() == nil || string(r.Body()) != "accepted" || !bytes.Equal(o.Wire, before) {
+	r, _ := testResponse(m)
+	if tag(r.To().Params) != "chosen-tag" || r.Contact() == nil || string(r.Body()) != "accepted" || !bytes.Equal(o.WireBytes(), before) {
 		t.Fatal("response mutated identity/input")
 	}
 	if _, e = BuildResponseWithHeaders(o, 200, "OK", nil, "chosen-tag", "", []Header{{Name: "To", Value: "<sip:forged@example.test>;tag=other"}}); e == nil {
@@ -75,7 +75,7 @@ func TestPortableRegisterResponseRetainsApplicationBindingsWithoutDialogContact(
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, _ := response(m)
+	r, _ := testResponse(m)
 	contacts := r.GetHeaders("Contact")
 	if len(contacts) != 2 || contacts[0].Value() != headers[0].Value || contacts[1].Value() != headers[1].Value || tag(r.To().Params) != "registrar-tag" || r.CSeq().MethodName != sip.REGISTER {
 		t.Fatalf("registration policy/identity lost: %s", r.String())
@@ -84,7 +84,7 @@ func TestPortableRegisterResponseRetainsApplicationBindingsWithoutDialogContact(
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, _ = response(m)
+	r, _ = testResponse(m)
 	if r.Contact() != nil {
 		t.Fatal("registrar advertised an unrelated dialog target")
 	}
@@ -105,7 +105,7 @@ func TestPortableNativeContactPreservesBareURIParameters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, _ := response(m)
+	r, _ := testResponse(m)
 	if r.Contact().Address.String() != "sip:bridge@192.0.2.1:5061;transport=tls;user=phone" || r.Contact().Params.Has("transport") {
 		t.Fatalf("Contact URI parameters became header parameters: %s", r.Contact().Value())
 	}
@@ -126,8 +126,8 @@ func TestPortableDigestRetryUsesFullURIAndCommittedIdentity(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	r, _ := request(m)
-	original, _ := request(o)
+	r, _ := testRequest(m)
+	original, _ := testRequest(o)
 	if r.CSeq().SeqNo != original.CSeq().SeqNo+1 || r.Via().Params.GetOr("branch", "") != "z9hG4bK-authenticated" || tag(r.To().Params) != "" {
 		t.Fatal("retry native identity wrong")
 	}
@@ -153,7 +153,7 @@ func TestPortableDigestRetryUsesFullURIAndCommittedIdentity(t *testing.T) {
 	if parsed.Response != expected.Response {
 		t.Fatal("digest response mismatch")
 	}
-	if bytes.Contains(m.Wire, []byte(creds.Password)) {
+	if bytes.Contains(m.WireBytes(), []byte(creds.Password)) {
 		t.Fatal("plaintext secret in retry")
 	}
 	if _, e = BuildDigestRetry(o, challenge, DigestCredentials{Username: "alice", Password: creds.Password}, "z9hG4bK-auth"); e == nil {
@@ -174,8 +174,7 @@ func TestPortableResponseMatchingChecksFullNativeOrigin(t *testing.T) {
 			}
 		})
 	}
-	changed := res.Clone()
-	changed.Transport = "tcp"
+	changed := RestoreMessage(res.WireBytes(), "tcp", res.Source(), res.Destination())
 	if MatchResponse(o, changed) {
 		t.Fatal("observed transport downgrade")
 	}

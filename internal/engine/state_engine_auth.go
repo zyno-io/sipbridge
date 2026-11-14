@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
-	"github.com/icholy/digest"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/state"
@@ -33,12 +31,11 @@ type stateDigestChallenge struct {
 }
 
 func (r *stateReduction) digestChallenge(c *stateContext, tx *stateTransaction, message portable.Message) (bool, error) {
-	parsed, err := message.Parse()
+	facts, err := message.Facts()
 	if err != nil {
 		return false, err
 	}
-	response, ok := parsed.(*sip.Response)
-	if !ok || response.StatusCode != 401 && response.StatusCode != 407 || c.Credential == nil ||
+	if facts.IsRequest || facts.Status != 401 && facts.Status != 407 || c.Credential == nil ||
 		c.Credential.Id == "" || c.Credential.Version == "" || c.Snapshot.Answered || c.Snapshot.Ended || c.Cancelled || tx.Native.Cancelled ||
 		(tx.Native.Family != portable.InviteClient && tx.Native.Family != portable.NonInviteClient) {
 		return false, nil
@@ -53,14 +50,15 @@ func (r *stateReduction) digestChallenge(c *stateContext, tx *stateTransaction, 
 		return false, nil
 	}
 	name := "WWW-Authenticate"
-	if response.StatusCode == 407 {
+	if facts.Status == 407 {
 		name = "Proxy-Authenticate"
 	}
-	if response.GetHeader(name) == nil {
+	values, err := message.HeaderValues(name)
+	if err != nil || len(values) == 0 {
 		return false, nil
 	}
 	attempt := tx.DigestAttempts + 1
-	identity := r.engine.id("digest", r.record.Ref.Incarnation, c.Snapshot.Context.Id, tx.Native.Key, strconv.FormatUint(uint64(attempt), 10), string(message.Wire))
+	identity := r.engine.id("digest", r.record.Ref.Incarnation, c.Snapshot.Context.Id, tx.Native.Key, strconv.FormatUint(uint64(attempt), 10), string(message.WireBytes()))
 	challenge := stateDigestChallenge{
 		Origin: tx.Native.Origin, Challenge: message, Credential: proto.Clone(c.Credential).(*pb.CredentialRef),
 		Cnonce: identity[:32], Count: int(attempt), Branch: sip.RFC3261BranchMagicCookie + identity[32:], Attempt: attempt,
@@ -113,9 +111,9 @@ func (e *StateEngine) dispatchCredential(ctx context.Context, ref state.Ref, eff
 	}
 }
 
-func stateBuildDigestResult(challenge stateDigestChallenge, credentials *pb.CredentialResult) (*pb.SipMessage, error) {
+func stateBuildDigestNative(challenge stateDigestChallenge, credentials *pb.CredentialResult) (portable.Message, error) {
 	if credentials == nil {
-		return nil, errors.New("SIP setup credential unavailable")
+		return portable.Message{}, errors.New("SIP setup credential unavailable")
 	}
 	defer func() {
 		credentials.Username = ""
@@ -125,19 +123,23 @@ func stateBuildDigestResult(challenge stateDigestChallenge, credentials *pb.Cred
 	}()
 	if challenge.Credential == nil || credentials.Error != "" || credentials.Version != challenge.Credential.Version ||
 		credentials.Username == "" || credentials.Password == "" || len(credentials.Username) > 1024 || len(credentials.Password) > 4096 {
-		return nil, errors.New("SIP setup credential unavailable")
+		return portable.Message{}, errors.New("SIP setup credential unavailable")
 	}
 	retry, err := portable.BuildDigestRetry(challenge.Origin, challenge.Challenge, portable.DigestCredentials{
 		Username: credentials.Username, Password: credentials.Password, Cnonce: challenge.Cnonce, Count: challenge.Count,
 	}, challenge.Branch)
-	if err != nil || len(retry.Wire) > 65536 {
-		return nil, errors.New("SIP setup digest rejected")
+	if err != nil || retry.WireLen() > 65536 {
+		return portable.Message{}, errors.New("SIP setup digest rejected")
 	}
-	message, err := Observe(retry.Wire, true)
+	return retry, nil
+}
+
+func stateBuildDigestResult(challenge stateDigestChallenge, credentials *pb.CredentialResult) (*pb.SipMessage, error) {
+	retry, err := stateBuildDigestNative(challenge, credentials)
 	if err != nil {
-		return nil, errors.New("SIP setup digest rejected")
+		return nil, err
 	}
-	return message, nil
+	return projectNativeMessage(retry, true)
 }
 
 func stateDigestResultHash(message *pb.SipMessage, failure string) string {
@@ -165,8 +167,8 @@ func (r *stateReduction) digestResult() error {
 		return errors.New("digest credential scope mismatch")
 	}
 	tx := c.Transactions[body.Transaction]
-	if tx == nil || tx.DigestEffect != effect.ID || !bytes.Equal(tx.Native.Origin.Wire, challenge.Origin.Wire) ||
-		tx.Native.LastResponse == nil || !bytes.Equal(tx.Native.LastResponse.Wire, challenge.Challenge.Wire) ||
+	if tx == nil || tx.DigestEffect != effect.ID || !tx.Native.Origin.EqualWire(challenge.Origin) ||
+		tx.Native.LastResponse == nil || !tx.Native.LastResponse.EqualWire(challenge.Challenge) ||
 		challenge.Attempt != tx.DigestAttempts+1 || challenge.Attempt > stateDigestRetryLimit || challenge.Count != int(challenge.Attempt) {
 		return errors.New("digest challenge state mismatch")
 	}
@@ -193,7 +195,7 @@ func (r *stateReduction) digestResult() error {
 		challenge.ResultHash = hash
 		body.Wire, _ = challenge.MarshalBinary()
 		r.setEffect(index, effect, body)
-		c.Result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Error: "SIP setup authentication unavailable", Request: mustObserve(tx.Native.Origin.Wire, true), Response: mustObserve(challenge.Challenge.Wire, false)}
+		c.Result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Error: "SIP setup authentication unavailable", Request: stateProjectMessage(tx.Native.Origin, true), Response: stateProjectMessage(challenge.Challenge, false)}
 		c.Snapshot.Ended = true
 		c.RetireMS = r.now + 120000
 		r.touch(c)
@@ -205,7 +207,7 @@ func (r *stateReduction) digestResult() error {
 	if r.in.Message == nil {
 		return errors.New("derived digest request required")
 	}
-	retry := portable.Message{Wire: append([]byte(nil), r.in.Message.Wire...), Transport: challenge.Origin.Transport, Source: challenge.Origin.Source, Destination: challenge.Origin.Destination}
+	retry := portable.RestoreMessage(r.in.Message.Wire, challenge.Origin.Transport(), challenge.Origin.Source(), challenge.Origin.Destination())
 	if err = stateValidateDigestRetry(challenge, retry); err != nil {
 		return err
 	}
@@ -222,7 +224,7 @@ func (r *stateReduction) digestResult() error {
 	c.Origin = retry
 	c.Snapshot.RemoteTag = ""
 	if c.Result != nil {
-		c.Result.Request = mustObserve(retry.Wire, true)
+		c.Result.Request = stateProjectMessage(retry, true)
 	}
 	effect.Status = state.EffectWritten
 	challenge.ResultHash = hash
@@ -234,67 +236,5 @@ func (r *stateReduction) digestResult() error {
 }
 
 func stateValidateDigestRetry(challenge stateDigestChallenge, retry portable.Message) error {
-	if len(retry.Wire) == 0 || len(retry.Wire) > 65536 {
-		return errors.New("derived digest request size invalid")
-	}
-	parsed, err := challenge.Origin.Parse()
-	if err != nil {
-		return err
-	}
-	origin, ok := parsed.(*sip.Request)
-	if !ok {
-		return errors.New("digest origin request required")
-	}
-	parsed, err = retry.Parse()
-	if err != nil {
-		return err
-	}
-	request, ok := parsed.(*sip.Request)
-	if !ok {
-		return errors.New("derived digest request required")
-	}
-	parsed, err = challenge.Challenge.Parse()
-	if err != nil {
-		return err
-	}
-	response, ok := parsed.(*sip.Response)
-	if !ok || !portable.MatchResponse(challenge.Origin, challenge.Challenge) {
-		return errors.New("digest challenge mismatch")
-	}
-	auth, header := "Authorization", "WWW-Authenticate"
-	if response.StatusCode == 407 {
-		auth, header = "Proxy-Authorization", "Proxy-Authenticate"
-	} else if response.StatusCode != 401 {
-		return errors.New("digest challenge status required")
-	}
-	if len(request.GetHeaders(auth)) != 1 || retry.Transport != challenge.Origin.Transport || request.CSeq() == nil || request.Via() == nil {
-		return errors.New("derived digest identity invalid")
-	}
-	credentials, err := digest.ParseCredentials(request.GetHeader(auth).Value())
-	if err != nil || credentials.URI != origin.Recipient.String() || credentials.Response == "" {
-		return errors.New("derived digest inputs invalid")
-	}
-	if response.GetHeader(header) == nil {
-		return errors.New("digest challenge header required")
-	}
-	parameters, err := digest.ParseChallenge(response.GetHeader(header).Value())
-	if err != nil || credentials.Nonce != parameters.Nonce || credentials.Realm != parameters.Realm || credentials.Opaque != parameters.Opaque {
-		return errors.New("derived digest challenge inputs invalid")
-	}
-	// RFC 2069 compatibility has no qop/cnonce/nc. The native builder decides the
-	// supported algorithm and emits the fixed committed values when qop is used.
-	if (credentials.QOP != "" || credentials.Cnonce != "") && credentials.Cnonce != challenge.Cnonce {
-		return errors.New("derived digest computation identity invalid")
-	}
-	if credentials.QOP != "" && credentials.Nc != challenge.Count {
-		return errors.New("derived digest computation identity invalid")
-	}
-	origin.RemoveHeader(auth)
-	request.RemoveHeader(auth)
-	origin.CSeq().SeqNo++
-	origin.Via().Params.Add("branch", challenge.Branch)
-	if origin.String() != request.String() {
-		return errors.New("derived digest changes native request")
-	}
-	return nil
+	return portable.ValidateDigestRetry(challenge.Origin, challenge.Challenge, retry, challenge.Cnonce, challenge.Count, challenge.Branch)
 }

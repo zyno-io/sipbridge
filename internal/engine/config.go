@@ -104,6 +104,10 @@ var errSubscriptionTerminating = errors.New("subscription terminating")
 
 func eventKey(req *sip.Request) (string, error) {
 	raw := header(req, "Event")
+	return eventKeyValue(raw)
+}
+
+func eventKeyValue(raw string) (string, error) {
 	event, _, err := mime.ParseMediaType("application/" + raw)
 	if err != nil {
 		return "", err

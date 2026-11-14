@@ -51,7 +51,7 @@ func publicByeFixture(t *testing.T, backends ...string) (nativeOwnerFixture, *pb
 		t.Fatal(err)
 	}
 	result = f.apply(t, ref, "ack", stateEngineInput{Kind: "ingest", Application: f.app, ApplicationLeaseTerm: f.term,
-		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: ack.Wire}})
+		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: ack.WireBytes()}})
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}
@@ -132,7 +132,7 @@ func testStatePublicByeWriteReleasesLocalTeardownBeforePeerResponse(t *testing.T
 	}
 	response := forkReply(t, bye, 200, c.Snapshot.LocalTag)
 	result = f.apply(t, ref, "bye-response", stateEngineInput{Kind: "ingest", Application: f.app, ApplicationLeaseTerm: f.term,
-		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: response.Wire}})
+		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: response.WireBytes()}})
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}

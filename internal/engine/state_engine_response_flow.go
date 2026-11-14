@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"errors"
 
 	"github.com/emiago/sipgo/sip"
@@ -31,15 +30,14 @@ func (r *stateReduction) recordResponseFlow(c *stateContext, tx *stateTransactio
 	if tx.Native.Family != portable.InviteClient {
 		return nil
 	}
-	parsed, err := message.Parse()
+	facts, err := message.Facts()
 	if err != nil {
 		return err
 	}
-	response := parsed.(*sip.Response)
-	if response.StatusCode <= 100 || response.StatusCode >= 300 || tag(response.To().Params) == "" {
+	if facts.IsRequest || facts.Status <= 100 || facts.Status >= 300 || facts.ToTag == "" {
 		return nil
 	}
-	key := tag(response.From().Params) + "/" + tag(response.To().Params)
+	key := facts.FromTag + "/" + facts.ToTag
 	if c.DialogCompletionFlows == nil {
 		c.DialogCompletionFlows = make(map[string]*pb.FlowRef)
 	}
@@ -51,15 +49,14 @@ func (r *stateReduction) recordResponseFlow(c *stateContext, tx *stateTransactio
 }
 
 func stateCompletionFlow(c *stateContext, tx *stateTransaction, message portable.Message) *pb.FlowRef {
-	parsed, err := message.Parse()
+	facts, err := message.Facts()
 	if err != nil {
 		return nil
 	}
-	request, ok := parsed.(*sip.Request)
-	if !ok {
+	if !facts.IsRequest {
 		return nil
 	}
-	if request.IsAck() && tx.Native.ACK != nil && bytes.Equal(tx.Native.ACK.Wire, message.Wire) {
+	if facts.Method == sip.ACK && tx.Native.ACK != nil && tx.Native.ACK.EqualWire(message) {
 		// A non-2xx ACK completes this exact transaction, rather than the
 		// earlier provisional dialog which can still name an older socket.
 		if tx.ResponseFlow != nil {
@@ -67,8 +64,8 @@ func stateCompletionFlow(c *stateContext, tx *stateTransaction, message portable
 		}
 		return tx.Flow
 	}
-	if request.IsAck() || tx.Cleanup {
-		key := tag(request.From().Params) + "/" + tag(request.To().Params)
+	if facts.Method == sip.ACK || tx.Cleanup {
+		key := facts.FromTag + "/" + facts.ToTag
 		if flow := c.DialogCompletionFlows[key]; flow != nil {
 			return flow
 		}
@@ -76,7 +73,7 @@ func stateCompletionFlow(c *stateContext, tx *stateTransaction, message portable
 	if tx.ResponseFlow != nil {
 		return tx.ResponseFlow
 	}
-	if request.IsCancel() {
+	if facts.Method == sip.CANCEL {
 		for _, parent := range c.Transactions {
 			if parent.Native.Family == portable.InviteClient && parent.ResponseFlow != nil && portable.MatchRequest(parent.Native.Origin, message) {
 				return parent.ResponseFlow

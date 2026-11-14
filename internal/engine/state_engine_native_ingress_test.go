@@ -58,7 +58,7 @@ func TestNativeCompletionReplaysOwnerFencedAcceptedReinviteFinal(t *testing.T) {
 	before := len(r.payload.Effects)
 	r.in = stateEngineInput{Kind: "native-ingest", NativeCompletion: true, Context: c.Snapshot.Context, Application: c.Snapshot.Application,
 		ApplicationLeaseTerm: f.term, Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application,
-			Flow: flow, Wire: tx.Native.Origin.Wire, Admission: pb.OwnerIngest_TLS_DIALOG_CONTINUITY}}
+			Flow: flow, Wire: tx.Native.Origin.WireBytes(), Admission: pb.OwnerIngest_TLS_DIALOG_CONTINUITY}}
 	if err := r.ingestNativeCompletion(); err != nil {
 		t.Fatal(err)
 	}

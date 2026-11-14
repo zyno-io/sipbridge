@@ -196,7 +196,7 @@ func TestNativeRequestFenceRedisPendingCASArbitratesBothOrders(t *testing.T) {
 					if tx.Native.LastResponse == nil {
 						t.Fatal("refusal lost its selected native final")
 					}
-					response, err := tx.Native.LastResponse.Parse()
+					response, err := sip.ParseMessage(tx.Native.LastResponse.WireBytes())
 					final, ok := response.(*sip.Response)
 					if err != nil || !ok || final.StatusCode != 503 {
 						t.Fatalf("refusal selected a different final: %v %v", response, err)
@@ -209,7 +209,7 @@ func TestNativeRequestFenceRedisPendingCASArbitratesBothOrders(t *testing.T) {
 				}
 				var renewalTX *stateTransaction
 				for _, tx := range c.Transactions {
-					if bytes.Equal(tx.Native.Origin.Wire, renewal.Wire) {
+					if bytes.Equal(tx.Native.Origin.WireBytes(), renewal.Wire) {
 						renewalTX = tx
 					}
 				}
@@ -329,7 +329,7 @@ func TestNativeRequestFenceRedisAdmittedHistorySurvivesMutableCurrentFlow(t *tes
 			if tx.Native.LastResponse == nil {
 				continue
 			}
-			message, err := tx.Native.LastResponse.Parse()
+			message, err := sip.ParseMessage(tx.Native.LastResponse.WireBytes())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -358,8 +358,8 @@ func TestNativeRequestFenceRedisOccupiedKeyCollisionPreservesOriginal(t *testing
 		{"payload", "Contact: <sip:alice@phone.example.test:5061;transport=tls>", "Contact: <sip:alice@other.example.test:5061;transport=tls>"},
 	} {
 		t.Run(changed.name, func(t *testing.T) {
-			wire := bytes.Replace(c.Origin.Wire, []byte(changed.old), []byte(changed.next), 1)
-			if bytes.Equal(wire, c.Origin.Wire) {
+			wire := bytes.Replace(c.Origin.WireBytes(), []byte(changed.old), []byte(changed.next), 1)
+			if bytes.Equal(wire, c.Origin.WireBytes()) {
 				t.Fatal("collision fixture did not change the intended identity")
 			}
 			result := f.apply(t, ref, "collision-"+changed.name, stateEngineInput{Kind: "ingest", Application: f.app, ApplicationLeaseTerm: f.term,

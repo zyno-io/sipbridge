@@ -34,13 +34,14 @@ func stateOwnerContextIDs(group stateGroup) []string {
 // Controller selection is a pure preflight, separate from the original command
 // or SIP admission. A crash after installing the directory-approved controller
 // cannot consume the original command sequence or repeat its application work.
-func (e *StateEngine) preflightSubscriptionController(ctx context.Context, ref state.Ref, in stateEngineInput, deadline time.Time) (bool, error) {
+func (e *StateEngine) preflightSubscriptionController(ctx context.Context, ref state.Ref, in stateEngineInput, deadline time.Time, prepared ...portable.Message) (bool, error) {
 	if in.Application == nil || in.Context == nil || in.Kind != "command" && in.Kind != "ingest" {
 		return false, nil
 	}
 	if in.Kind == "ingest" && in.Ingest != nil {
-		parsed, err := (portable.Message{Wire: in.Ingest.Wire, Transport: in.Ingest.GetFlow().GetTransport()}).Parse()
-		if _, response := parsed.(*sip.Response); err == nil && response {
+		message := statePreflightMessage(in, prepared)
+		facts, err := message.Facts()
+		if err == nil && !facts.IsRequest {
 			return false, nil // an exact native response completes a transaction, not business ownership
 		}
 	}
@@ -197,8 +198,8 @@ func (r *stateReduction) ownerRefuseRequest(c *stateContext, tx *stateTransactio
 		return nil
 	}
 	if tx.Native.LastResponse != nil {
-		parsed, err := tx.Native.LastResponse.Parse()
-		if err == nil && parsed.(*sip.Response).StatusCode >= 200 {
+		facts, err := tx.Native.LastResponse.Facts()
+		if err == nil && !facts.IsRequest && facts.Status >= 200 {
 			return nil
 		}
 	}
@@ -207,18 +208,14 @@ func (r *stateReduction) ownerRefuseRequest(c *stateContext, tx *stateTransactio
 		return err
 	}
 	if c.OwnerLost {
-		origin, err := tx.Native.Origin.Parse()
-		if err != nil {
-			return err
-		}
-		if _, err := sip.ClientTxKeyMake(origin); err != nil {
+		if _, err := tx.Native.Origin.ClientTxKey(); err != nil {
 			// Earlier admission accepted branch forms the native response matcher
 			// cannot prove. Preserve the owner fence and request-disposition proof,
 			// and end the unsendable transaction without inventing physical output.
 			return r.stepTransaction(c, tx, portable.Input{Kind: portable.Terminate, Now: r.now, Error: "unsupported request response identity"})
 		}
 	}
-	if parsed, err := tx.Native.Origin.Parse(); err == nil && parsed.CSeq().MethodName == sip.INVITE {
+	if facts, err := tx.Native.Origin.Facts(); err == nil && facts.CSeqMethod == sip.INVITE {
 		for key, dialog := range c.Dialogs {
 			if dialog.RemoteInvite != nil && portable.MatchRequest(dialog.RemoteInvite.Request, tx.Native.Origin) {
 				next, _, err := portable.StepDialog(dialog, portable.DialogInput{Kind: portable.DialogSendResponse, Now: r.now, Message: response})
@@ -286,7 +283,7 @@ func (r *stateReduction) ownerPendingWork() (map[string]bool, error) {
 			continue
 		}
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return nil, state.ErrCorrupt
 		}
 		if c := r.group.Contexts[body.Context]; c != nil && !c.OwnerLost && sameProcess(body.Application, c.Snapshot.Application) {
@@ -305,9 +302,8 @@ func stateFinalResponseServerContext(c *stateContext) bool {
 			tx.Native.Phase != portable.Completed && tx.Native.Phase != portable.Terminated {
 			return false
 		}
-		message, err := tx.Native.LastResponse.Parse()
-		response, ok := message.(*sip.Response)
-		if err != nil || !ok || response.StatusCode < 200 {
+		facts, err := tx.Native.LastResponse.Facts()
+		if err != nil || facts.IsRequest || facts.Status < 200 {
 			return false
 		}
 	}
@@ -528,16 +524,16 @@ func (r *stateReduction) ownerGuardCommand(c *stateContext, command *pb.Command)
 	return fmt.Errorf("%w: application owner epoch fenced", errStateApplicationOwner)
 }
 
-func (r *stateReduction) ownerGuardRequest(c *stateContext, request *sip.Request, in *pb.OwnerIngest) error {
-	if r.engine.autonomousCompletion() && !request.IsAck() && !request.IsCancel() && request.Method != sip.BYE {
+func (r *stateReduction) ownerGuardRequest(c *stateContext, method sip.RequestMethod, in *pb.OwnerIngest) error {
+	if r.engine.autonomousCompletion() && method != sip.ACK && method != sip.CANCEL && method != sip.BYE {
 		if _, err := r.requireNativeOwner(c, true); err != nil {
 			return &portable.ProtocolError{Status: 481, Reason: "native application owner term fenced"}
 		}
 	}
-	if !c.OwnerLost || request.IsAck() || request.IsCancel() || request.Method == sip.BYE {
+	if !c.OwnerLost || method == sip.ACK || method == sip.CANCEL || method == sip.BYE {
 		return nil
 	}
-	if c.Subscription != nil && request.Method == sip.SUBSCRIBE && !sameProcess(in.Application, c.Snapshot.Application) {
+	if c.Subscription != nil && method == sip.SUBSCRIBE && !sameProcess(in.Application, c.Snapshot.Application) {
 		return nil
 	}
 	return &portable.ProtocolError{Status: 481, Reason: "application owner epoch fenced"}
@@ -600,7 +596,7 @@ func (r *stateReduction) ownerAdopted(c *stateContext, oldApplication, applicati
 func (r *stateReduction) abandonOwnerWork(c *stateContext, application *pb.ProcessRef) error {
 	for index, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Context != c.Snapshot.Context.Id || !sameProcess(body.Application, application) || effect.Kind == "owner" {
@@ -734,7 +730,7 @@ func (r *stateReduction) expireOwnerComputations() error {
 			continue
 		}
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return state.ErrCorrupt
 		}
 		effect.Status = state.EffectCancelled
@@ -768,7 +764,7 @@ func (r *stateReduction) terminalPreWireSetup(c *stateContext) (bool, error) {
 			continue
 		}
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return false, state.ErrCorrupt
 		}
 		if body.Context != c.Snapshot.Context.Id {
@@ -789,7 +785,7 @@ func (r *stateReduction) expireTerminalSetupNotifications() error {
 			continue
 		}
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Envelope.GetDialogEvent().GetKind() != pb.DialogEvent_FAILED {

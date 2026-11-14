@@ -247,7 +247,7 @@ func TestStateRequestFenceContextSlotsProtectPairedCancelAndForkCleanup(t *testi
 			t.Fatal(err)
 		}
 		r.in = stateEngineInput{Kind: "ingest", Context: c.Snapshot.Context, Application: c.Snapshot.Application,
-			Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: cancel.Wire}}
+			Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: cancel.WireBytes()}}
 		r.result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}
 		if err = r.ingest(); err != nil || !stateTestCapacityFits(r) {
 			t.Fatalf("native CANCEL could not consume its reserved context slot: %v", err)
@@ -311,7 +311,7 @@ func TestStateRequestFenceNativeCancelFitsPretransitionGroupByteBoundary(t *test
 		t.Fatal(err)
 	}
 	r.in = stateEngineInput{Kind: "ingest", Context: c.Snapshot.Context, Application: c.Snapshot.Application,
-		Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: cancel.Wire}}
+		Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: cancel.WireBytes()}}
 	if err = r.ingest(); err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,7 @@ func TestStateRequestFenceNativeCancelFitsPretransitionGroupByteBoundary(t *test
 		if tx.Native.LastResponse == nil {
 			continue
 		}
-		message, err := tx.Native.LastResponse.Parse()
+		message, err := sip.ParseMessage(tx.Native.LastResponse.WireBytes())
 		if err != nil {
 			t.Fatal(err)
 		}

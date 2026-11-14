@@ -216,10 +216,10 @@ func TestDirectGroupPresenceDefaultsAndOwnership(t *testing.T) {
 		{Version: 1, Contexts: map[string]*stateContext{"nil": nil, "empty": {}}, Selectors: map[string]string{"": ""}, Retired: map[string]int64{"": 0}},
 		{Version: 1, NextAllocation: 1<<53 - 1, Contexts: map[string]*stateContext{"full": {
 			Snapshot: &pb.ContextSnapshot{Context: &pb.ContextRef{Id: "context"}, LocalSdp: []byte{0, 255}, Selectors: []string{"selector"}},
-			Origin:   portable.Message{Wire: []byte{0, 1, 255}, Transport: "tls"},
-			Transactions: map[string]*stateTransaction{"nil": nil, "value": {Native: portable.Transaction{Version: 1, Key: "tx", LastResponse: &portable.Message{Wire: []byte{3, 4}},
+			Origin:   portable.RestoreMessage([]byte{0, 1, 255}, "tls", "", ""),
+			Transactions: map[string]*stateTransaction{"nil": nil, "value": {Native: portable.Transaction{Version: 1, Key: "tx", LastResponse: stateTestPortablePtr([]byte{3, 4}, "", "", ""),
 				Timers: map[portable.Timer]portable.Deadline{portable.TimerA: {At: 42, Active: true}}}}},
-			Requests: map[string]string{}, Dialogs: map[string]portable.Dialog{"dialog": {Timers: map[portable.Timer]portable.Deadline{}, LocalBye: &portable.Message{Wire: []byte{5, 6}}}},
+			Requests: map[string]string{}, Dialogs: map[string]portable.Dialog{"dialog": {Timers: map[portable.Timer]portable.Deadline{}, LocalBye: stateTestPortablePtr([]byte{5, 6}, "", "", "")}},
 			Result:   &pb.OperationResult{Certainty: pb.OperationResult_UNKNOWN, Response: &pb.SipMessage{Wire: []byte{7, 8}, Body: []byte{9}}},
 			Delivery: &pb.ContextDelivery{Flow: &pb.FlowRef{Ingress: &pb.ProcessRef{InstanceId: "fixture"}, SourcePort: 5061}},
 		}}, Selectors: map[string]string{"a": "full"}},
@@ -248,10 +248,18 @@ func TestDirectGroupPresenceDefaultsAndOwnership(t *testing.T) {
 				t.Fatal("direct output aliases input frame", err)
 			}
 			if c := left.Contexts["full"]; c != nil {
-				c.Origin.Wire[0] = 99
+				originWire := c.Origin.WireBytes()
+				originWire[0] = 99
+				c.Origin = portable.RestoreMessage(originWire, c.Origin.Transport(), c.Origin.Source(), c.Origin.Destination())
 				c.Snapshot.LocalSdp[0] = 99
-				c.Transactions["value"].Native.LastResponse.Wire[0] = 99
-				c.Dialogs["dialog"].LocalBye.Wire[0] = 99
+				response := c.Transactions["value"].Native.LastResponse
+				responseWire := response.WireBytes()
+				responseWire[0] = 99
+				*response = portable.RestoreMessage(responseWire, response.Transport(), response.Source(), response.Destination())
+				bye := c.Dialogs["dialog"].LocalBye
+				byeWire := bye.WireBytes()
+				byeWire[0] = 99
+				*bye = portable.RestoreMessage(byeWire, bye.Transport(), bye.Source(), bye.Destination())
 				c.Result.Response.Body[0] = 99
 				c.Delivery.Flow.SourcePort = 99
 				delete(c.Transactions, "nil")

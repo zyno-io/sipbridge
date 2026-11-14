@@ -180,7 +180,7 @@ func TestStateOwnerInitialUnavailableFailsWithoutFalseOwnerFence(t *testing.T) {
 	if _, err := r.ownerTimer(); err != nil || c.OwnerLost || !c.Snapshot.Ended || tx.Native.LastResponse == nil {
 		t.Fatalf("initial proof outage did not fail setup conservatively: %v", err)
 	}
-	parsed, _ := tx.Native.LastResponse.Parse()
+	parsed, _ := sip.ParseMessage(tx.Native.LastResponse.WireBytes())
 	if parsed.(*sip.Response).StatusCode != 503 {
 		t.Fatal("unavailable owner produced wrong native final")
 	}
@@ -211,7 +211,7 @@ func TestStateOwnerLossPreservesUASACKAndAcceptedSubscriptionLease(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		origin, err := clientTX.Native.Origin.Parse()
+		origin, err := sip.ParseMessage(clientTX.Native.Origin.WireBytes())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -393,14 +393,14 @@ func TestStateOwnerSubscriptionControlProofRejectsAbsenceAndChangedEpoch(t *test
 	}
 	stale := stateTestRequest("SUBSCRIBE", 1, c.Tag, "stale-control-only")
 	staleWire := strings.Replace(string(stale.Wire), "Content-Length:", "Event: message-summary\r\nContent-Length:", 1)
-	parsed, err := (portable.Message{Wire: []byte(staleWire), Transport: "tls"}).Parse()
+	parsed, err := sip.ParseMessage([]byte(staleWire))
 	if err != nil {
 		t.Fatal(err)
 	}
 	c.Snapshot.LocalTag, c.Snapshot.RemoteTag = tag(parsed.To().Params), tag(parsed.From().Params)
 	c.Snapshot.LocalUri, c.Snapshot.RemoteUri = parsed.To().Address.String(), parsed.From().Address.String()
 	c.Subscription.RemoteSequence = 1
-	validation := r.validateSubscription(c, parsed.(*sip.Request), &pb.OwnerIngest{})
+	validation := r.validateSubscription(c, portable.RestoreMessage([]byte(staleWire), "tls", "", ""), &pb.OwnerIngest{})
 	var staleSequence *portable.ProtocolError
 	if !errors.As(validation, &staleSequence) || staleSequence.Status != 500 || !sameProcess(c.Snapshot.Application, next) {
 		t.Fatal("SIP rejection rolled back approved control-only adoption")
@@ -445,7 +445,7 @@ func TestStateOwnerResponsePreflightDoesNotRequireControllerHandoff(t *testing.T
 	// No store or controller exists in this fixture. Pure response completion
 	// must reach native transaction matching instead of performing business RPC.
 	e := &StateEngine{}
-	in := stateEngineInput{Kind: "ingest", Context: c.Snapshot.Context, Application: &pb.ProcessRef{InstanceId: "relay", Epoch: "other"}, Ingest: &pb.OwnerIngest{Wire: response.Wire, Flow: c.Flow}}
+	in := stateEngineInput{Kind: "ingest", Context: c.Snapshot.Context, Application: &pb.ProcessRef{InstanceId: "relay", Epoch: "other"}, Ingest: &pb.OwnerIngest{Wire: response.WireBytes(), Flow: c.Flow}}
 	if _, err := e.preflightSubscriptionController(context.Background(), r.record.Ref, in, time.Now().Add(time.Second)); err != nil {
 		t.Fatalf("native response attempted controller handoff: %v", err)
 	}

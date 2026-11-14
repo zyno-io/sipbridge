@@ -218,6 +218,8 @@ func storageReadPortableInviteProcedure(data []byte) (out portable.InviteProcedu
 }
 
 func storageReadPortableMessage(data []byte) (out portable.Message, err error) {
+	var wire []byte
+	var transport, source, destination string
 	for len(data) > 0 {
 		field, rest, err := storageDirectNext(data)
 		if err != nil {
@@ -226,17 +228,18 @@ func storageReadPortableMessage(data []byte) (out portable.Message, err error) {
 		data = rest
 		switch field.number {
 		case 1: // Wire
-			out.Wire = []uint8(append([]byte{}, field.bytes...))
+			wire = field.bytes
 		case 2: // Transport
-			out.Transport = string(field.bytes)
+			transport = string(field.bytes)
 		case 3: // Source
-			out.Source = string(field.bytes)
+			source = string(field.bytes)
 		case 4: // Destination
-			out.Destination = string(field.bytes)
+			destination = string(field.bytes)
 		default:
 			return out, storagecodec.ErrRecord
 		}
 	}
+	out = portable.RestoreMessage(wire, transport, source, destination)
 	return out, nil
 }
 

@@ -56,7 +56,7 @@ func (e *ResidentMemory) residentDigest(ctx context.Context, c *residentContext,
 	tx.digestAttempts++
 	attempt := tx.digestAttempts
 	_ = e.scheduleResidentTransactionLocked(c, tx, effects)
-	identity := e.id("digest", c.snapshot.Context.State.Incarnation, c.snapshot.Context.Id, tx.native.Key, strconv.FormatUint(uint64(attempt), 10), string(challenge.Wire))
+	identity := e.id("digest", c.snapshot.Context.State.Incarnation, c.snapshot.Context.Id, tx.native.Key, strconv.FormatUint(uint64(attempt), 10), string(challenge.WireBytes()))
 	work := stateDigestChallenge{Origin: tx.native.Origin.Clone(), Challenge: challenge.Clone(), Credential: proto.Clone(tx.credential).(*pb.CredentialRef),
 		Cnonce: identity[:32], Count: int(attempt), Branch: sip.RFC3261BranchMagicCookie + identity[32:], Attempt: attempt}
 	ref := proto.Clone(c.snapshot.Context).(*pb.ContextRef)
@@ -69,13 +69,13 @@ func (e *ResidentMemory) residentDigest(ctx context.Context, c *residentContext,
 	}
 	lookupCtx, cancel := context.WithDeadline(ctx, lookupDeadline)
 	peer, err := e.control.Peer(app)
-	var message *pb.SipMessage
+	var origin portable.Message
 	if err == nil {
 		var reply *pb.Envelope
 		reply, err = peer.Call(lookupCtx, &pb.Envelope{CorrelationId: uuid.NewString(), RemainingBudgetMs: 2000,
 			Payload: &pb.Envelope_CredentialLookup{CredentialLookup: &pb.CredentialLookup{Context: ref, Credential: work.Credential}}})
 		if err == nil {
-			message, err = stateBuildDigestResult(work, reply.GetCredentialResult())
+			origin, err = stateBuildDigestNative(work, reply.GetCredentialResult())
 		}
 	}
 	cancel()
@@ -98,7 +98,7 @@ func (e *ResidentMemory) residentDigest(ctx context.Context, c *residentContext,
 		c.revision++
 		e.scheduleResidentContextRetirementLocked(c)
 		e.scheduleResidentEventsLocked(c, []*residentEvent{event})
-		finishResidentCommandLocked(c, tx.command, &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Error: "SIP setup authentication unavailable", Request: mustObserve(tx.native.Origin.Wire, true), Response: mustObserve(challenge.Wire, false)})
+		finishResidentCommandMessageLocked(c, tx.command, pb.OperationResult_COMPLETED, 0, "SIP setup authentication unavailable", tx.native.Origin, challenge)
 		return true, nil
 	}
 	if err != nil || !live || !policyValid || c.snapshot.Revision >= 1<<53-1 || !time.Now().Before(tx.deadline) || c.transactions[tx.native.Key] != tx || tx.digestAttempts != attempt || c.cancelled || c.snapshot.Ended {
@@ -108,7 +108,6 @@ func (e *ResidentMemory) residentDigest(ctx context.Context, c *residentContext,
 		}
 		return true, errors.New("digest transaction changed")
 	}
-	origin := portable.Message{Wire: message.Wire, Transport: tx.flow.Transport}
 	native, err := portable.NewTransaction(tx.native.Family, origin, portable.DefaultTimers(), "")
 	if err != nil {
 		return true, err
@@ -117,8 +116,12 @@ func (e *ResidentMemory) residentDigest(ctx context.Context, c *residentContext,
 	if err != nil {
 		return true, err
 	}
+	selectors, err := nativeMessageSelectors(origin, true)
+	if err != nil {
+		return true, err
+	}
 	retry := &residentTransaction{native: started, flow: proto.Clone(tx.flow).(*pb.FlowRef), application: app, command: tx.command,
-		credential: proto.Clone(tx.credential).(*pb.CredentialRef), digestAttempts: attempt, deadline: tx.deadline, budget: tx.budget, policy: proto.Clone(tx.policy).(*pb.CommandAdmission), selectors: append([]string(nil), message.Selectors...)}
+		credential: proto.Clone(tx.credential).(*pb.CredentialRef), digestAttempts: attempt, deadline: tx.deadline, budget: tx.budget, policy: proto.Clone(tx.policy).(*pb.CommandAdmission), selectors: append([]string(nil), selectors...)}
 	retry.charged = residentTransactionBytes(retry)
 	retry.borrowed, err = e.chargeResidentBudgetLocked(c, retry.budget, retry.charged)
 	if err != nil {

@@ -163,11 +163,11 @@ func (e *ResidentMemory) commandResidentClient(ctx context.Context, peer *contro
 	if err != nil {
 		return refuse(err)
 	}
-	observed, err := Observe(tx.native.Origin.Wire, true)
+	selectors, err := nativeMessageSelectors(tx.native.Origin, true)
 	if err != nil {
 		return refuse(err)
 	}
-	parsed, err := tx.native.Origin.Parse()
+	facts, err := tx.native.Origin.Facts()
 	if err != nil {
 		return refuse(err)
 	}
@@ -178,15 +178,15 @@ func (e *ResidentMemory) commandResidentClient(ctx context.Context, peer *contro
 	if open.Network != nil && open.Network.Credential != nil {
 		tx.credential = proto.Clone(open.Network.Credential).(*pb.CredentialRef)
 	}
-	tx.selectors = append([]string(nil), observed.Selectors...)
+	tx.selectors = append([]string(nil), selectors...)
 	tx.charged = residentTransactionBytes(tx)
 	snapshot := proto.Clone(c.snapshot).(*pb.ContextSnapshot)
 	newFlow := proto.Clone(flow).(*pb.FlowRef)
 	snapshot.BindingId, snapshot.PrincipalId = open.BindingId, open.PrincipalId
-	snapshot.LocalTag = tag(parsed.From().Params)
-	snapshot.LocalUri, snapshot.RemoteUri = parsed.From().Address.String(), parsed.To().Address.String()
+	snapshot.LocalTag = facts.FromTag
+	snapshot.LocalUri, snapshot.RemoteUri = facts.FromURI, facts.ToURI
 	snapshot.LocalSdp = append([]byte(nil), open.Body...)
-	snapshot.Selectors = append([]string(nil), observed.Selectors...)
+	snapshot.Selectors = append([]string(nil), selectors...)
 	if open.Method != "" && open.Method != "INVITE" {
 		snapshot.Kind = pb.ContextSnapshot_TRANSACTION
 	}
@@ -218,13 +218,13 @@ func (e *ResidentMemory) commandResidentClient(ctx context.Context, peer *contro
 		c.borrowed -= borrowed
 	}
 	e.mu.Lock()
-	for _, selector := range observed.Selectors {
+	for _, selector := range selectors {
 		e.transactions[selector] = c
 	}
 	e.mu.Unlock()
 	_ = e.scheduleResidentTransactionLocked(c, tx, effects)
 	if c.snapshot.Kind == pb.ContextSnapshot_UAC {
-		finishResidentCommandLocked(c, receipt, &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED, Request: observed})
+		finishResidentCommandMessageLocked(c, receipt, pb.OperationResult_ACCEPTED, 0, "", tx.native.Origin, portable.Message{})
 	}
 	c.mu.Unlock()
 	e.dispatchResident(ctx, writes)
@@ -410,7 +410,7 @@ func (e *ResidentMemory) commandResidentExistingClient(ctx context.Context, peer
 	if policy != nil && policy.SelectedFlow != nil {
 		tx.flow = proto.Clone(policy.SelectedFlow).(*pb.FlowRef)
 	}
-	observed, err := Observe(tx.native.Origin.Wire, true)
+	selectors, err := nativeMessageSelectors(tx.native.Origin, true)
 	if err != nil {
 		return refuse(err)
 	}
@@ -418,7 +418,7 @@ func (e *ResidentMemory) commandResidentExistingClient(ctx context.Context, peer
 	if policy != nil {
 		tx.policy = proto.Clone(policy).(*pb.CommandAdmission)
 	}
-	tx.selectors = append([]string(nil), observed.Selectors...)
+	tx.selectors = append([]string(nil), selectors...)
 	required := c.subscription != nil && c.requiredNotifyBudget != nil
 	if required {
 		tx.budget = c.requiredNotifyBudget
@@ -486,7 +486,7 @@ func (e *ResidentMemory) commandResidentExistingClient(ctx context.Context, peer
 		e.retireResidentTransactionLocked(c, c.transactions[previousLocalTransaction])
 	}
 	e.mu.Lock()
-	for _, selector := range observed.Selectors {
+	for _, selector := range selectors {
 		e.transactions[selector] = c
 	}
 	e.mu.Unlock()

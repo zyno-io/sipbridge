@@ -78,7 +78,7 @@ func (r *stateReduction) projectLocalObservations() error {
 		if bye != nil {
 			// Use the same exact written-public-BYE predicate as inspection,
 			// leaving message parsing to the waiter return boundary.
-			result.Request = &pb.SipMessage{Wire: bye.Native.Origin.Wire}
+			result.Request = &pb.SipMessage{Wire: bye.Native.Origin.WireBytes()}
 		}
 		result.Snapshot = stateSnapshot(c, r.engine.cfg.Process)
 		if proto.Size(result) > stateLocalObservationBytes {

@@ -87,7 +87,7 @@ func testStateDerivedCapacityAdmitsMandatorySixteenForkCompletion(t *testing.T, 
 		t.Fatal(err)
 	}
 	freshRef := engine.contextRef(r.record.Ref, "fresh")
-	input := stateEngineInput{Kind: "ingest", Context: freshRef, Application: c.Snapshot.Application, Ingest: &pb.OwnerIngest{Context: freshRef, Application: c.Snapshot.Application, Flow: c.Flow, Wire: fresh.Wire}}
+	input := stateEngineInput{Kind: "ingest", Context: freshRef, Application: c.Snapshot.Application, Ingest: &pb.OwnerIngest{Context: freshRef, Application: c.Snapshot.Application, Flow: c.Flow, Wire: fresh.WireBytes()}}
 	encoded, _ := marshalRetainedFixture(input)
 	refused, outcome, err := engine.reduce(originalRecord, state.Input{ID: "fresh", Kind: "ingest", Payload: encoded, DeadlineMS: r.now + 2000, ReceiptUntilMS: r.now + 122000}, r.now)
 	if err != nil {
@@ -392,7 +392,7 @@ func TestStateReplayStormHasFiniteACKAndProgressBudget(t *testing.T) {
 		t.Fatalf("duplicate2xx storm allocated%d ACK attempts", attempts)
 	}
 	for n := 0; n < 1000; n++ {
-		r.event(c, pb.DialogEvent_PROVISIONAL, mustObserve(forkReply(t, tx, 180, fmt.Sprintf("tag-%d", n%100)).Wire, false), "open")
+		r.event(c, pb.DialogEvent_PROVISIONAL, mustObserve(forkReply(t, tx, 180, fmt.Sprintf("tag-%d", n%100)).WireBytes(), false), "open")
 	}
 	if len(c.ProgressEmissions) > stateForkDialogs+1 {
 		t.Fatal("progress map grew beyond supported branch profile")

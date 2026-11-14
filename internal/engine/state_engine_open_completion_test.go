@@ -24,7 +24,7 @@ func initialUACACKFixture(t *testing.T, r *stateReduction, c *stateContext, tx *
 	c.Snapshot.Answered, c.Snapshot.InitialAck, c.Snapshot.Ended = false, false, false
 	c.OwnerValidated, c.OwnerDirectoryEpoch = true, "old-directory"
 	c.OwnerProbeAtMS = r.now + 5000
-	c.Result = &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED, Request: mustObserve(tx.Native.Origin.Wire, true)}
+	c.Result = &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED, Request: mustObserve(tx.Native.Origin.WireBytes(), true)}
 	origin := tx.Native.Origin.Clone()
 	c.ScopeOrigin, tx.CompletionScope, tx.Application = &origin, c.CompletionScope, c.Snapshot.Application
 	if err := r.stepTransaction(c, tx, portable.Input{Kind: portable.Start, Now: r.now}); err != nil {
@@ -85,8 +85,8 @@ func TestStateInitialUACWrittenACKCompletesInspectionBeforeTimerM(t *testing.T) 
 	c.Flow.Ingress = proto.Clone(engine.cfg.Process).(*pb.ProcessRef)
 	write := initialUACACKFixture(t, r, c, tx)
 	m := tx.Native.Timers[portable.TimerM]
-	requestWire := append([]byte(nil), tx.Native.Origin.Wire...)
-	finalWire := append([]byte(nil), c.Dialogs[c.Dialog].LocalInvite.Final.Wire...)
+	requestWire := append([]byte(nil), tx.Native.Origin.WireBytes()...)
+	finalWire := append([]byte(nil), c.Dialogs[c.Dialog].LocalInvite.Final.WireBytes()...)
 	payload, err := r.finish()
 	if err != nil {
 		t.Fatal(err)

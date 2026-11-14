@@ -87,7 +87,7 @@ func TestStateNativeCurrentProcessControlReconnectPreservesDialog(t *testing.T) 
 	phone.receive(t, sip.BYE, 200)
 	processWaitRecord(h, callID, func(_ state.Record, c *stateContext) bool { return c.Snapshot.Ended })
 	_, group = h.record(callID)
-	if after := processOnlyContext(t, group); after.OwnerLost || after.Snapshot.ApplicationLeaseTerm != originalTerm || !stateSameContext(after.Snapshot.Context, ref) || after.CompletionScope != before.CompletionScope || after.ScopeOrigin == nil || before.ScopeOrigin == nil || string(after.ScopeOrigin.Wire) != string(before.ScopeOrigin.Wire) {
+	if after := processOnlyContext(t, group); after.OwnerLost || after.Snapshot.ApplicationLeaseTerm != originalTerm || !stateSameContext(after.Snapshot.Context, ref) || after.CompletionScope != before.CompletionScope || after.ScopeOrigin == nil || before.ScopeOrigin == nil || string(after.ScopeOrigin.WireBytes()) != string(before.ScopeOrigin.WireBytes()) {
 		t.Fatal("living control reconnect fenced or migrated the original call")
 	}
 }
@@ -253,11 +253,11 @@ func TestStateNativeCurrentProcessAllControllerGoneCompletesUDPAndTLS(t *testing
 			}
 		}
 		refusal := call.pending.receive(t, sip.INVITE, 503)
-		acknowledgement, err := portable.BuildNon2xxACK(portable.Message{Wire: call.pending.sent[0], Transport: call.transport}, portable.Message{Wire: []byte(refusal.String()), Transport: call.transport})
+		acknowledgement, err := portable.BuildNon2xxACK(portable.RestoreMessage(call.pending.sent[0], call.transport, "", ""), portable.RestoreMessage([]byte(refusal.String()), call.transport, "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
-		call.pending.send(t, acknowledgement.Wire)
+		call.pending.send(t, acknowledgement.WireBytes())
 		bye := call.established.receive(t, sip.BYE, 0).(*sip.Request)
 		if bye.CallID().Value() != call.establishedID || tag(bye.From().Params) != call.establishedTag {
 			t.Fatal("owner cleanup BYE targeted another retained dialog")

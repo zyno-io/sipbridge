@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -48,17 +47,15 @@ func stateResponseEmissionAvailable(tx *stateTransaction, status uint32) bool {
 }
 
 func (r *stateReduction) reserveEmission(c *stateContext, tx *stateTransaction, message portable.Message, flow *pb.FlowRef, replay bool) (bool, error) {
-	parsed, err := message.Parse()
+	facts, err := message.Facts()
 	if err != nil {
 		return false, err
 	}
-	request, requestMessage := parsed.(*sip.Request)
-	response, responseMessage := parsed.(*sip.Response)
-	serverResponse := stateServerTransaction(tx) && responseMessage
+	serverResponse := stateServerTransaction(tx) && !facts.IsRequest
 	ackKey := ""
-	if requestMessage && request.IsAck() {
-		key := tag(request.From().Params) + "/" + tag(request.To().Params)
-		if d, ok := c.Dialogs[key]; ok && d.LocalInvite != nil && d.LocalInvite.ACK != nil && bytes.Equal(d.LocalInvite.ACK.Wire, message.Wire) {
+	if facts.IsRequest && facts.Method == sip.ACK {
+		key := facts.FromTag + "/" + facts.ToTag
+		if d, ok := c.Dialogs[key]; ok && d.LocalInvite != nil && d.LocalInvite.ACK != nil && d.LocalInvite.ACK.EqualWire(message) {
 			ackKey = key
 		}
 	}
@@ -73,8 +70,8 @@ func (r *stateReduction) reserveEmission(c *stateContext, tx *stateTransaction, 
 				continue
 			}
 			var body stateEngineEffect
-			if body.unmarshalMetadata(effect.Payload) == nil && body.Context == c.Snapshot.Context.Id && body.Transaction == tx.Native.Key && bytes.Equal(body.Wire, message.Wire) && proto.Equal(body.Flow, flow) &&
-				(!serverResponse || body.Command == tx.Command || uint32(response.StatusCode) != tx.RespondStatus && body.Command == "") {
+			if r.unmarshalEffectMetadata(&body, effect) == nil && body.Context == c.Snapshot.Context.Id && body.Transaction == tx.Native.Key && message.EqualWireBytes(body.Wire) && proto.Equal(body.Flow, flow) &&
+				(!serverResponse || body.Command == tx.Command || uint32(facts.Status) != tx.RespondStatus && body.Command == "") {
 				return false, nil
 			}
 		}
@@ -84,8 +81,8 @@ func (r *stateReduction) reserveEmission(c *stateContext, tx *stateTransaction, 
 			c.ACKEmissions = make(map[string]stateACKEmission)
 		}
 		counter := c.ACKEmissions[ackKey]
-		if counter.Sequence != request.CSeq().SeqNo {
-			counter = stateACKEmission{Sequence: request.CSeq().SeqNo}
+		if counter.Sequence != facts.CSeq {
+			counter = stateACKEmission{Sequence: facts.CSeq}
 		}
 		if counter.Count >= stateProfileTransmissions {
 			return false, nil
@@ -96,7 +93,7 @@ func (r *stateReduction) reserveEmission(c *stateContext, tx *stateTransaction, 
 		if tx.Emissions >= stateTransactionEmissions {
 			return false, nil
 		}
-		if serverResponse && !stateResponseEmissionAvailable(tx, uint32(response.StatusCode)) {
+		if serverResponse && !stateResponseEmissionAvailable(tx, uint32(facts.Status)) {
 			return false, nil
 		}
 		if r.in.Kind == "command" {
@@ -106,9 +103,9 @@ func (r *stateReduction) reserveEmission(c *stateContext, tx *stateTransaction, 
 					continue
 				}
 				var body stateEngineEffect
-				if body.unmarshalMetadata(effect.Payload) == nil && body.Context == c.Snapshot.Context.Id && body.Transaction == tx.Native.Key && (effect.Status == state.EffectPending || effect.Status == state.EffectAuthorized || effect.Kind == "wire" && (effect.Status == state.EffectDispatching || effect.Status == state.EffectUnknown)) {
+				if r.unmarshalEffectMetadata(&body, effect) == nil && body.Context == c.Snapshot.Context.Id && body.Transaction == tx.Native.Key && (effect.Status == state.EffectPending || effect.Status == state.EffectAuthorized || effect.Kind == "wire" && (effect.Status == state.EffectDispatching || effect.Status == state.EffectUnknown)) {
 					final, opaque := stateResponseClass(body)
-					if !serverResponse || opaque || final == (response.StatusCode >= 200) {
+					if !serverResponse || opaque || final == (facts.Status >= 200) {
 						pending++
 					}
 				}
@@ -118,7 +115,7 @@ func (r *stateReduction) reserveEmission(c *stateContext, tx *stateTransaction, 
 			}
 		}
 		tx.Emissions++
-		if serverResponse && response.StatusCode < 200 {
+		if serverResponse && facts.Status < 200 {
 			tx.ProvisionalEmissions++
 		}
 	}
@@ -137,7 +134,7 @@ func (r *stateReduction) reclaimEffects() error {
 			continue
 		}
 		var body stateEngineEffect
-		if err := body.unmarshalMetadata(effect.Payload); err != nil {
+		if err := r.unmarshalEffectMetadata(&body, effect); err != nil {
 			return state.ErrCorrupt
 		}
 		if effect.Kind == "deliver" && !body.Settled {
@@ -226,7 +223,7 @@ func (r *stateReduction) completionBudget() (stateCompletionBudget, error) {
 				continue
 			}
 			var body stateEngineEffect
-			if body.unmarshalMetadata(effect.Payload) != nil {
+			if r.unmarshalEffectMetadata(&body, effect) != nil {
 				return budget, state.ErrCorrupt
 			}
 			if body.Context == c.Snapshot.Context.Id && (effect.Status == state.EffectPending || effect.Status == state.EffectDispatching || effect.Status == state.EffectUnknown) {
@@ -361,6 +358,13 @@ func stateProgressKey(message *pb.SipMessage) string {
 		return "untagged"
 	}
 	return tag(parsed.From().Params) + "/" + tag(parsed.To().Params)
+}
+
+func stateProgressKeyFacts(facts portable.MessageFacts) string {
+	if facts.ToTag == "" {
+		return "untagged"
+	}
+	return facts.FromTag + "/" + facts.ToTag
 }
 
 var errStateCompletionCapacity = errors.New("native completion capacity reserved")

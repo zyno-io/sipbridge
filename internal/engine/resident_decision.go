@@ -16,7 +16,7 @@ import (
 // records never retain the controller decision or parsed SIP graph.
 type residentDecision struct {
 	value       *pb.RequestDecision
-	request     *sip.Request
+	request     portable.MessageFacts
 	policy      *pb.CommandAdmission
 	application *pb.ProcessRef
 	term        string
@@ -47,12 +47,11 @@ func (e *ResidentMemory) validateResidentDecisionLocked(c *residentContext, peer
 	}
 	decision.application, decision.term = peer.Application(), peer.ApplicationLease().GetTerm()
 	decision.bindOwner = c.directUnbound || d.Delivery != nil
-	parsed, err := tx.native.Origin.Parse()
+	request, err := tx.native.Origin.Facts()
 	if err != nil {
 		return nil, err
 	}
-	request, ok := parsed.(*sip.Request)
-	if !ok {
+	if !request.IsRequest {
 		return nil, errors.New("native decision request required")
 	}
 	decision.request = request
@@ -143,7 +142,7 @@ func finishResidentDecisionLocked(c *residentContext, receipt *residentCommand, 
 	return result
 }
 
-func (e *ResidentMemory) receiveDecisionDialogLocked(c *residentContext, tx *residentTransaction, request *sip.Request) (*residentDialog, []portable.Effect, error) {
+func (e *ResidentMemory) receiveDecisionDialogLocked(c *residentContext, tx *residentTransaction, request portable.MessageFacts) (*residentDialog, []portable.Effect, error) {
 	if tx.requestDialog == "" {
 		return nil, nil, nil
 	}
@@ -151,7 +150,7 @@ func (e *ResidentMemory) receiveDecisionDialogLocked(c *residentContext, tx *res
 	if previous == nil {
 		return nil, nil, errors.New("decision dialog unavailable")
 	}
-	next, effects, err := portable.StepDialog(previous.native, portable.DialogInput{Kind: portable.DialogReceiveRequest, Message: tx.native.Origin, Now: time.Now().UnixMilli(), Offer: request.IsInvite() && len(request.Body()) > 0})
+	next, effects, err := portable.StepDialog(previous.native, portable.DialogInput{Kind: portable.DialogReceiveRequest, Message: tx.native.Origin, Now: time.Now().UnixMilli(), Offer: request.Method == sip.INVITE && request.BodyLength > 0})
 	if err != nil {
 		return nil, nil, err
 	}

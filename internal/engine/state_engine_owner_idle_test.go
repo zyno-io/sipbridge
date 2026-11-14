@@ -106,7 +106,7 @@ func TestStateOwnerIdleRegistrationRequiresFreshProofAndReplaysCachedResponse(t 
 			c := group.Contexts[ref.Id]
 			var fresh *stateTransaction
 			for _, tx := range c.Transactions {
-				if string(tx.Native.Origin.Wire) == string(request.Wire) {
+				if string(tx.Native.Origin.WireBytes()) == string(request.Wire) {
 					fresh = tx
 				}
 			}
@@ -149,7 +149,7 @@ func TestStateOwnerIdleRegistrationRequiresFreshProofAndReplaysCachedResponse(t 
 			if !c.OwnerLost || presented != 0 {
 				t.Fatal("dead prior owner resumed fresh registration policy")
 			}
-			response, err := c.Transactions[fresh.Native.Key].Native.LastResponse.Parse()
+			response, err := sip.ParseMessage(c.Transactions[fresh.Native.Key].Native.LastResponse.WireBytes())
 			if err != nil || response.(*sip.Response).StatusCode != 503 {
 				t.Fatal("dead owner's newly deferred request did not receive native503")
 			}
@@ -168,7 +168,7 @@ func TestStateOwnerIdleRegistrationRequiresFreshProofAndReplaysCachedResponse(t 
 				}
 				var body stateEngineEffect
 				if effect.Kind == "wire" && unmarshalRetainedFixture(effect.Payload, &body) == nil {
-					message, err := (portable.Message{Wire: body.Wire, Transport: "udp"}).Parse()
+					message, err := sip.ParseMessage(body.Wire)
 					if response, ok := message.(*sip.Response); err == nil && ok && response.StatusCode == 200 {
 						cached = body.Authorization.GetAuthorityClass() == pb.EffectAuthorization_RESPONSE
 					}

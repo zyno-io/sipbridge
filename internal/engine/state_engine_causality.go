@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -30,29 +29,33 @@ func stateACKHash(wire []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func stateNativeACKHash(message portable.Message) string {
+	sum := message.WireHash()
+	return hex.EncodeToString(sum[:])
+}
+
 func stateAnnotateACKDependency(c *stateContext, tx *stateTransaction, message portable.Message, body *stateEngineEffect) error {
-	parsed, err := message.Parse()
+	facts, err := message.Facts()
 	if err != nil {
 		return err
 	}
-	request, ok := parsed.(*sip.Request)
-	if !ok || !request.IsAck() && request.Method != sip.BYE {
+	if !facts.IsRequest || facts.Method != sip.ACK && facts.Method != sip.BYE {
 		return nil
 	}
-	key := tag(request.From().Params) + "/" + tag(request.To().Params)
+	key := facts.FromTag + "/" + facts.ToTag
 	dialog, exists := c.Dialogs[key]
 	if !exists || dialog.LocalInvite == nil || dialog.LocalInvite.ACK == nil {
 		return nil // UAS initial ACK timeout has no local ACK obligation.
 	}
 	ack := dialog.LocalInvite.ACK
-	if request.IsAck() {
-		if !bytes.Equal(ack.Wire, message.Wire) {
+	if facts.Method == sip.ACK {
+		if !ack.EqualWire(message) {
 			return nil // A non-2xx transaction ACK is not successful-dialog proof.
 		}
 		body.Dialog = key
 	} else if tx.Cleanup {
 		body.Dialog = key
-		body.AfterACK = stateACKHash(ack.Wire)
+		body.AfterACK = stateNativeACKHash(*ack)
 	}
 	return nil
 }
@@ -73,13 +76,13 @@ func stateRecordWrittenACK(c *stateContext, body stateEngineEffect) error {
 	}
 	sequence, hash, method := body.WireSequence, body.WireHash, body.WireMethod
 	if len(body.Wire) > 0 {
-		parsed, err := sip.ParseMessage(body.Wire)
+		_, facts, err := body.observedMessage()
 		if err != nil {
 			return err
 		}
-		sequence = parsed.CSeq().SeqNo
+		sequence = facts.CSeq
+		method = string(facts.CSeqMethod)
 		hash = stateACKHash(body.Wire)
-		method = string(parsed.CSeq().MethodName)
 	}
 	if c == nil || method != "ACK" || len(hash) != 64 {
 		return errors.New("native ACK completion identity invalid")
@@ -114,21 +117,20 @@ func (r *stateReduction) completeInitialUAC(c *stateContext, body stateEngineEff
 	if tx == nil || tx.Native.Family != portable.InviteClient || tx.Command != body.Command || !exists ||
 		dialog.Role != portable.UAC || dialog.Phase != portable.DialogConfirmed || dialog.Retiring || procedure == nil ||
 		procedure.State != portable.InviteAcked || procedure.CancelRequested || procedure.Final == nil || procedure.ACK == nil ||
-		!bytes.Equal(tx.Native.Origin.Wire, procedure.Request.Wire) || procedure.Sequence != body.WireSequence ||
-		stateACKHash(procedure.ACK.Wire) != body.WireHash {
+		!tx.Native.Origin.EqualWire(procedure.Request) || procedure.Sequence != body.WireSequence ||
+		stateNativeACKHash(*procedure.ACK) != body.WireHash {
 		return
 	}
-	origin, err := tx.Native.Origin.Parse()
-	if err != nil || tag(origin.To().Params) != "" {
+	origin, err := tx.Native.Origin.Facts()
+	if err != nil || origin.ToTag != "" {
 		return // A re-INVITE is a different application operation.
 	}
-	final, err := procedure.Final.Parse()
-	response, ok := final.(*sip.Response)
-	if err != nil || !ok || !response.IsSuccess() || !portable.MatchResponse(tx.Native.Origin, *procedure.Final) {
+	response, err := procedure.Final.Facts()
+	if err != nil || response.IsRequest || response.Status < 200 || response.Status >= 300 || !portable.MatchResponse(tx.Native.Origin, *procedure.Final) {
 		return
 	}
-	c.Result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: mustObserve(tx.Native.Origin.Wire, true),
-		Response: mustObserve(procedure.Final.Wire, false), Snapshot: stateSnapshot(c, r.engine.cfg.Process)}
+	c.Result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: stateProjectMessage(tx.Native.Origin, true),
+		Response: stateProjectMessage(*procedure.Final, false), Snapshot: stateSnapshot(c, r.engine.cfg.Process)}
 }
 
 // The request is a write receipt for this current public BYE, not a peer reply.
@@ -140,7 +142,7 @@ func (r *stateReduction) recordWrittenPublicBye(c *stateContext, body stateEngin
 		return
 	}
 	tx := c.Transactions[body.Transaction]
-	if !currentPublicBye(c, tx) || body.WireHash != stateACKHash(tx.Native.Origin.Wire) {
+	if !currentPublicBye(c, tx) || body.WireHash != stateNativeACKHash(tx.Native.Origin) {
 		return
 	}
 	tx.Written = true
@@ -152,7 +154,7 @@ func currentPublicBye(c *stateContext, tx *stateTransaction) bool {
 		return false
 	}
 	dialog, exists := c.Dialogs[c.Dialog]
-	return exists && dialog.LocalBye != nil && bytes.Equal(dialog.LocalBye.Wire, tx.Native.Origin.Wire)
+	return exists && dialog.LocalBye != nil && dialog.LocalBye.EqualWire(tx.Native.Origin)
 }
 
 // Initial OpenUac requests are retained before writing. Only this exact current
@@ -171,7 +173,7 @@ func writtenPublicBye(c *stateContext) *stateTransaction {
 
 func projectWrittenPublicBye(c *stateContext, result *pb.OperationResult) {
 	if tx := writtenPublicBye(c); tx != nil {
-		result.Request = mustObserve(tx.Native.Origin.Wire, true)
+		result.Request = stateProjectMessage(tx.Native.Origin, true)
 	}
 }
 
@@ -192,7 +194,7 @@ func (r *stateReduction) releaseACKCleanup(c *stateContext, ack stateEngineEffec
 	byTransaction := make(map[string][]int)
 	for index, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Context == c.Snapshot.Context.Id && body.Dialog == ack.Dialog && body.AfterACK == hash {
@@ -208,9 +210,8 @@ func (r *stateReduction) releaseACKCleanup(c *stateContext, ack stateEngineEffec
 		if !deadline.Active || deadline.At <= r.now {
 			continue
 		}
-		parsed, err := tx.Native.Origin.Parse()
-		request, ok := parsed.(*sip.Request)
-		if err != nil || !ok || request.Method != sip.BYE {
+		facts, err := tx.Native.Origin.Facts()
+		if err != nil || !facts.IsRequest || facts.Method != sip.BYE {
 			return errors.New("retained cleanup transaction invalid")
 		}
 		blocked := false
@@ -228,7 +229,7 @@ func (r *stateReduction) releaseACKCleanup(c *stateContext, ack stateEngineEffec
 		for _, index := range indices {
 			effect := r.payload.Effects[index]
 			var body stateEngineEffect
-			if body.unmarshalMetadata(effect.Payload) != nil {
+			if r.unmarshalEffectMetadata(&body, effect) != nil {
 				return state.ErrCorrupt
 			}
 			switch {
@@ -297,7 +298,7 @@ func (r *stateReduction) contextRetirementProven(id string, c *stateContext) boo
 	}
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return false
 		}
 		if body.Context == id && effect.Kind == "deliver" && !body.Settled {
@@ -340,7 +341,7 @@ func (r *stateReduction) coldTrustedHistory(id string, c *stateContext) bool {
 			continue
 		}
 		var identity stateEngineEffect
-		if identity.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&identity, effect) != nil {
 			return false
 		}
 		if identity.Context == id {
@@ -354,7 +355,7 @@ func (r *stateReduction) coldTrustedHistory(id string, c *stateContext) bool {
 	found := false
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return false
 		}
 		if body.Context != id {
@@ -382,7 +383,7 @@ func (r *stateReduction) coldNativeHistory(id string, c *stateContext) bool {
 	found := false
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return false
 		}
 		if body.Context != id {

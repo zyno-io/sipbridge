@@ -22,7 +22,7 @@ func (e *ResidentMemory) completeResidentRemoteBye(ctx context.Context, flow *pb
 	return e.completeResidentRemoteByeParsed(ctx, flow, received, observed, parsed)
 }
 
-func (e *ResidentMemory) completeResidentRemoteByeParsed(ctx context.Context, flow *pb.FlowRef, received, observed *pb.SipMessage, parsed sip.Message) (bool, error) {
+func (e *ResidentMemory) completeResidentRemoteByeParsed(ctx context.Context, flow *pb.FlowRef, received, observed *pb.SipMessage, parsed sip.Message, frozen ...portable.Message) (bool, error) {
 	e.mu.Lock()
 	var c *residentContext
 	for _, selector := range observed.Selectors {
@@ -35,7 +35,10 @@ func (e *ResidentMemory) completeResidentRemoteByeParsed(ctx context.Context, fl
 	if c == nil {
 		return false, nil
 	}
-	message := portable.Message{Wire: received.Wire, Transport: flow.Transport}
+	message, err := residentObservedNative(received.Wire, parsed, flow, frozen...)
+	if err != nil {
+		return true, err
+	}
 	request, ok := parsed.(*sip.Request)
 	if !ok || request.To() == nil || request.From() == nil {
 		return false, nil
@@ -122,7 +125,7 @@ func (e *ResidentMemory) completeResidentRemoteByeParsed(ctx context.Context, fl
 		c.mu.Unlock()
 		return true, err
 	}
-	tx, effects, err := residentStartServer(message, flow, c.snapshot.Application, c.snapshot.LocalTag, "r-"+e.id("remote-bye", c.snapshot.Context.Id, string(message.Wire))[:48], time.Now().Add(2*time.Second), time.Now().UnixMilli())
+	tx, effects, err := residentStartServer(message, flow, c.snapshot.Application, c.snapshot.LocalTag, "r-"+e.id("remote-bye", c.snapshot.Context.Id, string(received.Wire))[:48], time.Now().Add(2*time.Second), time.Now().UnixMilli())
 	if err != nil {
 		c.mu.Unlock()
 		return true, err

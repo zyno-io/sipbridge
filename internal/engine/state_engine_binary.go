@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"github.com/emiago/sipgo/sip/portable"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/state"
 	"sipbridge/internal/storagecodec"
@@ -171,6 +172,10 @@ func (value *stateEngineEffect) unmarshalMetadata(data []byte) error {
 }
 
 func (value *stateEngineEffect) unmarshalBinary(data []byte, project bool, drain ...*state.LocalDrainObservation) error {
+	return value.unmarshalBinaryPrepared(data, project, portable.Message{}, drain...)
+}
+
+func (value *stateEngineEffect) unmarshalBinaryPrepared(data []byte, project bool, prepared portable.Message, drain ...*state.LocalDrainObservation) error {
 	decoded := new(storagepb.EngineStateEngineEffect)
 	if err := storagecodec.Unmarshal(data, storagecodec.Effect, decoded); err != nil {
 		return state.ErrCorrupt
@@ -179,22 +184,73 @@ func (value *stateEngineEffect) unmarshalBinary(data []byte, project bool, drain
 	if next.Policy != nil && !next.Policy.valid() {
 		return state.ErrCorrupt
 	}
+	if !prepared.IsZero() && prepared.EqualWireBytes(next.Wire) {
+		next.prepared = prepared
+	}
 	if project {
 		if err := next.materializeMessage(); err != nil {
 			return err
 		}
 	} else if next.hasMessageWire() || len(drain) > 0 && len(next.Wire) > 0 {
-		parsed, err := parseObservedMessage(next.Wire)
+		message, facts, err := next.observedMessage()
 		if err != nil {
 			return err
 		}
 		if len(drain) > 0 {
-			*drain[0] = drainMessageObservation(parsed)
+			*drain[0] = drainObservedMessageObservation(message, facts)
 		}
 	}
 	*value = next
 	return nil
 }
+
+// The cache is scoped to one reduction. Reuse is guarded against the decoded
+// effect's exact wire in unmarshalBinaryPrepared; metadata changes can then
+// reuse their unchanged immutable SIP value without retaining a second payload.
+type stateEffectMessage struct {
+	message portable.Message
+}
+
+func (r *stateReduction) rememberEffectMessage(id string, message portable.Message, wire []byte) {
+	if message.IsZero() || !message.EqualWireBytes(wire) {
+		return
+	}
+	if r.effectMessages == nil {
+		r.effectMessages = make(map[string]stateEffectMessage)
+	}
+	r.effectMessages[id] = stateEffectMessage{message: message}
+}
+
+func (r *stateReduction) unmarshalEffectMetadata(value *stateEngineEffect, effect state.Effect, drain ...*state.LocalDrainObservation) error {
+	var prepared portable.Message
+	if cached, ok := r.effectMessages[effect.ID]; ok {
+		prepared = cached.message
+	}
+	if err := value.unmarshalBinaryPrepared(effect.Payload, false, prepared, drain...); err != nil {
+		return err
+	}
+	if value.prepared.IsZero() && (effect.Kind == "wire" || effect.Kind == "deliver") && len(value.Wire) > 0 {
+		// A historical physical effect can retain SIP bytes without an envelope.
+		// Allocate its holder only; classification or completion prepares it later.
+		value.prepared = portable.RestoreMessage(value.Wire, "", "", "")
+	}
+	if !value.prepared.IsZero() {
+		if r.effectMessages == nil {
+			r.effectMessages = make(map[string]stateEffectMessage)
+		}
+		r.effectMessages[effect.ID] = stateEffectMessage{message: value.prepared}
+	}
+	return nil
+}
+
+func (value *stateEngineEffect) observedMessage() (portable.Message, portable.MessageFacts, error) {
+	if value.prepared.IsZero() || !value.prepared.EqualWireBytes(value.Wire) {
+		value.prepared = portable.RestoreMessage(value.Wire, "", "", "")
+	}
+	facts, err := value.prepared.ObservedFacts()
+	return value.prepared, facts, err
+}
+
 func (value stateEngineEffect) hasMessageWire() bool {
 	envelope := value.Envelope
 	return envelope != nil && len(value.Wire) > 0 && (envelope.GetRequest() != nil || envelope.GetEgress() != nil || envelope.GetDialogEvent() != nil)
@@ -207,7 +263,11 @@ func (value *stateEngineEffect) materializeMessage() error {
 		return nil
 	}
 	envelope := value.Envelope
-	message, err := Observe(value.Wire, envelope.GetEgress() != nil)
+	messageValue, _, err := value.observedMessage()
+	if err != nil {
+		return err
+	}
+	message, err := projectObservedNativeMessage(messageValue, envelope.GetEgress() != nil)
 	if err != nil {
 		return err
 	}

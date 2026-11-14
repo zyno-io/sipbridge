@@ -284,9 +284,9 @@ func (e *ResidentMemory) fireResidentDeadline(item residentDeadline) {
 			}
 		}
 		if failure != "" && next.Family == portable.NonInviteClient {
-			origin, parseErr := next.Origin.Parse()
-			if parseErr == nil && origin.CSeq().MethodName == sip.BYE && origin.From() != nil && origin.To() != nil {
-				timeoutDialogKey = tag(origin.From().Params) + "/" + tag(origin.To().Params)
+			origin, parseErr := next.Origin.Facts()
+			if parseErr == nil && origin.CSeqMethod == sip.BYE {
+				timeoutDialogKey = origin.FromTag + "/" + origin.ToTag
 				timeoutDialog = c.dialogs[timeoutDialogKey]
 				if timeoutDialog != nil && timeoutDialog.native.LocalBye != nil && portable.MatchRequest(*timeoutDialog.native.LocalBye, next.Origin) {
 					timeoutNext, timeoutEffects, err = portable.StepDialog(timeoutDialog.native, portable.DialogInput{Kind: portable.DialogTerminate, Now: time.Now().UnixMilli()})
@@ -309,8 +309,8 @@ func (e *ResidentMemory) fireResidentDeadline(item residentDeadline) {
 		}
 		timeoutInitialInvite := false
 		if failure != "" && next.Family == portable.InviteClient && !c.snapshot.Answered && !c.snapshot.Ended && c.selectedDialog == "" {
-			origin, parseErr := next.Origin.Parse()
-			if parseErr == nil && origin.To() != nil && tag(origin.To().Params) == "" {
+			origin, parseErr := next.Origin.Facts()
+			if parseErr == nil && origin.ToTag == "" {
 				timeoutInitialInvite = true
 				timeoutEvent, err = e.stageResidentEventLocked(c, pb.DialogEvent_FAILED, nil, "", time.Now().Add(2*time.Minute), tx.budget)
 				if err != nil {
@@ -362,7 +362,7 @@ func (e *ResidentMemory) fireResidentDeadline(item residentDeadline) {
 			e.scheduleResidentEventsLocked(c, []*residentEvent{timeoutEvent})
 		}
 		if failure != "" && (next.Family == portable.NonInviteClient || timeoutInitialInvite) && tx.command != nil {
-			finishResidentCommandLocked(c, tx.command, &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Error: failure, Request: mustObserve(next.Origin.Wire, true)})
+			finishResidentCommandMessageLocked(c, tx.command, pb.OperationResult_COMPLETED, 0, failure, next.Origin, portable.Message{})
 		}
 
 		_ = e.scheduleResidentTransactionLocked(c, tx, effects)

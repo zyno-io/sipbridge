@@ -77,7 +77,7 @@ func (r *stateReduction) lifecycleTimer() (bool, error) {
 			effect.Status = state.EffectCancelled
 			if effect.Kind == "deliver" {
 				var body stateEngineEffect
-				if err := body.unmarshalMetadata(effect.Payload); err != nil {
+				if err := r.unmarshalEffectMetadata(&body, effect); err != nil {
 					return true, err
 				}
 				effect.Status = state.EffectNotWritten
@@ -85,7 +85,7 @@ func (r *stateReduction) lifecycleTimer() (bool, error) {
 			}
 			r.payload.Effects[index] = effect
 			var body stateEngineEffect
-			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+			if err := r.unmarshalEffectMetadata(&body, effect); err != nil {
 				return true, err
 			}
 			c := r.group.Contexts[body.Context]
@@ -168,7 +168,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 				continue
 			}
 			var body stateEngineEffect
-			if body.unmarshalMetadata(effect.Payload) == nil && body.Context == id {
+			if r.unmarshalEffectMetadata(&body, effect) == nil && body.Context == id {
 				setupPending = true
 				break
 			}
@@ -195,7 +195,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 				filtered := r.payload.Effects[:0]
 				for _, effect := range r.payload.Effects {
 					var body stateEngineEffect
-					if err := body.unmarshalMetadata(effect.Payload); err != nil {
+					if err := r.unmarshalEffectMetadata(&body, effect); err != nil {
 						return err
 					}
 					if body.Context != id {
@@ -247,7 +247,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 			if decoded {
 				return nil
 			}
-			if err := body.unmarshalMetadata(effect.Payload); err != nil {
+			if err := r.unmarshalEffectMetadata(&body, effect); err != nil {
 				return err
 			}
 			decoded = true
@@ -283,7 +283,7 @@ func (r *stateReduction) appendLifecycleTimers() error {
 		if knownUnsettled || effect.Status != state.EffectPending || at <= r.now {
 			at = r.now + stateEffectRecoveryMS
 		}
-		if !knownUnsettled && effect.DeadlineMS+120000 <= r.now && !stateHistoricalDelivery(effect) && !stateHistoricalAuthorization(effect) {
+		if !knownUnsettled && effect.DeadlineMS+120000 <= r.now && !stateHistoricalDelivery(effect) && !r.historicalAuthorization(effect) {
 			continue
 		}
 		if recoveryAt == 0 || at < recoveryAt {
@@ -438,12 +438,11 @@ func (r *stateReduction) subscriptionResponse(c *stateContext, tx *stateTransact
 	if c.Subscription == nil {
 		return nil
 	}
-	parsed, err := message.Parse()
+	facts, err := message.Facts()
 	if err != nil {
 		return err
 	}
-	response := parsed.(*sip.Response)
-	if !c.Snapshot.Ended && response.CSeq().MethodName == sip.NOTIFY && response.StatusCode >= 200 && (c.Subscription.Final || response.StatusCode == 481) {
+	if !facts.IsRequest && !c.Snapshot.Ended && facts.CSeqMethod == sip.NOTIFY && facts.Status >= 200 && (c.Subscription.Final || facts.Status == 481) {
 		c.Snapshot.Ended = true
 		c.RetireMS = r.now + 120000
 		if err := r.endSubscriptionRequests(c); err != nil {
@@ -508,7 +507,7 @@ func (e *StateEngine) scheduleGroupIn(parent context.Context, ref state.Ref) {
 func (r *stateReduction) cancelUnstartedEffects(c *stateContext) error {
 	for index, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if err := body.unmarshalMetadata(effect.Payload); err != nil {
+		if err := r.unmarshalEffectMetadata(&body, effect); err != nil {
 			return err
 		}
 		if body.Context != c.Snapshot.Context.Id {
@@ -522,12 +521,9 @@ func (r *stateReduction) cancelUnstartedEffects(c *stateContext) error {
 		if effect.Kind != "wire" && effect.Kind != "deliver" || body.Authorization == nil || body.Authorization.AuthorityClass != pb.EffectAuthorization_APPLICATION {
 			continue
 		}
-		parsed, err := sip.ParseMessage(body.Wire)
-		if err != nil {
-			continue
-		}
-		request, ok := parsed.(*sip.Request)
-		if !ok || !request.IsInvite() || tag(request.To().Params) != "" {
+		_, facts, err := body.observedMessage()
+		initialInvite := err == nil && facts.IsRequest && facts.Method == sip.INVITE && facts.ToTag == ""
+		if !initialInvite {
 			continue
 		}
 		switch {
@@ -555,6 +551,14 @@ func stateHistoricalAuthorization(effect state.Effect) bool {
 	}
 	var body stateEngineEffect
 	return body.unmarshalMetadata(effect.Payload) == nil && body.Cancelled
+}
+
+func (r *stateReduction) historicalAuthorization(effect state.Effect) bool {
+	if effect.Kind != "wire" || effect.Status != state.EffectUnknown {
+		return false
+	}
+	var body stateEngineEffect
+	return r.unmarshalEffectMetadata(&body, effect) == nil && body.Cancelled
 }
 
 const stateRetiredMarkerLimit = 128

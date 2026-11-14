@@ -14,7 +14,7 @@ func ingestNativeCancelMessage(t *testing.T, r *stateReduction, c *stateContext,
 	t.Helper()
 	r.result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}
 	r.in = stateEngineInput{Kind: "ingest", Context: c.Snapshot.Context, Application: c.Snapshot.Application,
-		Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: message.Wire,
+		Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: message.WireBytes(),
 			Admission: pb.OwnerIngest_AUTHENTICATED_BINDING, PrincipalId: c.Snapshot.PrincipalId, BindingId: c.Snapshot.BindingId}}
 	if err := r.ingest(); err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestStateNativeCancelFinalOwnsItsDeadlineProofAndEmissionQuota(t *testing.T
 				t.Fatal(err)
 			}
 			ingestNativeCancelMessage(t, r, c, cancel)
-			parsed, err := cancel.Parse()
+			parsed, err := sip.ParseMessage(cancel.WireBytes())
 			if err != nil {
 				t.Fatal(err)
 			}

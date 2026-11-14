@@ -1,8 +1,6 @@
 package engine
 
 import (
-	"bytes"
-
 	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	pb "sipbridge/internal/controlpb"
@@ -21,11 +19,11 @@ func (r *stateReduction) validateCompletionRelay(c *stateContext, message portab
 		c.Snapshot.BindingId != "" && in.BindingId != "" && c.Snapshot.BindingId != in.BindingId {
 		return reject()
 	}
-	parsed, err := message.Parse()
+	facts, err := message.Facts()
 	if err != nil {
 		return err
 	}
-	if _, response := parsed.(*sip.Response); response {
+	if !facts.IsRequest {
 		for _, tx := range c.Transactions {
 			if (tx.Native.Family == portable.InviteClient || tx.Native.Family == portable.NonInviteClient) && portable.MatchResponse(tx.Native.Origin, message) {
 				// The normal response path validates the replacement flow before
@@ -35,11 +33,10 @@ func (r *stateReduction) validateCompletionRelay(c *stateContext, message portab
 		}
 		return reject()
 	}
-	request := parsed.(*sip.Request)
-	if !request.IsAck() && !request.IsCancel() && request.Method != sip.BYE {
+	if facts.Method != sip.ACK && facts.Method != sip.CANCEL && facts.Method != sip.BYE {
 		for _, tx := range c.Transactions {
-			if stateCompletionFinalReplay(c, tx, message, request) {
-				return r.validateReplayFlow(c, tx, request, in)
+			if stateCompletionFinalReplay(c, tx, message) {
+				return r.validateReplayFlow(c, tx, message, in)
 			}
 		}
 		return reject()
@@ -48,23 +45,23 @@ func (r *stateReduction) validateCompletionRelay(c *stateContext, message portab
 		if tx.Native.Family != portable.InviteServer && tx.Native.Family != portable.NonInviteServer || !portable.MatchRequest(tx.Native.Origin, message) {
 			continue
 		}
-		if request.IsCancel() && tx.Native.Family == portable.InviteServer {
-			return r.validateReplayFlow(c, tx, request, in)
+		if facts.Method == sip.CANCEL && tx.Native.Family == portable.InviteServer {
+			return r.validateReplayFlow(c, tx, message, in)
 		}
-		if request.IsAck() && tx.Native.Family == portable.InviteServer && tx.Native.LastResponse != nil {
-			final, err := tx.Native.LastResponse.Parse()
-			if err == nil && final.(*sip.Response).StatusCode >= 300 && tag(final.To().Params) == tag(request.To().Params) {
-				return r.validateReplayFlow(c, tx, request, in)
+		if facts.Method == sip.ACK && tx.Native.Family == portable.InviteServer && tx.Native.LastResponse != nil {
+			final, err := tx.Native.LastResponse.Facts()
+			if err == nil && !final.IsRequest && final.Status >= 300 && final.ToTag == facts.ToTag {
+				return r.validateReplayFlow(c, tx, message, in)
 			}
 		}
-		if request.Method == sip.BYE && bytes.Equal(tx.Native.Origin.Wire, message.Wire) {
-			return r.validateReplayFlow(c, tx, request, in)
+		if facts.Method == sip.BYE && tx.Native.Origin.EqualWire(message) {
+			return r.validateReplayFlow(c, tx, message, in)
 		}
 	}
-	if request.IsCancel() {
+	if facts.Method == sip.CANCEL {
 		return reject()
 	}
-	key := tag(request.To().Params) + "/" + tag(request.From().Params)
+	key := facts.ToTag + "/" + facts.FromTag
 	dialog, found := c.Dialogs[key]
 	if !found || !portable.MatchDialogRequest(dialog, message) {
 		return reject()
@@ -78,14 +75,14 @@ func (r *stateReduction) validateCompletionRelay(c *stateContext, message portab
 // Only a selected final can be replayed without the original business owner.
 // This predicate is also used at dispatch so the accepted request cannot enter
 // presentation or dialog reduction, even while the INVITE transaction is Accepted.
-func stateCompletionFinalReplay(c *stateContext, tx *stateTransaction, message portable.Message, request *sip.Request) bool {
-	if c.Subscription != nil || c.Snapshot.Kind != pb.ContextSnapshot_UAS && c.Snapshot.Kind != pb.ContextSnapshot_UAC ||
-		request.Method == sip.REGISTER || request.Method == sip.SUBSCRIBE || request.Method == sip.NOTIFY || request.IsAck() || request.IsCancel() || request.Method == sip.BYE ||
-		tag(request.To().Params) == "" || tag(request.From().Params) == "" || !stateServerTransaction(tx) || tx.Native.Validate() != nil ||
-		!portable.MatchRequest(tx.Native.Origin, message) || !bytes.Equal(tx.Native.Origin.Wire, message.Wire) || tx.Native.LastResponse == nil {
+func stateCompletionFinalReplay(c *stateContext, tx *stateTransaction, message portable.Message) bool {
+	facts, err := message.Facts()
+	if err != nil || !facts.IsRequest || c.Subscription != nil || c.Snapshot.Kind != pb.ContextSnapshot_UAS && c.Snapshot.Kind != pb.ContextSnapshot_UAC ||
+		facts.Method == sip.REGISTER || facts.Method == sip.SUBSCRIBE || facts.Method == sip.NOTIFY || facts.Method == sip.ACK || facts.Method == sip.CANCEL || facts.Method == sip.BYE ||
+		facts.ToTag == "" || facts.FromTag == "" || !stateServerTransaction(tx) || tx.Native.Validate() != nil ||
+		!portable.MatchRequest(tx.Native.Origin, message) || !tx.Native.Origin.EqualWire(message) || tx.Native.LastResponse == nil {
 		return false
 	}
-	final, err := tx.Native.LastResponse.Parse()
-	response, ok := final.(*sip.Response)
-	return err == nil && ok && response.StatusCode >= 200 && portable.MatchResponse(tx.Native.Origin, *tx.Native.LastResponse)
+	final, err := tx.Native.LastResponse.Facts()
+	return err == nil && !final.IsRequest && final.Status >= 200 && portable.MatchResponse(tx.Native.Origin, *tx.Native.LastResponse)
 }

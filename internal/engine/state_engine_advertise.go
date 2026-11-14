@@ -57,15 +57,14 @@ func advertisement(cfg Config, transport string) (contact, sentBy string, err er
 }
 
 func (r *stateReduction) buildResponse(c *stateContext, origin portable.Message, status int, phrase string, body []byte, headers []portable.Header) (portable.Message, error) {
-	contact, _, err := r.engine.advertisement(origin.Transport)
+	contact, _, err := r.engine.advertisement(origin.Transport())
 	if err != nil {
 		return portable.Message{}, err
 	}
 	if status >= 200 && status < 300 {
-		parsed, parseErr := origin.Parse()
-		request, ok := parsed.(*sip.Request)
-		if parseErr == nil && ok && request.Method == sip.REFER && request.To() != nil && request.From() != nil && tag(request.To().Params) != "" {
-			dialog, exists := c.Dialogs[tag(request.To().Params)+"/"+tag(request.From().Params)]
+		facts, parseErr := origin.Facts()
+		if parseErr == nil && facts.IsRequest && facts.Method == sip.REFER && facts.ToTag != "" {
+			dialog, exists := c.Dialogs[facts.ToTag+"/"+facts.FromTag]
 			if !exists || !portable.MatchDialogRequest(dialog, origin) || dialog.Contact == "" {
 				return portable.Message{}, errors.New("successful in-dialog REFER response requires its retained native Contact")
 			}

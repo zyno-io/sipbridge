@@ -4,8 +4,11 @@ This experimental package exposes native SIP transaction/dialog decisions as
 serializable values. The driver supplies event time in milliseconds and all
 random identifiers. Reducers clone their inputs and return values plus ordered
 effects; they never open connections, start timers, read entropy, wait on
-channels, call applications or access storage. `Message` contains immutable wire
-bytes and separately observed transport/source/destination metadata.
+channels, call applications or access storage. `Message` is one opaque owned immutable value: exact wire, separately observed
+transport/source/destination metadata, scalar identity/matching facts and selected
+construction/projection material. It retains no mutable SIP request/response graph.
+Copies share immutable evidence; reducer phase/profile/timer checks still run on
+every transition.
 
 Commit the resulting state and effects together before interpreting effects.
 Timer notifications carry the exact saved name/generation and may be duplicated;
@@ -84,3 +87,54 @@ transaction keys or transport profiles fail rather than calling initialization.
 The driver supplies bounded storage/concurrency and dispatches transaction
 effects to the correct dialog branch. This package has no per-dialog actor,
 timer goroutine or persistence implementation.
+
+## Immutable message boundary
+
+`ParseMessage` owns and parses raw input once. `FreezeMessage` owns facts from
+an already parsed **same observed frame** and its exact bytes; callers must not
+pair a parsed object with independently supplied wire. Native identity validation
+is distinct from observed-ingress branch admission. A failed native freeze still
+returns its owned value and original native error; local ingress policy must keep
+its existing order before consuming native facts. Key accessors keep the existing
+client/server and ACK/CANCEL normalization rules and separate key errors.
+
+Matching and the same transaction/dialog reducers use frozen facts. Structured
+response, ACK, CANCEL, dialog and digest builders construct privately and freeze
+their final value directly; they do not render merely to parse the result. A
+selected native final keeps its exact replay/conflict identity.
+`WithObservedResponseFlow` creates a separate immutable physical variant with
+observed Via received/rport, including replacement TLS flows; unchanged finalized
+routing reuses the value. Physical dispatch writes that exact finalized evidence.
+
+`ObservedFacts` and its observed header/body/Via/key projection companions
+preserve the separate observation boundary: mandatory identity and the existing
+request RFC3261 branch check, without portable transport or CSeq restrictions.
+They share the same frozen facts and preserve the request-line method separately
+from CSeq method. Parser errors remain parser errors; the default parser still
+rejects an out-of-range CSeq. Native `Facts`, keys and every reducer always use
+the strict validation result. Observed reads never grant native execution proof.
+
+`Facts` exposes scalars. Header/body/Via/wire projections return owned copies;
+wire length/hash/equality and append-to-owned-buffer avoid copying reads.
+`RetainedBytes` includes private owned data and never prepares an unused restored
+message; immutable sharing may be conservatively charged by each retaining record.
+`Equal` compares serialized value identity, independently of lazy preparation.
+
+`RestoreMessage` explicitly maps the same four serialized fields without parsing
+unused wire. Its private lazy holder validates at most once when consumed in that
+loaded operation; it is not a global cache, serialized pointer, or second FSM.
+JSON retains the prior wire/transport/source/destination shape, including nil and
+empty wire. Storage adapters must explicitly map that shape, not reflect private
+fields or eagerly validate every message in a restored group.
+
+The immutable tests cover ownership, concurrent lazy consumption, exact selected
+versus flow emission identity, raw admission errors, native parse-free paths,
+digest derivation and a 201-case exact wire/state golden captured from the
+pre-change consolidated dependency. Additional correction oracles cover ordered
+multi-Contact bindings, accepted duplicate singleton selection, structured method
+normalization, padded/comma routes, observed/native admission separation, and
+source-empty native response routing fallback. Repeated construction fields own
+ordered typed values only when duplicated; their additional data is accounted.
+Existing protocol regression traces remain
+the semantic oracle; this representation does not change replay lifetimes,
+UDP schedules, post-OK/fork/ACK duties, or required NOTIFY behavior.

@@ -27,7 +27,7 @@ func TestFixtureCompletionProjectionRetainsProofsWithoutWireOrCredentials(t *tes
 	c.CompletionScope = "exact-opaque-completion-scope"
 	c.DialogScopes = map[string]string{"dialog": "exact-dialog-scope"}
 	c.Credential = &pb.CredentialRef{Id: secret, Version: secret}
-	c.Origin.Wire = bytes.Replace(c.Origin.Wire, []byte("\r\n"), []byte("\r\nX-Fixture-Private: "+secret+"\r\n"), 1)
+	c.Origin = portable.RestoreMessage(bytes.Replace(c.Origin.WireBytes(), []byte("\r\n"), []byte("\r\nX-Fixture-Private: "+secret+"\r\n"), 1), c.Origin.Transport(), c.Origin.Source(), c.Origin.Destination())
 	var selected *stateTransaction
 	for _, tx := range c.Transactions {
 		selected = tx
@@ -45,7 +45,7 @@ func TestFixtureCompletionProjectionRetainsProofsWithoutWireOrCredentials(t *tes
 		t.Fatal(err)
 	}
 	selected.Native.LastResponse = &response
-	eventBody, err := (stateEngineEffect{Context: ref.Id, Envelope: &pb.Envelope{Payload: &pb.Envelope_DialogEvent{DialogEvent: &pb.DialogEvent{Kind: pb.DialogEvent_FAILED, OperationId: "event-operation", Snapshot: c.Snapshot, Message: &pb.SipMessage{Wire: c.Origin.Wire}}}}}).MarshalBinary()
+	eventBody, err := (stateEngineEffect{Context: ref.Id, Envelope: &pb.Envelope{Payload: &pb.Envelope_DialogEvent{DialogEvent: &pb.DialogEvent{Kind: pb.DialogEvent_FAILED, OperationId: "event-operation", Snapshot: c.Snapshot, Message: &pb.SipMessage{Wire: c.Origin.WireBytes()}}}}}).MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestFixtureCompletionProjectionRetainsProofsWithoutWireOrCredentials(t *tes
 		t.Fatal("fixture lost exact uint64 identity")
 	}
 	tx := got.Transactions[selected.Native.Key]
-	if tx.CompletionScope != c.CompletionScope || !tx.Native.Cancelled || !tx.Native.CancelSent || !reflect.DeepEqual(tx.Native.Timers, selected.Native.Timers) || tx.Native.Origin.WireSHA256 != fixtureHash(c.Origin.Wire) || tx.Native.LastResponse.Status != 503 {
+	if tx.CompletionScope != c.CompletionScope || !tx.Native.Cancelled || !tx.Native.CancelSent || !reflect.DeepEqual(tx.Native.Timers, selected.Native.Timers) || tx.Native.Origin.WireSHA256 != fixtureHash(c.Origin.WireBytes()) || tx.Native.LastResponse.Status != 503 {
 		t.Fatal("fixture lost exact native completion proof")
 	}
 	if len(projected.Payload.Effects) != 1 || projected.Payload.Effects[0].Event.OperationID != "event-operation" {
@@ -88,12 +88,12 @@ func TestFixtureCompletionProjectionRetainsProofsWithoutWireOrCredentials(t *tes
 
 func TestFixtureMessageProofPreservesEntireHeaderEqualityAndDoesNotReadBody(t *testing.T) {
 	wire := []byte("NOTIFY sip:200@example.test SIP/2.0\r\nVia: SIP/2.0/TCP example.test;branch=z9hG4bK-fixture\r\nFrom: \"Display  Name\" <sip:100@example.test>;tag=from\r\nTo: <sip:200@example.test>;tag=to\r\nCall-ID: fixture-call\r\nCSeq: 7 NOTIFY\r\nContent-Length: 0\r\n\r\n")
-	message := portable.Message{Wire: wire, Transport: "tcp"}
+	message := portable.RestoreMessage(wire, "tcp", "", "")
 	first, err := fixtureMessage(message)
 	if err != nil {
 		t.Fatal(err)
 	}
-	message.Wire = bytes.Replace(wire, []byte("Display  Name"), []byte("Display Name"), 1)
+	message = portable.RestoreMessage(bytes.Replace(wire, []byte("Display  Name"), []byte("Display Name"), 1), message.Transport(), message.Source(), message.Destination())
 	changed, err := fixtureMessage(message)
 	if err != nil {
 		t.Fatal(err)

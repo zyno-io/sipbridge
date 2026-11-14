@@ -151,8 +151,8 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 		t.Fatal(err)
 	}
 	final := readResidentFinal(t, reader, 1)
-	origin := portable.Message{Wire: []byte(initial), Transport: "tls"}
-	remote, err := portable.NewDialog(portable.UAC, origin, portable.Message{Wire: final, Transport: "tls"}, portable.DefaultTimers())
+	origin := portable.RestoreMessage([]byte(initial), "tls", "", "")
+	remote, err := portable.NewDialog(portable.UAC, origin, portable.RestoreMessage(final, "tls", "", ""), portable.DefaultTimers())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = phone.Write(ack.Wire); err != nil {
+	if _, err = phone.Write(ack.WireBytes()); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -180,7 +180,7 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 		return m
 	}
 	sendWire := func(m portable.Message) {
-		if _, err := replacement.Write(m.Wire); err != nil {
+		if _, err := replacement.Write(m.WireBytes()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -225,7 +225,7 @@ presented:
 	if !statuses[200] || !statuses[487] {
 		t.Fatalf("CANCEL statuses: %v", statuses)
 	}
-	cancelAck, err := portable.BuildNon2xxACK(cancelled, portable.Message{Wire: rejected, Transport: "tls"})
+	cancelAck, err := portable.BuildNon2xxACK(cancelled, portable.RestoreMessage(rejected, "tls", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}

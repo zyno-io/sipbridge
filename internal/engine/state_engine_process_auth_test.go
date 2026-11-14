@@ -168,8 +168,8 @@ func TestStateNativeProcessCredentialLookupSurvivesExecutorDeath(t *testing.T) {
 			if !sameProcess(originalFlow.Ingress, b.process) || initial.Recipient.String() != target {
 				t.Fatal("credential fixture did not retain the full target on B's physical TLS flow")
 			}
-			challenge := digestReply(t, portable.Message{Wire: []byte(initial.String()), Transport: "tls"}, status)
-			phone.send(t, challenge.Wire)
+			challenge := digestReply(t, portable.RestoreMessage([]byte(initial.String()), "tls", "", ""), status)
+			phone.send(t, challenge.WireBytes())
 			var lookup processCredentialRead
 			select {
 			case lookup = <-readA:
@@ -183,9 +183,9 @@ func TestStateNativeProcessCredentialLookupSurvivesExecutorDeath(t *testing.T) {
 			pendingContext := processOnlyContext(t, pendingGroup)
 			if effect.Status != state.EffectPending || body.Executor != nil || effect.ID != lookup.Effect || body.Envelope.CorrelationId != lookup.Effect ||
 				!stateSameContext(lookup.Lookup.Context, opened.Snapshot.Context) || !sameProcess(body.Application, h.application) ||
-				!proto.Equal(saved.Credential, credential) || !bytes.Equal(saved.Origin.Wire, []byte(initial.String())) ||
-				!bytes.Equal(saved.Challenge.Wire, challenge.Wire) || saved.Attempt != 1 || saved.Count != 1 ||
-				pendingContext.Origin.Wire == nil || len(pendingContext.Transactions) != 1 {
+				!proto.Equal(saved.Credential, credential) || !bytes.Equal(saved.Origin.WireBytes(), []byte(initial.String())) ||
+				!bytes.Equal(saved.Challenge.WireBytes(), challenge.WireBytes()) || saved.Attempt != 1 || saved.Count != 1 ||
+				pendingContext.Origin.WireBytes() == nil || len(pendingContext.Transactions) != 1 {
 				t.Fatal("actual lookup did not use one committed immutable digest effect")
 			}
 			processAssertCredentialRecord(t, pending, secret)
@@ -254,7 +254,7 @@ func TestStateNativeProcessCredentialLookupSurvivesExecutorDeath(t *testing.T) {
 			}
 			// An exact challenge replay retains the original non-2xx ACK. It
 			// cannot allocate a second authenticated retry after establishment.
-			phone.send(t, challenge.Wire)
+			phone.send(t, challenge.WireBytes())
 			challengeACK := phone.receive(t, sip.ACK, 0)
 			if challengeACK.CSeq().SeqNo != initial.CSeq().SeqNo || challengeACK.String() != originalACK.String() {
 				t.Fatal("challenge replay restarted authentication instead of native ACK replay")
@@ -271,7 +271,7 @@ func TestStateNativeProcessCredentialLookupSurvivesExecutorDeath(t *testing.T) {
 			for _, tx := range finalContext.Transactions {
 				if tx.DigestAttempts == 1 {
 					retries++
-					if !bytes.Equal(tx.Native.Origin.Wire, []byte(retry.String())) || tx.Emissions != 1 {
+					if !bytes.Equal(tx.Native.Origin.WireBytes(), []byte(retry.String())) || tx.Emissions != 1 {
 						t.Fatal("recovered native retry changed its retained wire or allocated another emission")
 					}
 				}

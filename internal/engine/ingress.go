@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"github.com/emiago/sipgo/sip"
+	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
+	"github.com/icholy/digest"
 	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/capture"
 	"sipbridge/internal/control"
@@ -79,8 +81,9 @@ type Ingress struct {
 	invalidMessages  atomic.Uint64
 	methodRejected   atomic.Uint64
 	onRouteTiming    func(IngressRouteTiming)
-	directRequest    func(context.Context, *control.Peer, *pb.FlowRef, *pb.SipMessage, sip.Message) error
-	directCompletion func(context.Context, *pb.FlowRef, *pb.SipMessage, sip.Message) (bool, error)
+	directRequest    func(context.Context, *control.Peer, *pb.FlowRef, *pb.SipMessage, sip.Message, portable.Message) error
+	directCompletion func(context.Context, *pb.FlowRef, *pb.SipMessage, sip.Message, portable.Message) (bool, error)
+	directReject     func(context.Context, *pb.FlowRef, *pb.SipMessage, uint32, sip.Message, portable.Message) error
 	methodPolicy     MethodPolicy
 	authPolicy       *pb.InboundAuthPolicy
 	challenges       localChallenges
@@ -104,8 +107,9 @@ func (i *Ingress) Statistics() IngressStatistics {
 }
 
 type IngressOptions struct {
-	DirectRequest       func(context.Context, *control.Peer, *pb.FlowRef, *pb.SipMessage, sip.Message) error
-	DirectCompletion    func(context.Context, *pb.FlowRef, *pb.SipMessage, sip.Message) (bool, error)
+	DirectRequest       func(context.Context, *control.Peer, *pb.FlowRef, *pb.SipMessage, sip.Message, portable.Message) error
+	DirectCompletion    func(context.Context, *pb.FlowRef, *pb.SipMessage, sip.Message, portable.Message) (bool, error)
+	DirectReject        func(context.Context, *pb.FlowRef, *pb.SipMessage, uint32, sip.Message, portable.Message) error
 	PreferredController string
 	SourceIP            net.IP
 	Capture             *capture.Exporter
@@ -123,7 +127,7 @@ func NewIngress(process *pb.ProcessRef, server *control.Server, listener string,
 	if selected.AuthPolicy != nil {
 		authPolicy = proto.Clone(selected.AuthPolicy).(*pb.InboundAuthPolicy)
 	}
-	return &Ingress{process: process, control: server, listener: listener, preferred: selected.PreferredController, sourceIP: append(net.IP(nil), selected.SourceIP...), capture: selected.Capture, onRouteTiming: selected.OnRouteTiming, directRequest: selected.DirectRequest, directCompletion: selected.DirectCompletion, methodPolicy: selected.MethodPolicy, authPolicy: authPolicy, max: max, slots: make(chan struct{}, max), writes: make(chan struct{}, 128), flows: make(map[string]*physicalFlow), peers: make(map[string]*physicalFlow), messages: make(chan struct{}, 128), drainWake: make(chan struct{}, 1)}
+	return &Ingress{process: process, control: server, listener: listener, preferred: selected.PreferredController, sourceIP: append(net.IP(nil), selected.SourceIP...), capture: selected.Capture, onRouteTiming: selected.OnRouteTiming, directRequest: selected.DirectRequest, directCompletion: selected.DirectCompletion, directReject: selected.DirectReject, methodPolicy: selected.MethodPolicy, authPolicy: authPolicy, max: max, slots: make(chan struct{}, max), writes: make(chan struct{}, 128), flows: make(map[string]*physicalFlow), peers: make(map[string]*physicalFlow), messages: make(chan struct{}, 128), drainWake: make(chan struct{}, 1)}
 }
 
 func (i *Ingress) Serve(ctx context.Context, listener net.Listener, cfg *tls.Config) error {
@@ -246,7 +250,7 @@ func (i *Ingress) readStream(ctx context.Context, flow *physicalFlow) {
 					i.invalidMessages.Add(1)
 					return
 				}
-				message := projectIngressMessage(wire, m)
+				message := i.projectInboundMessage(wire, m)
 				flow.write.Lock()
 				usable := flow.admitSIPUse()
 				flow.write.Unlock()
@@ -279,6 +283,35 @@ func projectIngressMessage(wire []byte, parsed sip.Message) *pb.SipMessage {
 	return projectObservedMessage(wire, parsed, false)
 }
 
+// Direct native completion needs only routing identity. Build the rich public
+// projection after that probe, when a request is actually presented.
+func (i *Ingress) projectInboundMessage(wire []byte, parsed sip.Message) *pb.SipMessage {
+	if i.directCompletion == nil && i.directRequest == nil {
+		return projectIngressMessage(wire, parsed)
+	}
+	if request, ok := parsed.(*sip.Request); ok && request.Method == sip.OPTIONS {
+		return &pb.SipMessage{Wire: wire, Method: "OPTIONS"}
+	}
+	message := &pb.SipMessage{Wire: wire, Method: string(parsed.CSeq().MethodName), Selectors: observedMessageSelectors(parsed, false)}
+	if request, ok := parsed.(*sip.Request); ok {
+		message.Method = string(request.Method)
+	} else if response, ok := parsed.(*sip.Response); ok {
+		message.Status = uint32(response.StatusCode)
+	}
+	if i.authPolicy != nil && message.Status == 0 {
+		if value := header(parsed, "Authorization"); value != "" {
+			if auth, err := digest.ParseCredentials(value); err == nil {
+				message.Authorization = &pb.DigestCredentials{Username: auth.Username}
+			}
+		}
+		if to := parsed.To(); to != nil && tag(to.Params) != "" {
+			message.Addresses = map[string]*pb.AddressList{"to": {Values: []*pb.Address{{Params: map[string]string{"tag": tag(to.Params)}}}}}
+		}
+		message.Headers = []*pb.Header{{Name: "from", Value: header(parsed, "From")}}
+	}
+	return message
+}
+
 func (i *Ingress) route(parent context.Context, flow *physicalFlow, message *pb.SipMessage, observation ...state.LocalDrainObservation) {
 	i.routeParsed(parent, flow, message, nil, observation...)
 }
@@ -286,16 +319,18 @@ func (i *Ingress) route(parent context.Context, flow *physicalFlow, message *pb.
 func (i *Ingress) routeParsed(parent context.Context, flow *physicalFlow, message *pb.SipMessage, parsed sip.Message, observation ...state.LocalDrainObservation) {
 	ctx, cancel := context.WithTimeout(parent, ingressRouteTimeout)
 	defer cancel()
-	i.routeWithinParsed(ctx, flow, message, parsed, func(status int) { i.reject(parent, flow, message, status) }, func() {
-		i.rejectUnavailable(parent, flow, message)
+	i.routeWithinParsed(ctx, flow, message, parsed, func(status int, parsed sip.Message, native portable.Message) {
+		i.rejectParsed(parent, flow, message, status, parsed, native)
+	}, func(parsed sip.Message, native portable.Message) {
+		i.rejectUnavailableParsed(parent, flow, message, parsed, native)
 	}, observation...)
 }
 
 func (i *Ingress) routeWithin(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, reject func(int), unavailable func(), observation ...state.LocalDrainObservation) {
-	i.routeWithinParsed(ctx, flow, message, nil, reject, unavailable, observation...)
+	i.routeWithinParsed(ctx, flow, message, nil, func(status int, _ sip.Message, _ portable.Message) { reject(status) }, func(_ sip.Message, _ portable.Message) { unavailable() }, observation...)
 }
 
-func (i *Ingress) routeWithinParsed(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, parsed sip.Message, reject func(int), unavailable func(), observation ...state.LocalDrainObservation) {
+func (i *Ingress) routeWithinParsed(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, parsed sip.Message, rejectReply func(int, sip.Message, portable.Message), unavailableReply func(sip.Message, portable.Message), observation ...state.LocalDrainObservation) {
 	started := time.Now()
 	timing := IngressRouteTiming{Outcome: "route-unavailable", InitialBudgetMS: ingressRemainingMS(ctx)}
 	defer func() { i.reportRouteTiming(ctx, message, timing, started) }()
@@ -311,16 +346,16 @@ func (i *Ingress) routeWithinParsed(ctx context.Context, flow *physicalFlow, mes
 			i.finishDrainRoute(flow, observation[0], timing.Outcome == "native-completed" || timing.Outcome == "accepted" || timing.Outcome == "local-challenge-ack")
 		}()
 	}
-	rejectReply, unavailableReply := reject, unavailable
-	reject = func(status int) {
+	var native portable.Message
+	reject := func(status int) {
 		timing.SipStatus = ingressDiagnosticStatus(status)
 		started := time.Now()
-		rejectReply(status)
+		rejectReply(status, parsed, native)
 		timing.RefusalMS += ingressElapsedMS(started)
 	}
-	unavailable = func() {
+	unavailable := func() {
 		started := time.Now()
-		unavailableReply()
+		unavailableReply(parsed, native)
 		timing.RefusalMS += ingressElapsedMS(started)
 	}
 	if ctx.Err() != nil {
@@ -336,24 +371,37 @@ func (i *Ingress) routeWithinParsed(ctx context.Context, flow *physicalFlow, mes
 		i.methodRejected.Add(1)
 		timing.Outcome = "method-disabled"
 		timing.SipStatus = 405
-		i.localResponseWithin(ctx, flow, message, 405, "policy-", []*pb.Header{{Name: "Allow", Value: i.methodPolicy.allow()}})
+		i.localResponseWithParsedWithin(ctx, flow, message, parsed, 405, "policy-", []*pb.Header{{Name: "Allow", Value: i.methodPolicy.allow()}})
 		return
 	}
-	if !completionOnly && i.localChallengeACK(message, flow.ref) {
+	if !completionOnly && i.localChallengeACK(message, flow.ref, parsed) {
 		timing.Outcome = "local-challenge-ack"
 		return
 	}
 	if !completionOnly && i.requiresLocalChallenge(message) {
 		timing.Outcome = "local-challenge"
-		i.challengeLocally(ctx, flow, message)
+		i.challengeLocally(ctx, flow, message, parsed)
 		return
+	}
+	if i.directCompletion != nil || i.directRequest != nil {
+		if parsed == nil {
+			var err error
+			parsed, err = parseObservedMessage(message.Wire)
+			if err != nil {
+				reject(400)
+				return
+			}
+		}
+		// Native validation is consumed only at native admission; observed and
+		// local-policy validation intentionally have different acceptance rules.
+		native, _ = portable.FreezeMessage(message.Wire, parsed, flow.ref.Transport, net.JoinHostPort(flow.ref.SourceIp, strconv.Itoa(int(flow.ref.SourcePort))), "")
 	}
 	if i.stateCompletion != nil || i.directCompletion != nil {
 		probeStarted := time.Now()
 		var handled bool
 		var err error
 		if i.directCompletion != nil {
-			handled, err = i.directCompletion(ctx, flow.ref, message, parsed)
+			handled, err = i.directCompletion(ctx, flow.ref, message, parsed, native)
 		} else {
 			handled, err = i.stateCompletion(ctx, flow.ref, message)
 		}
@@ -385,7 +433,7 @@ func (i *Ingress) routeWithinParsed(ctx context.Context, flow *physicalFlow, mes
 		timing.Outcome = "no-ready-peer"
 		if i.stateWriter != nil && i.stateReject != nil {
 			refusalStarted := time.Now()
-			err := i.stateReject(ctx, flow.ref, message, 503)
+			err := i.rejectNative(ctx, flow.ref, message, 503, parsed, native)
 			timing.RefusalMS += ingressElapsedMS(refusalStarted)
 			if stateReadUnavailable(err) {
 				unavailable()
@@ -405,7 +453,8 @@ func (i *Ingress) routeWithinParsed(ctx context.Context, flow *physicalFlow, mes
 		}
 	}
 	if i.directRequest != nil {
-		if err := i.directRequest(ctx, peer, flow.ref, message, parsed); err != nil {
+		message = projectObservedMessage(message.Wire, parsed, false)
+		if err := i.directRequest(ctx, peer, flow.ref, message, parsed, native); err != nil {
 			timing.Outcome = "decision-notification-error"
 			var protocol *ingestError
 			if errors.As(err, &protocol) {
@@ -551,8 +600,10 @@ func (i *Ingress) routeUDPParsed(parent context.Context, flow *physicalFlow, mes
 		if parent.Err() != nil {
 			return
 		}
-		i.routeWithinParsed(ctx, flow, message, parsed, func(status int) { i.reject(parent, flow, message, status) }, func() {
-			i.rejectUnavailable(parent, flow, message)
+		i.routeWithinParsed(ctx, flow, message, parsed, func(status int, parsed sip.Message, native portable.Message) {
+			i.rejectParsed(parent, flow, message, status, parsed, native)
+		}, func(parsed sip.Message, native portable.Message) {
+			i.rejectUnavailableParsed(parent, flow, message, parsed, native)
 		}, observation...)
 	}()
 	return true
@@ -560,9 +611,13 @@ func (i *Ingress) routeUDPParsed(parent context.Context, flow *physicalFlow, mes
 func deadline(ctx context.Context) time.Time { d, _ := ctx.Deadline(); return d }
 
 func (i *Ingress) reject(parent context.Context, flow *physicalFlow, message *pb.SipMessage, status int) {
+	i.rejectParsed(parent, flow, message, status, nil, portable.Message{})
+}
+
+func (i *Ingress) rejectParsed(parent context.Context, flow *physicalFlow, message *pb.SipMessage, status int, parsed sip.Message, native portable.Message) {
 	ctx, cancel := context.WithTimeout(parent, 800*time.Millisecond)
 	defer cancel()
-	i.rejectWithin(ctx, flow, message, status)
+	i.rejectWithinParsed(ctx, flow, message, status, parsed, native)
 }
 
 // A failed read proves only this invocation did not mutate. Another packet may
@@ -571,23 +626,27 @@ func (i *Ingress) reject(parent context.Context, flow *physicalFlow, message *pb
 // expire before the caller does; only that independent read failure is an
 // actionable best-effort outage, never expiry of this arbitration budget.
 func (i *Ingress) rejectUnavailable(parent context.Context, flow *physicalFlow, message *pb.SipMessage) {
+	i.rejectUnavailableParsed(parent, flow, message, nil, portable.Message{})
+}
+
+func (i *Ingress) rejectUnavailableParsed(parent context.Context, flow *physicalFlow, message *pb.SipMessage, parsed sip.Message, native portable.Message) {
 	if i.stateWriter == nil || i.stateReject == nil || message == nil || message.Status != 0 || message.Method == "ACK" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, 2500*time.Millisecond)
 	defer cancel()
-	err := i.stateReject(ctx, flow.ref, message, 503)
+	err := i.rejectNative(ctx, flow.ref, message, 503, parsed, native)
 	if arbitrationExpired(ctx, time.Now()) || errors.Is(err, state.ErrUnknown) {
 		return
 	}
 	if errors.Is(err, state.ErrNotFound) {
-		i.rejectStatelessWithin(ctx, flow, message, 481, true)
+		i.rejectStatelessWithinParsed(ctx, flow, message, 481, true, parsed)
 		return
 	}
 	if stateReadUnavailable(err) {
 		refusal, cancel := context.WithTimeout(parent, 100*time.Millisecond)
 		defer cancel()
-		i.rejectStatelessWithin(refusal, flow, message, 503, true)
+		i.rejectStatelessWithinParsed(refusal, flow, message, 503, true, parsed)
 	}
 }
 
@@ -599,6 +658,17 @@ func arbitrationExpired(ctx context.Context, now time.Time) bool {
 }
 
 func (i *Ingress) rejectWithin(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, status int) {
+	i.rejectWithinParsed(ctx, flow, message, status, nil, portable.Message{})
+}
+
+func (i *Ingress) rejectNative(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, status uint32, parsed sip.Message, native portable.Message) error {
+	if i.directReject != nil && parsed != nil && !native.IsZero() {
+		return i.directReject(ctx, flow, message, status, parsed, native)
+	}
+	return i.stateReject(ctx, flow, message, status)
+}
+
+func (i *Ingress) rejectWithinParsed(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, status int, parsed sip.Message, native portable.Message) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -613,18 +683,22 @@ func (i *Ingress) rejectWithin(ctx context.Context, flow *physicalFlow, message 
 		if i.stateReject == nil {
 			return // Missing native arbitration is not no-admission evidence.
 		} else {
-			err := i.stateReject(ctx, flow.ref, message, uint32(status))
+			err := i.rejectNative(ctx, flow.ref, message, uint32(status), parsed, native)
 			if errors.Is(err, state.ErrNotFound) && !errors.Is(err, state.ErrUnknown) {
-				i.rejectStatelessWithin(ctx, flow, message, 481, true)
+				i.rejectStatelessWithinParsed(ctx, flow, message, 481, true, parsed)
 			}
 			// An unavailable/uncertain fence cannot select another final.
 			return
 		}
 	}
-	i.rejectStatelessWithin(ctx, flow, message, status, fallback)
+	i.rejectStatelessWithinParsed(ctx, flow, message, status, fallback, parsed)
 }
 
 func (i *Ingress) rejectStatelessWithin(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, status int, fallback bool) {
+	i.rejectStatelessWithinParsed(ctx, flow, message, status, fallback, nil)
+}
+
+func (i *Ingress) rejectStatelessWithinParsed(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, status int, fallback bool, parsed sip.Message) {
 	prefix := ""
 	var headers []*pb.Header
 	if fallback {
@@ -633,31 +707,38 @@ func (i *Ingress) rejectStatelessWithin(ctx context.Context, flow *physicalFlow,
 			headers = append(headers, &pb.Header{Name: "Retry-After", Value: "1"})
 		}
 	}
-	i.localResponseWithin(ctx, flow, message, status, prefix, headers)
+	i.localResponseWithParsedWithin(ctx, flow, message, parsed, status, prefix, headers)
 }
 
 // Callers must establish that this response cannot race an admitted business final.
 func (i *Ingress) localResponseWithin(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, status int, prefix string, headers []*pb.Header, tagger ...func(*sip.Request) string) {
+	i.localResponseWithParsedWithin(ctx, flow, message, nil, status, prefix, headers, tagger...)
+}
+
+func (i *Ingress) localResponseWithParsedWithin(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, parsed sip.Message, status int, prefix string, headers []*pb.Header, tagger ...func(*sip.Request) string) {
 	if ctx.Err() != nil || message.Method == "ACK" || message.Status != 0 {
 		return
 	}
-	m, err := sip.ParseMessage(message.Wire)
-	if err != nil {
-		return
+	if parsed == nil {
+		var err error
+		parsed, err = sip.ParseMessage(message.Wire)
+		if err != nil {
+			return
+		}
 	}
-	req, ok := m.(*sip.Request)
+	req, ok := parsed.(*sip.Request)
 	if !ok {
 		return
 	}
 	i.localResponseParsedWithin(ctx, flow, message, req, status, prefix, headers, tagger...)
 }
 
-// req is the operation-local parsed value, never retained or reused for native
-// admission after this local response.
+// Build against a private clone so the observed ingress parse remains unchanged.
 func (i *Ingress) localResponseParsedWithin(ctx context.Context, flow *physicalFlow, message *pb.SipMessage, req *sip.Request, status int, prefix string, headers []*pb.Header, tagger ...func(*sip.Request) string) {
 	if ctx.Err() != nil || req == nil || req.IsAck() || req.To() == nil || req.From() == nil || req.CallID() == nil || req.CSeq() == nil || req.Via() == nil {
 		return
 	}
+	req = req.Clone()
 	via := req.Via()
 	if via != nil {
 		via.Params.Add("received", flow.ref.SourceIp)
@@ -876,7 +957,7 @@ func (i *Ingress) ServeUDP(ctx context.Context, conn net.PacketConn) error {
 			i.invalidMessages.Add(1)
 			continue
 		}
-		message := projectIngressMessage(wire, parsed)
+		message := i.projectInboundMessage(wire, parsed)
 		callID := parsed.CallID().Value()
 		if callID == "" {
 			continue

@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"github.com/emiago/sipgo/sip"
-	"github.com/emiago/sipgo/sip/portable"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/state"
 )
@@ -253,16 +252,15 @@ func (r *stateReduction) autonomousProtocolInput() bool {
 		if in == nil || in.Flow == nil {
 			return false
 		}
-		message := portable.Message{Wire: in.Wire, Transport: in.Flow.Transport}
-		parsed, err := message.Parse()
+		message := r.incomingMessage(in.Wire, in.Flow, true)
+		facts, err := message.Facts()
 		if err != nil {
 			return false
 		}
-		if _, response := parsed.(*sip.Response); response {
+		if !facts.IsRequest {
 			return true
 		}
-		request := parsed.(*sip.Request)
-		if request.IsAck() || request.IsCancel() || request.Method == sip.BYE {
+		if facts.Method == sip.ACK || facts.Method == sip.CANCEL || facts.Method == sip.BYE {
 			return true
 		}
 		c := r.group.Contexts[in.GetContext().GetId()]

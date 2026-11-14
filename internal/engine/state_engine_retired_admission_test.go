@@ -63,7 +63,7 @@ func TestStateRetiredDialogRejectsFreshReinviteBeforeAdmission(t *testing.T) {
 				dialogState = "ended"
 			}
 			r, c, beforeDialog, request := retiredAdmissionFixture(t, dialogState)
-			observed, err := Observe(request.Wire, false)
+			observed, err := Observe(request.WireBytes(), false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -141,7 +141,7 @@ func TestStateRetiredDialogShortcutRequiresExactRetiringDirectionalInvite(t *tes
 
 func TestStateRetiredDialogDoesNotPreemptOccupiedServerInviteTransactionKey(t *testing.T) {
 	r, c, dialog, original := retiredAdmissionFixture(t, "retiring")
-	origin := portable.Message{Wire: append([]byte(nil), original.Wire...), Transport: original.Transport}
+	origin := portable.RestoreMessage(append([]byte(nil), original.WireBytes()...), original.Transport(), "", "")
 	native, err := portable.NewTransaction(portable.InviteServer, origin, portable.DefaultTimers(), dialog.LocalTag)
 	if err != nil {
 		t.Fatal(err)
@@ -160,13 +160,13 @@ func TestStateRetiredDialogDoesNotPreemptOccupiedServerInviteTransactionKey(t *t
 		{name: "uri", mutate: func(request *sip.Request) { request.Recipient.User = "changed-uri" }},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
-			parsed, err := sip.ParseMessage(original.Wire)
+			parsed, err := sip.ParseMessage(original.WireBytes())
 			if err != nil {
 				t.Fatal(err)
 			}
 			request := parsed.(*sip.Request)
 			variant.mutate(request)
-			message := portable.Message{Wire: []byte(request.String()), Transport: original.Transport}
+			message := portable.RestoreMessage([]byte(request.String()), original.Transport(), "", "")
 			key, err := sip.ServerTxKeyMake(request)
 			if err != nil || key != native.Key {
 				t.Fatalf("altered request did not retain the occupied native transaction key: key=%q want=%q err=%v", key, native.Key, err)
@@ -195,7 +195,7 @@ func TestStateRetiredDialogDoesNotPreemptOccupiedServerInviteTransactionKey(t *t
 
 func retiredAdmissionObserve(t *testing.T, message portable.Message) *pb.SipMessage {
 	t.Helper()
-	observed, err := Observe(message.Wire, false)
+	observed, err := Observe(message.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

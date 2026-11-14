@@ -44,22 +44,25 @@ func residentValidateSubscription(c *residentContext, request *sip.Request, in *
 // output capacity, indexes and these values must be published together by the
 // caller after any required flow-publication receipt has been checked.
 func (e *ResidentMemory) prepareResidentSubscription(c *residentContext, tx *residentTransaction, response *pb.Respond, now time.Time) (*stateSubscription, *pb.ContextSnapshot, portable.Message, error) {
-	parsed, err := tx.native.Origin.Parse()
+	request, err := tx.native.Origin.Facts()
 	if err != nil {
 		return nil, nil, portable.Message{}, err
 	}
-	request, ok := parsed.(*sip.Request)
-	if !ok {
+	if !request.IsRequest {
 		return nil, nil, portable.Message{}, errors.New("SUBSCRIBE request required")
 	}
-	return e.prepareResidentSubscriptionParsed(c, tx, response, now, request)
-}
-
-func (e *ResidentMemory) prepareResidentSubscriptionParsed(c *residentContext, tx *residentTransaction, response *pb.Respond, now time.Time, request *sip.Request) (*stateSubscription, *pb.ContextSnapshot, portable.Message, error) {
-	if request == nil || request.Method != sip.SUBSCRIBE || request.Contact() == nil || request.CSeq() == nil || request.From() == nil || response == nil || response.Status < 200 || response.Status >= 300 {
+	if request.Method != sip.SUBSCRIBE || !request.HasContact || response == nil || response.Status < 200 || response.Status >= 300 {
 		return nil, nil, portable.Message{}, errors.New("successful SUBSCRIBE with Contact required")
 	}
-	event, err := eventKey(request)
+	events, err := tx.native.Origin.HeaderValues("Event")
+	if err != nil {
+		return nil, nil, portable.Message{}, err
+	}
+	rawEvent := ""
+	if len(events) > 0 {
+		rawEvent = events[0]
+	}
+	event, err := eventKeyValue(rawEvent)
 	if err != nil {
 		return nil, nil, portable.Message{}, err
 	}
@@ -80,12 +83,14 @@ func (e *ResidentMemory) prepareResidentSubscriptionParsed(c *residentContext, t
 		*sub = *c.subscription
 		sub.Routes = append([]string(nil), c.subscription.Routes...)
 	} else {
-		for _, h := range request.GetHeaders("Record-Route") {
-			sub.Routes = append(sub.Routes, h.Value())
+		routes, routeErr := tx.native.Origin.HeaderValues("Record-Route")
+		if routeErr != nil {
+			return nil, nil, portable.Message{}, routeErr
 		}
+		sub.Routes = append(sub.Routes, routes...)
 	}
-	sub.Target = request.Contact().Address.String()
-	sub.RemoteSequence = request.CSeq().SeqNo
+	sub.Target = request.ContactURI
+	sub.RemoteSequence = request.CSeq
 	sub.Pending = ""
 	sub.ExpiresMS = now.Add(time.Duration(expires) * time.Second).UnixMilli()
 	sub.Terminating = expires == 0
@@ -95,10 +100,10 @@ func (e *ResidentMemory) prepareResidentSubscriptionParsed(c *residentContext, t
 	}
 	snapshot := proto.Clone(c.snapshot).(*pb.ContextSnapshot)
 	snapshot.Kind = pb.ContextSnapshot_SUBSCRIPTION
-	snapshot.RemoteTag = tag(request.From().Params)
+	snapshot.RemoteTag = request.FromTag
 	snapshot.DialogId = sip.DialogIDMake(snapshot.CallId, snapshot.LocalTag, snapshot.RemoteTag)
 	snapshot.RemoteTarget = sub.Target
-	contact, _, err := e.advertisement(tx.native.Origin.Transport)
+	contact, _, err := e.advertisement(tx.native.Origin.Transport())
 	if err != nil {
 		return nil, nil, portable.Message{}, err
 	}

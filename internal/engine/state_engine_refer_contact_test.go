@@ -51,7 +51,7 @@ func TestStateReferResponseUsesExactRetainedDialogContact(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		parsed, err := message.Parse()
+		parsed, err := sip.ParseMessage(message.WireBytes())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -59,7 +59,7 @@ func TestStateReferResponseUsesExactRetainedDialogContact(t *testing.T) {
 		if response.Contact() == nil || response.Contact().Address.String() != matched.Contact || !portable.MatchResponse(origin, message) {
 			t.Fatal("successful REFER did not retain its exact native dialog Contact and transaction identity")
 		}
-		if message.Transport != origin.Transport || !reflect.DeepEqual(c.Dialogs["local/matched"], before) {
+		if message.Transport() != origin.Transport() || !reflect.DeepEqual(c.Dialogs["local/matched"], before) {
 			t.Fatal("building REFER response changed transport or retained dialog state")
 		}
 	}
@@ -87,7 +87,7 @@ func TestStateReferContactOverrideLeavesOtherResponseAdvertisementsUnchanged(t *
 		if err != nil {
 			t.Fatal(err)
 		}
-		parsed, err := message.Parse()
+		parsed, err := sip.ParseMessage(message.WireBytes())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -95,17 +95,17 @@ func TestStateReferContactOverrideLeavesOtherResponseAdvertisementsUnchanged(t *
 			t.Fatalf("%s/%d advertisement changed", sample.method, sample.status)
 		}
 	}
-	parsed, err := initial.Native.Origin.Parse()
+	parsed, err := sip.ParseMessage(initial.Native.Origin.WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := parsed.(*sip.Request)
 	request.Method, request.CSeq().MethodName = sip.REFER, sip.REFER
-	message, err := r.buildResponse(c, portable.Message{Wire: []byte(request.String()), Transport: "tls"}, 202, "Accepted", nil, nil)
+	message, err := r.buildResponse(c, portable.RestoreMessage([]byte(request.String()), "tls", "", ""), 202, "Accepted", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err = message.Parse()
+	parsed, err = sip.ParseMessage(message.WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestStateReferContactSurvivesCrossExecutorUACTakeover(t *testing.T) {
 	}
 	request := retainedPeerDialogRequest(t, dialog, sip.REFER, 1)
 	result := stateTestApply(t, survivor, current.Snapshot.Context, "refer-ingest-on-a", stateEngineInput{Kind: "ingest", Application: current.Snapshot.Application,
-		Ingest: &pb.OwnerIngest{Context: current.Snapshot.Context, Application: current.Snapshot.Application, Flow: current.Flow, Wire: request.Wire}})
+		Ingest: &pb.OwnerIngest{Context: current.Snapshot.Context, Application: current.Snapshot.Application, Flow: current.Flow, Wire: request.WireBytes()}})
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}

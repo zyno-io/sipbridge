@@ -447,7 +447,7 @@ func TestStateEngineSubscriptionPolicyAndPublicationFenceLease(t *testing.T) {
 		t.Fatal("unaccepted refresh changed accepted lease or route")
 	}
 	for id, key := range c.Requests {
-		if c.Transactions[key].Native.Origin.Wire != nil && string(c.Transactions[key].Native.Origin.Wire) == string(renewal.Wire) {
+		if c.Transactions[key].Native.Origin.WireBytes() != nil && string(c.Transactions[key].Native.Origin.WireBytes()) == string(renewal.Wire) {
 			requestID = id
 		}
 	}

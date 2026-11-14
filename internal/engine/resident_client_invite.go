@@ -42,11 +42,11 @@ func (e *ResidentMemory) residentInviteResponseLocked(c *residentContext, tx *re
 	if err != nil {
 		return nil, nil, err
 	}
-	origin, err := tx.native.Origin.Parse()
+	origin, err := tx.native.Origin.Facts()
 	if err != nil {
 		return nil, nil, err
 	}
-	if tag(origin.To().Params) != "" {
+	if origin.ToTag != "" {
 		return e.residentReinviteResponseLocked(c, tx, nextTx, txEffects, message, observed, response, now)
 	}
 	key := tag(response.From().Params) + "/" + tag(response.To().Params)
@@ -165,7 +165,7 @@ func (e *ResidentMemory) residentInviteResponseLocked(c *residentContext, tx *re
 	c.snapshot = snapshot
 	var event *residentEvent
 	if kind != pb.DialogEvent_UNSPECIFIED {
-		event, err = e.stageResidentEventLocked(c, kind, observed, tx.command.operation, now.Add(2*time.Minute), tx.budget)
+		event, err = e.stageResidentEventNativeLocked(c, kind, observed, message, tx.command.operation, now.Add(2*time.Minute), tx.budget)
 		if err != nil {
 			c.snapshot = oldSnapshot
 			rollback()
@@ -241,11 +241,11 @@ func (e *ResidentMemory) residentClientOutputCompletedLocked(c *residentContext,
 	if output.method == "INVITE" && !output.replay && result.Outcome == pb.DeliveryResult_NOT_WRITTEN {
 		tx := c.transactions[output.transaction]
 		if tx != nil && tx.command != nil && tx.native.Family == portable.InviteClient && tx.native.LastResponse == nil {
-			origin, err := tx.native.Origin.Parse()
+			origin, err := tx.native.Origin.Facts()
 			if err != nil {
 				return nil, true, err
 			}
-			if tag(origin.To().Params) != "" {
+			if origin.ToTag != "" {
 				return nil, false, nil
 			}
 			next, effects, err := portable.StepTransaction(tx.native, portable.Input{Kind: portable.TransportFailure, Now: time.Now().UnixMilli(), Error: "SIP write did not start"})
@@ -317,15 +317,15 @@ func (e *ResidentMemory) residentClientOutputCompletedLocked(c *residentContext,
 	}
 	if output.dialog == c.selectedDialog && c.snapshot.Kind == pb.ContextSnapshot_UAC && dialog.native.LocalInvite.Initial && c.snapshot.Answered && !c.snapshot.Ended && !c.cancelled && !c.ownerLost && dialog.native.LocalInvite.Final != nil {
 		if tx := c.transactions[output.transaction]; tx != nil && tx.command != nil && tx.native.Family == portable.InviteClient {
-			finishResidentCommandLocked(c, tx.command, &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: mustObserve(tx.native.Origin.Wire, true), Response: mustObserve(dialog.native.LocalInvite.Final.Wire, false)})
+			finishResidentCommandMessageLocked(c, tx.command, pb.OperationResult_COMPLETED, 0, "", tx.native.Origin, *dialog.native.LocalInvite.Final)
 		}
 	}
 	if tx := c.transactions[output.transaction]; output.command != nil && tx != nil && output.command != tx.command {
-		var request *pb.SipMessage
+		var request portable.Message
 		if dialog.native.LocalInvite.ACK != nil {
-			request = mustObserve(dialog.native.LocalInvite.ACK.Wire, true)
+			request = *dialog.native.LocalInvite.ACK
 		}
-		finishResidentCommandLocked(c, output.command, &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: request})
+		finishResidentCommandMessageLocked(c, output.command, pb.OperationResult_COMPLETED, 0, "", request, portable.Message{})
 	}
 	if !output.cleanupAfterACK || dialog.native.Phase == portable.DialogEnded || dialog.native.LocalBye != nil {
 		return nil, true, nil
@@ -353,11 +353,11 @@ func (e *ResidentMemory) residentClientOutputCompletedLocked(c *residentContext,
 	if err != nil {
 		return nil, true, err
 	}
-	observed, err := Observe(origin.Wire, true)
+	selectors, err := nativeMessageSelectors(*origin, true)
 	if err != nil {
 		return nil, true, err
 	}
-	tx := &residentTransaction{native: started, flow: proto.Clone(output.write.Flow).(*pb.FlowRef), application: proto.Clone(c.snapshot.Application).(*pb.ProcessRef), cleanup: true, budget: dialog.budget, selectors: append([]string(nil), observed.Selectors...)}
+	tx := &residentTransaction{native: started, flow: proto.Clone(output.write.Flow).(*pb.FlowRef), application: proto.Clone(c.snapshot.Application).(*pb.ProcessRef), cleanup: true, budget: dialog.budget, selectors: append([]string(nil), selectors...)}
 	tx.charged = residentTransactionBytes(tx)
 	delta := residentDialogBytes(next) - residentDialogBytes(dialog.native)
 	tx.borrowed, err = e.chargeResidentBudgetLocked(c, tx.budget, tx.charged)
@@ -416,11 +416,11 @@ func (e *ResidentMemory) residentReinviteResponseLocked(c *residentContext, tx *
 	snapshot := proto.Clone(c.snapshot).(*pb.ContextSnapshot)
 	snapshot.Revision++
 	if response.IsSuccess() && key == c.selectedDialog {
-		origin, parseErr := tx.native.Origin.Parse()
+		body, parseErr := tx.native.Origin.Body()
 		if parseErr != nil {
 			return nil, nil, parseErr
 		}
-		snapshot.LocalSdp = append([]byte(nil), origin.Body()...)
+		snapshot.LocalSdp = body
 		snapshot.RemoteSdp = append([]byte(nil), response.Body()...)
 		snapshot.RemoteTarget = dialog.Target
 	}
@@ -465,7 +465,7 @@ func (e *ResidentMemory) residentReinviteResponseLocked(c *residentContext, tx *
 	_ = e.scheduleResidentTransactionLocked(c, tx, txEffects)
 	_ = e.scheduleResidentDialogLocked(c, key, append(dialogEffects, ackEffects...))
 	if response.StatusCode >= 200 {
-		finishResidentCommandWireLocked(c, tx.command, pb.OperationResult_COMPLETED, uint32(response.StatusCode), "", tx.native.Origin.Wire, message.Wire)
+		finishResidentCommandMessageLocked(c, tx.command, pb.OperationResult_COMPLETED, uint32(response.StatusCode), "", tx.native.Origin, message)
 	}
 	return writes, nil, nil
 }

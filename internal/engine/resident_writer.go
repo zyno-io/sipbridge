@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 	"unsafe"
 
-	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -78,27 +76,23 @@ func (e *ResidentMemory) stageResidentOutputGroupsLocked(c *residentContext, gro
 				return nil, errors.New("local output flow required")
 			}
 			message := *effect.Message
-			if message.Transport != flow.Transport {
+			if message.Transport() != flow.Transport {
 				return nil, errors.New("output transport changed")
 			}
-			parsed, err := message.Parse()
+			facts, err := message.Facts()
 			if err != nil {
 				return nil, err
 			}
-			// Physical authority needs only method/status/wire. Do not allocate a
-			// controller header/address/digest DTO or parse the same output again.
-			observed := &pb.SipMessage{Method: string(parsed.CSeq().MethodName)}
-			if response, ok := parsed.(*sip.Response); ok {
-				response.Via().Params.Add("received", flow.SourceIp)
-				if response.Via().Params.Has("rport") {
-					response.Via().Params.Add("rport", strconv.Itoa(int(flow.SourcePort)))
+			if !facts.IsRequest {
+				message, err = message.WithObservedResponseFlow(flow.SourceIp, int(flow.SourcePort))
+				if err != nil {
+					return nil, err
 				}
-				message.Wire = []byte(response.String())
-				observed.Status = uint32(response.StatusCode)
 			}
-			observed.Wire = message.Wire
+			wire := message.WireBytes()
+			observed := &pb.SipMessage{Method: string(facts.CSeqMethod), Status: uint32(facts.Status), Wire: wire}
 			if observed.Method == "ACK" && observed.Status == 0 {
-				identity := residentACKIdentity{local: tag(parsed.From().Params), remote: tag(parsed.To().Params), sequence: parsed.CSeq().SeqNo}
+				identity := residentACKIdentity{local: facts.FromTag, remote: facts.ToTag, sequence: facts.CSeq}
 				if budget != nil && budget.acks[identity]+acks[budget][identity] >= stateProfileTransmissions {
 					continue
 				}
@@ -157,17 +151,17 @@ func (e *ResidentMemory) stageResidentOutputGroupsLocked(c *residentContext, gro
 			}
 			write := &pb.FlowWrite{Effect: ref, Flow: flow, Permit: &pb.SendPermit{Authorization: auth, Flow: flow, DirectoryEpoch: epoch,
 				OrderingProof: e.id("native-write-authority-v1", fingerprint), CompletionScope: auth.CompletionScope}}
-			output, err := newResidentOutput(write, message.Wire, until)
+			output, err := newResidentOutput(write, wire, until)
 			if err != nil {
 				return nil, err
 			}
 			output.transaction, output.operation, output.command = selected.native.Key, operation, selected.command
 			output.replay = effect.Replay
-			output.method, output.status, output.drain = observed.Method, observed.Status, drainMessageObservation(parsed)
+			output.method, output.status, output.drain = observed.Method, observed.Status, drainNativeMessageObservation(message, facts)
 			if observed.Method == "ACK" {
-				output.ackSequence = parsed.CSeq().SeqNo
+				output.ackSequence = facts.CSeq
 			}
-			output.bytes = int64(unsafe.Sizeof(*output)) + int64(len(message.Wire)) + residentFlowBytes(flow) + residentProofBytes(output.write) + 512
+			output.bytes = int64(unsafe.Sizeof(*output)) + int64(len(wire)) + residentFlowBytes(flow) + residentProofBytes(output.write) + 512
 			if class == pb.EffectAuthorization_APPLICATION && policy != nil && policy.ExpectedDelivery != nil {
 				output.expectedDelivery = proto.Clone(policy.ExpectedDelivery).(*pb.ContextDelivery)
 			}

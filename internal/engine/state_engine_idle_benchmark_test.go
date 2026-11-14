@@ -139,7 +139,7 @@ func subscriptionHistoryFixtureObserved(t testing.TB, transactions int, mixed bo
 		_, g := stateTestLoad(t, f.engine, ref)
 		var request *sip.Request
 		for _, tx := range g.Contexts[ref.Id].Transactions {
-			parsed, err := tx.Native.Origin.Parse()
+			parsed, err := sip.ParseMessage(tx.Native.Origin.WireBytes())
 			if err != nil {
 				t.Fatal(err)
 			}

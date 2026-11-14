@@ -22,7 +22,7 @@ func (e *ResidentMemory) ReceiveRequest(ctx context.Context, peer *control.Peer,
 
 // ReceiveRequestParsed consumes the owned projection and parse from the same
 // framing operation. The parse is transient and is never stored in native state.
-func (e *ResidentMemory) ReceiveRequestParsed(ctx context.Context, peer *control.Peer, flow *pb.FlowRef, message *pb.SipMessage, parsed sip.Message) (receiveErr error) {
+func (e *ResidentMemory) ReceiveRequestParsed(ctx context.Context, peer *control.Peer, flow *pb.FlowRef, message *pb.SipMessage, parsed sip.Message, frozen ...portable.Message) (receiveErr error) {
 	defer func() {
 		var protocol *portable.ProtocolError
 		if errors.As(receiveErr, &protocol) {
@@ -44,6 +44,10 @@ func (e *ResidentMemory) ReceiveRequestParsed(ctx context.Context, peer *control
 	if !ok {
 		return errors.New("direct request requires a SIP request")
 	}
+	native, err := residentObservedNative(message.Wire, parsed, flow, frozen...)
+	if err != nil {
+		return err
+	}
 	route, err := e.locateResidentParsed(ctx, message.Wire, parsed, message.Selectors, true)
 	if err != nil {
 		return err
@@ -61,7 +65,7 @@ func (e *ResidentMemory) ReceiveRequestParsed(ctx context.Context, peer *control
 		return err
 	}
 	deadline := deadlineOr(ctx, time.Now().Add(2*time.Second))
-	result, err := e.receiveResidentInitial(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: flow, Wire: message.Wire}, deadline, message, request)
+	result, err := e.receiveResidentInitial(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: flow, Wire: message.Wire}, deadline, message, request, native)
 	if err != nil {
 		return err
 	}
@@ -139,7 +143,7 @@ func (e *ResidentMemory) fireResidentDecisionDeadline(item residentDeadline) boo
 	return true
 }
 
-func (e *ResidentMemory) receiveResidentInitial(ctx context.Context, peer *control.Peer, in *pb.OwnerIngest, deadline time.Time, observed *pb.SipMessage, request *sip.Request) (*pb.OperationResult, error) {
+func (e *ResidentMemory) receiveResidentInitial(ctx context.Context, peer *control.Peer, in *pb.OwnerIngest, deadline time.Time, observed *pb.SipMessage, request *sip.Request, native portable.Message) (*pb.OperationResult, error) {
 	if in == nil || in.Context == nil || in.Flow == nil || !sameProcess(in.Application, peer.Application()) || !sameProcess(in.Flow.Ingress, e.cfg.Process) {
 		return nil, errors.New("invalid ingest authority")
 	}
@@ -155,12 +159,12 @@ func (e *ResidentMemory) receiveResidentInitial(ctx context.Context, peer *contr
 	admission, admitted := e.admissions[in.Context.Id]
 	e.mu.Unlock()
 	if c != nil {
-		return e.ingestResidentExistingParsed(ctx, c, in, deadline, request, observed)
+		return e.ingestResidentExistingParsed(ctx, c, in, deadline, request, observed, native)
 	}
 	if !admitted || !proto.Equal(in.Context.State, e.contextRef(admission.callID, in.Context.Id).State) || admission.callID != in.Context.State.CallId || admission.wireHash != sha256.Sum256(in.Wire) || !now.Before(admission.expires) {
 		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, SipStatus: 481, Error: "native admission unavailable"}, nil
 	}
-	candidate, tx, effects, err := e.prepareResidentInitialParsed(in, deadline, now, request)
+	candidate, tx, effects, err := e.prepareResidentInitialParsed(in, deadline, now, request, native)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +250,7 @@ func (e *ResidentMemory) receiveResidentInitial(ctx context.Context, peer *contr
 
 // Only a pending transaction is published before policy. Dialog input and route
 // publication are recomputed from current native values when its decision arrives.
-func (e *ResidentMemory) receiveResidentExisting(ctx context.Context, c *residentContext, in *pb.OwnerIngest, deadline time.Time, observed *pb.SipMessage, request *sip.Request) (*pb.OperationResult, error) {
+func (e *ResidentMemory) receiveResidentExisting(ctx context.Context, c *residentContext, in *pb.OwnerIngest, deadline time.Time, observed *pb.SipMessage, request *sip.Request, message portable.Message) (*pb.OperationResult, error) {
 	if request == nil || request.IsAck() || request.IsCancel() {
 		return nil, rejectIngest(481, "unknown native request")
 	}
@@ -276,7 +280,7 @@ func (e *ResidentMemory) receiveResidentExisting(ctx context.Context, c *residen
 			c.mu.Unlock()
 			return nil, rejectIngest(481, "dialog unavailable")
 		}
-		_, _, err = portable.StepDialog(dialog.native, portable.DialogInput{Kind: portable.DialogReceiveRequest, Message: portable.Message{Wire: in.Wire, Transport: in.Flow.Transport}, Now: time.Now().UnixMilli(), Offer: request.IsInvite() && len(request.Body()) > 0})
+		_, _, err = portable.StepDialog(dialog.native, portable.DialogInput{Kind: portable.DialogReceiveRequest, Message: message, Now: time.Now().UnixMilli(), Offer: request.IsInvite() && len(request.Body()) > 0})
 		if err != nil {
 			c.mu.Unlock()
 			return nil, err
@@ -285,7 +289,7 @@ func (e *ResidentMemory) receiveResidentExisting(ctx context.Context, c *residen
 	now := time.Now()
 	until := minTime(deadline, now.Add(2*time.Second))
 	requestID := "r-" + e.id("resident-request", in.Context.State.Incarnation, in.Context.Id, string(in.Wire))[:48]
-	tx, effects, err := residentStartServerParsed(portable.Message{Wire: in.Wire, Transport: in.Flow.Transport}, in.Flow, in.Application, c.snapshot.LocalTag, requestID, until, now.UnixMilli(), request)
+	tx, effects, err := residentStartServerParsed(message, in.Flow, in.Application, c.snapshot.LocalTag, requestID, until, now.UnixMilli(), request)
 	if err != nil {
 		c.mu.Unlock()
 		return nil, err

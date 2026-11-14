@@ -68,7 +68,7 @@ func benchmarkBinaryGroup(transactions int) stateGroup {
 	context := &stateContext{Snapshot: &pb.ContextSnapshot{Context: &pb.ContextRef{Id: "fixture"}}, Transactions: map[string]*stateTransaction{}, Requests: map[string]string{}, Dialogs: map[string]portable.Dialog{}}
 	for n := 0; n < transactions; n++ {
 		key := fmt.Sprintf("tx-%d", n)
-		context.Transactions[key] = &stateTransaction{Native: portable.Transaction{Version: 1, Key: key, Origin: portable.Message{Wire: wire, Transport: "tls"}, Timers: map[portable.Timer]portable.Deadline{}, Profile: portable.DefaultTimers()}}
+		context.Transactions[key] = &stateTransaction{Native: portable.Transaction{Version: 1, Key: key, Origin: portable.RestoreMessage(wire, "tls", "", ""), Timers: map[portable.Timer]portable.Deadline{}, Profile: portable.DefaultTimers()}}
 	}
 	return stateGroup{Version: 1, Contexts: map[string]*stateContext{"fixture": context}, Selectors: map[string]string{"fixture": "fixture"}}
 }
@@ -136,7 +136,7 @@ func BenchmarkRetainedRecordCodec(b *testing.B) {
 				}
 				payload := state.Payload{ProtocolState: protocol, ActiveTransactions: count}
 				for n := 0; n < min(count, 8); n++ {
-					body := stateEngineEffect{Context: "fixture", Wire: value.Contexts["fixture"].Transactions["tx-0"].Native.Origin.Wire}
+					body := stateEngineEffect{Context: "fixture", Wire: value.Contexts["fixture"].Transactions["tx-0"].Native.Origin.WireBytes()}
 					var encoded []byte
 					if binary {
 						encoded, err = body.MarshalBinary()

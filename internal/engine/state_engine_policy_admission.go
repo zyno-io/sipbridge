@@ -155,12 +155,11 @@ func (r *stateReduction) anchorPolicyTransaction(c *stateContext, tx *stateTrans
 	if tx.Policy == nil {
 		return
 	}
-	parsed, err := tx.Native.Origin.Parse()
-	request, ok := parsed.(*sip.Request)
-	if err != nil || !ok || !request.IsInvite() {
+	facts, err := tx.Native.Origin.Facts()
+	if err != nil || !facts.IsRequest || facts.Method != sip.INVITE {
 		return
 	}
-	initial := tag(request.To().Params) == ""
+	initial := facts.ToTag == ""
 	if tx.CompletionScope == "" {
 		if initial && c.CompletionScope != "" {
 			tx.CompletionScope = c.CompletionScope

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/emiago/sipgo/sip"
+	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
@@ -120,6 +122,11 @@ func (e *ResidentMemory) LocateRoute(ctx context.Context, message *pb.SipMessage
 }
 func (e *ResidentMemory) Reject(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, status uint32) error {
 	return e.reject(ctx, flow, message, status)
+}
+
+// RejectParsed is reserved for a same-frame physical ingress observation.
+func (e *ResidentMemory) RejectParsed(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, status uint32, parsed sip.Message, native portable.Message) error {
+	return e.rejectParsed(ctx, flow, message, status, parsed, native)
 }
 func (e *ResidentMemory) TryNativeCompletion(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage) (bool, error) {
 	return e.tryNativeCompletion(ctx, flow, message)

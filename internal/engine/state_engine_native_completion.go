@@ -29,7 +29,7 @@ func (r *stateReduction) prepareAutonomousEffects() error {
 			continue
 		}
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return state.ErrCorrupt
 		}
 		c := r.group.Contexts[body.Context]

@@ -67,12 +67,12 @@ func InspectRetainedProtocol(data []byte) (RetainedInspection, error) {
 				family = string(tx.Native.Family)
 			}
 			result.TransactionFamilies[family]++
-			parsed, err := tx.Native.Origin.Parse()
-			if err != nil || parsed.CSeq() == nil {
+			facts, err := tx.Native.Origin.Facts()
+			if err != nil {
 				return RetainedInspection{}, state.ErrCorrupt
 			}
 			method := "other"
-			switch name := parsed.CSeq().MethodName; name {
+			switch name := facts.CSeqMethod; name {
 			case sip.INVITE, sip.ACK, sip.BYE, sip.CANCEL, sip.REGISTER, sip.SUBSCRIBE, sip.NOTIFY, sip.OPTIONS, sip.INFO, sip.REFER, sip.UPDATE, sip.PRACK, sip.MESSAGE, sip.PUBLISH:
 				method = string(name)
 			}

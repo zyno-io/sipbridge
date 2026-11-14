@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"github.com/emiago/sipgo/sip"
 	"reflect"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ func nativeResponseRequest(t *testing.T, f nativeOwnerFixture, ref *pb.ContextRe
 	_, g := stateTestLoad(t, f.engine, ref)
 	c := g.Contexts[ref.Id]
 	for id, key := range c.Requests {
-		parsed, err := c.Transactions[key].Native.Origin.Parse()
+		parsed, err := sip.ParseMessage(c.Transactions[key].Native.Origin.WireBytes())
 		if err == nil && parsed.CSeq().SeqNo == cseq {
 			return id
 		}
@@ -129,7 +130,7 @@ func TestNativeCommandAdmissionInitialAnchorIsStableAndIndependent(t *testing.T)
 		t.Fatal("accepted initial response changed its native anchor")
 	}
 	tx := c.Transactions[c.Requests[request]]
-	if tx.CompletionScope != c.CompletionScope || !bytes.Equal(c.ScopeOrigin.Wire, tx.Native.Origin.Wire) {
+	if tx.CompletionScope != c.CompletionScope || !bytes.Equal(c.ScopeOrigin.WireBytes(), tx.Native.Origin.WireBytes()) {
 		t.Fatal("native response anchor did not bind the original retained INVITE")
 	}
 	var native bool

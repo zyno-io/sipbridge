@@ -205,7 +205,7 @@ func TestCommandPolicyPreservesLegacyInitialCompletionAnchor(t *testing.T) {
 	_, after := stateTestLoad(t, f.engine, ref)
 	current := after.Contexts[ref.Id]
 	if current.CompletionScope != prior.CompletionScope || current.ScopeOrigin == nil || prior.ScopeOrigin == nil ||
-		!bytes.Equal(current.ScopeOrigin.Wire, prior.ScopeOrigin.Wire) ||
+		!bytes.Equal(current.ScopeOrigin.WireBytes(), prior.ScopeOrigin.WireBytes()) ||
 		current.Transactions[current.Requests[request]].CompletionScope != prior.CompletionScope {
 		t.Fatal("new command changed an established native completion anchor")
 	}
@@ -315,7 +315,7 @@ func TestCommandPolicyNetworkDigestKeepsOriginalSelectionAcrossWorkers(t *testin
 			decision := proto.Clone(original.Policy.Decision).(*pb.CommandAdmission)
 			challenge := digestReply(t, original.Native.Origin, 407)
 			result = a.apply(t, ref, "challenge", stateEngineInput{Kind: "ingest", Application: a.app, ApplicationLeaseTerm: a.term,
-				Ingest: &pb.OwnerIngest{Context: ref, Application: a.app, Flow: flow, Wire: challenge.Wire, Admission: pb.OwnerIngest_EXISTING_FLOW}})
+				Ingest: &pb.OwnerIngest{Context: ref, Application: a.app, Flow: flow, Wire: challenge.WireBytes(), Admission: pb.OwnerIngest_EXISTING_FLOW}})
 			if result.Error != "" {
 				t.Fatal(result.Error)
 			}

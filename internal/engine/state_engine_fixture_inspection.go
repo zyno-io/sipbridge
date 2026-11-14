@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -176,29 +175,30 @@ func fixtureHeader(wire []byte, wanted string) (string, error) {
 	return values[0], nil
 }
 func fixtureMessage(message portable.Message) (*FixtureMessageProof, error) {
-	if len(message.Wire) == 0 {
+	if message.WireLen() == 0 {
 		return nil, nil
 	}
-	parsed, err := message.Parse()
-	if err != nil || parsed.CSeq() == nil || parsed.CallID() == nil || parsed.From() == nil || parsed.To() == nil {
+	facts, err := message.Facts()
+	if err != nil {
 		return nil, state.ErrCorrupt
 	}
-	from, err := fixtureHeader(message.Wire, "from")
+	wire := message.WireBytes()
+	from, err := fixtureHeader(wire, "from")
 	if err != nil {
 		return nil, err
 	}
-	to, err := fixtureHeader(message.Wire, "to")
+	to, err := fixtureHeader(wire, "to")
 	if err != nil {
 		return nil, err
 	}
-	cseq, err := fixtureHeader(message.Wire, "cseq")
+	cseq, err := fixtureHeader(wire, "cseq")
 	if err != nil {
 		return nil, err
 	}
-	out := &FixtureMessageProof{Type: "request", Method: string(parsed.CSeq().MethodName), CallID: parsed.CallID().Value(), CSeq: cseq, CSeqNumber: parsed.CSeq().SeqNo, CSeqMethod: string(parsed.CSeq().MethodName), FromTag: tag(parsed.From().Params), ToTag: tag(parsed.To().Params), WireSHA256: fixtureHash(message.Wire), FromSHA256: fixtureHash([]byte(from)), ToSHA256: fixtureHash([]byte(to))}
-	if response, ok := parsed.(*sip.Response); ok {
+	out := &FixtureMessageProof{Type: "request", Method: string(facts.CSeqMethod), CallID: facts.CallID, CSeq: cseq, CSeqNumber: facts.CSeq, CSeqMethod: string(facts.CSeqMethod), FromTag: facts.FromTag, ToTag: facts.ToTag, WireSHA256: fixtureHash(wire), FromSHA256: fixtureHash([]byte(from)), ToSHA256: fixtureHash([]byte(to))}
+	if !facts.IsRequest {
 		out.Type = "response"
-		out.Status = response.StatusCode
+		out.Status = facts.Status
 	}
 	return out, nil
 }

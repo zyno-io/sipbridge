@@ -1,7 +1,6 @@
 package portable
 
 import (
-	"bytes"
 	"errors"
 	"math"
 	"net"
@@ -104,7 +103,7 @@ func BuildInitialRequest(in InitialRequest) (Message, error) {
 		}
 		r.AppendHeader(&sip.ContactHeader{DisplayName: contact.DisplayName, Address: contact.Address, Params: contact.Params})
 	}
-	r.SetBody(bytes.Clone(in.Body))
+	r.SetBody(in.Body)
 	if len(in.Body) > 0 {
 		r.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
 	}
@@ -118,11 +117,7 @@ func BuildResponseWithHeaders(origin Message, status int, reason string, body []
 	if strings.ContainsAny(reason, "\r\n\x00") {
 		return Message{}, errors.New("invalid reason phrase")
 	}
-	m, err := ResponseFor(origin, status, reason, body, localTag)
-	if err != nil {
-		return Message{}, err
-	}
-	r, err := response(m)
+	r, err := responseFor(origin, status, reason, body, localTag)
 	if err != nil {
 		return Message{}, err
 	}
@@ -130,7 +125,7 @@ func BuildResponseWithHeaders(origin Message, status int, reason string, body []
 	if err != nil {
 		return Message{}, err
 	}
-	registration := o.Method == sip.REGISTER
+	registration := o.facts.Method == sip.REGISTER
 	if contact != "" && status != 100 && !registration {
 		value, err := parseNativeContact(contact)
 		if err != nil {
@@ -162,22 +157,29 @@ func BuildResponseWithHeaders(origin Message, status int, reason string, body []
 	if err := applyHeaders(r, contentHeaders); err != nil {
 		return Message{}, err
 	}
-	return wire(r, m.Transport, m.Source, m.Destination), nil
+	return wire(r, origin.Transport(), "", origin.Source()), nil
 }
 
 func BuildDialogRequestWithHeaders(s Dialog, method sip.RequestMethod, sequence uint32, body []byte, branch string, headers []Header) (Message, error) {
-	m, err := BuildDialogRequest(s, method, sequence, body, branch)
+	r, destination, err := buildDialogRequest(s, method, sequence, body, branch)
 	if err != nil {
 		return Message{}, err
 	}
-	r, err := request(m)
+	// The former wire wrapper parsed the intermediate request before adding
+	// application headers. Preserve its field normalization without a packet
+	// render/parse roundtrip, including comma/padded Route values.
+	normalized, err := constructionHeaders(r.Headers())
 	if err != nil {
 		return Message{}, err
+	}
+	r = structuredHeaderView(r, normalized, s.Transport).(*sip.Request)
+	if r.CSeq().MethodName != r.Method {
+		return Message{}, errors.New("CSeq method mismatch")
 	}
 	if err := applyHeaders(r, headers); err != nil {
 		return Message{}, err
 	}
-	return wire(r, m.Transport, m.Source, m.Destination), nil
+	return wire(r, s.Transport, "", destination), nil
 }
 
 func validToken(v string) bool {

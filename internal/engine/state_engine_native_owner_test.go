@@ -218,7 +218,7 @@ func (f nativeOwnerFixture) responseAuthority(t *testing.T, ref *pb.ContextRef, 
 	if tx == nil {
 		t.Fatal("fixture response request unavailable")
 	}
-	message, err := Observe(tx.Native.Origin.Wire, false)
+	message, err := Observe(tx.Native.Origin.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,7 +634,7 @@ func TestNativeOwnerSubscriptionAdoptionPinsOnlyApprovedSuccessor(t *testing.T) 
 			_, group = stateTestLoad(t, f.engine, ref)
 			requestID = ""
 			for id, key := range group.Contexts[ref.Id].Requests {
-				if bytes.Equal(group.Contexts[ref.Id].Transactions[key].Native.Origin.Wire, refresh.Wire) {
+				if bytes.Equal(group.Contexts[ref.Id].Transactions[key].Native.Origin.WireBytes(), refresh.Wire) {
 					requestID = id
 				}
 			}

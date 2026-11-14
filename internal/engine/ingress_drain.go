@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/emiago/sipgo/sip"
+	"github.com/emiago/sipgo/sip/portable"
 	"sipbridge/internal/state"
 )
 
@@ -55,6 +56,28 @@ func drainMessageObservation(message sip.Message) state.LocalDrainObservation {
 	// A 2xx ACK has a new Via branch, so its match uses directional dialog
 	// identity and CSeq. Forks each get their own ACK obligation.
 	out.ACK = sha256.Sum256([]byte(strings.Join([]string{message.CallID().Value(), tag(message.From().Params), tag(message.To().Params), strconv.FormatUint(uint64(message.CSeq().SeqNo), 10)}, "\x00")))
+	return out
+}
+
+func drainNativeMessageObservation(message portable.Message, facts portable.MessageFacts) state.LocalDrainObservation {
+	key, err := message.ClientTxKey()
+	return drainFrozenMessageObservation(facts, key, err)
+}
+
+func drainObservedMessageObservation(message portable.Message, facts portable.MessageFacts) state.LocalDrainObservation {
+	key, err := message.ObservedClientTxKey()
+	return drainFrozenMessageObservation(facts, key, err)
+}
+
+func drainFrozenMessageObservation(facts portable.MessageFacts, key string, keyErr error) state.LocalDrainObservation {
+	out := state.LocalDrainObservation{Request: facts.IsRequest, Status: uint16(facts.Status)}
+	out.Invite, out.Ack, out.Cancel = facts.CSeqMethod == sip.INVITE, facts.CSeqMethod == sip.ACK, facts.CSeqMethod == sip.CANCEL
+	out.Initial = facts.IsRequest && facts.ToTag == ""
+	sequence := strconv.FormatUint(uint64(facts.CSeq), 10)
+	if keyErr == nil {
+		out.Transaction = sha256.Sum256([]byte(strings.Join([]string{key, facts.CallID, facts.FromTag, sequence}, "\x00")))
+	}
+	out.ACK = sha256.Sum256([]byte(strings.Join([]string{facts.CallID, facts.FromTag, facts.ToTag, sequence}, "\x00")))
 	return out
 }
 

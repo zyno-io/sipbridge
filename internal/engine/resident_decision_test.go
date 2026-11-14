@@ -200,11 +200,11 @@ func TestResidentRequestDecisionSubscribeCommitsNotifyBeforeResponse(t *testing.
 	if !bytes.HasPrefix(response, []byte("SIP/2.0 202")) || !bytes.HasPrefix(notify, []byte("NOTIFY ")) || !bytes.Contains(notify, decision.Notify.Body) {
 		t.Fatal("subscription outputs lost order or content", string(response), string(notify))
 	}
-	reply, err := portable.ResponseFor(portable.Message{Wire: notify, Transport: "tls"}, 200, "OK", nil, "")
+	reply, err := portable.ResponseFor(portable.RestoreMessage(notify, "tls", "", ""), 200, "OK", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if handled, err := e.TryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: reply.Wire}); err != nil || !handled {
+	if handled, err := e.TryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: reply.WireBytes()}); err != nil || !handled {
 		t.Fatal("NOTIFY response did not complete natively", handled, err)
 	}
 	if replay := residentSendDecision(t, ctx, conn, session, "subscribe-decision", decision); replay.Certainty != pb.OperationResult_ACCEPTED || count.Load() != 2 {
@@ -220,7 +220,7 @@ func TestResidentRequestDecisionSubscribeCommitsNotifyBeforeResponse(t *testing.
 	}
 	newFlow := proto.Clone(flow).(*pb.FlowRef)
 	newFlow.ConnectionId = "reopened-phone"
-	refreshRequest := residentDirectRequest(t, e, peer, conn, ctx, newFlow, &pb.SipMessage{Wire: refresh.Wire})
+	refreshRequest := residentDirectRequest(t, e, peer, conn, ctx, newFlow, &pb.SipMessage{Wire: refresh.WireBytes()})
 	if refreshRequest.FlowAdoption == nil || !proto.Equal(refreshRequest.FlowAdoption.Flow, newFlow) || refreshRequest.FlowAdoption.NativeRevision != 1 {
 		t.Fatal("validated renewal did not propose the replacement flow", refreshRequest)
 	}
@@ -459,7 +459,7 @@ func residentDirectNativeEvent(t *testing.T, e *ResidentMemory, conn *websocket.
 	t.Helper()
 	done := make(chan error, 1)
 	go func() {
-		handled, err := e.TryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: message.Wire})
+		handled, err := e.TryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: message.WireBytes()})
 		if !handled && err == nil {
 			t.Error("native completion not handled")
 		}
@@ -498,7 +498,7 @@ func TestResidentRequestDecisionDeferredInviteAndEstablishedContinuations(t *tes
 		t.Fatal("ordinary asynchronous INVITE answer failed", result)
 	}
 	final := <-writes
-	remote, err := portable.NewDialog(portable.UAC, portable.Message{Wire: message.Wire, Transport: "tls"}, portable.Message{Wire: final, Transport: "tls"}, portable.DefaultTimers())
+	remote, err := portable.NewDialog(portable.UAC, portable.RestoreMessage(message.Wire, "tls", "", ""), portable.RestoreMessage(final, "tls", "", ""), portable.DefaultTimers())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +513,7 @@ func TestResidentRequestDecisionDeferredInviteAndEstablishedContinuations(t *tes
 	}
 	reopened := proto.Clone(flow).(*pb.FlowRef)
 	reopened.ConnectionId = "new-tls"
-	renewal := residentDirectRequest(t, e, peer, conn, ctx, reopened, &pb.SipMessage{Wire: reinvite.Wire})
+	renewal := residentDirectRequest(t, e, peer, conn, ctx, reopened, &pb.SipMessage{Wire: reinvite.WireBytes()})
 	decision := residentDirectDecision(renewal, 3, 0)
 	decision.Basis = pb.OwnerIngest_TLS_DIALOG_CONTINUITY
 	if result := residentSendDecision(t, ctx, conn, session, "admit-reinvite", decision); result.Certainty != pb.OperationResult_ACCEPTED || !proto.Equal(result.GetSnapshot().GetDelivery(), decision.Delivery) {
@@ -526,18 +526,18 @@ func TestResidentRequestDecisionDeferredInviteAndEstablishedContinuations(t *tes
 		t.Fatal("re-INVITE rejection failed", result)
 	}
 	rejected := <-writes
-	negativeACK, err := portable.BuildNon2xxACK(reinvite, portable.Message{Wire: rejected, Transport: "tls"})
+	negativeACK, err := portable.BuildNon2xxACK(reinvite, portable.RestoreMessage(rejected, "tls", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if handled, err := e.TryNativeCompletion(ctx, reopened, &pb.SipMessage{Wire: negativeACK.Wire}); err != nil || !handled {
+	if handled, err := e.TryNativeCompletion(ctx, reopened, &pb.SipMessage{Wire: negativeACK.WireBytes()}); err != nil || !handled {
 		t.Fatal("negative re-INVITE ACK failed", handled, err)
 	}
 	pending, err := portable.BuildDialogRequest(remote, sip.INVITE, 3, nil, "z9hG4bK-direct-cancel-reinvite")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pendingRequest := residentDirectRequest(t, e, peer, conn, ctx, reopened, &pb.SipMessage{Wire: pending.Wire})
+	pendingRequest := residentDirectRequest(t, e, peer, conn, ctx, reopened, &pb.SipMessage{Wire: pending.WireBytes()})
 	cancel, err := portable.BuildCancel(pending)
 	if err != nil {
 		t.Fatal(err)

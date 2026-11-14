@@ -371,7 +371,7 @@ func TestStateMigratedSameFlowSubscriptionPublication(t *testing.T) {
 				_, g := stateTestLoad(t, f.engine, ref)
 				var handle string
 				for id, key := range g.Contexts[ref.Id].Requests {
-					if bytes.Equal(g.Contexts[ref.Id].Transactions[key].Native.Origin.Wire, wire) {
+					if bytes.Equal(g.Contexts[ref.Id].Transactions[key].Native.Origin.WireBytes(), wire) {
 						handle = id
 					}
 				}
@@ -584,7 +584,7 @@ func TestStateMigratedSubscriptionProcessorChallengesBeforePublication(t *testin
 				_, g := stateTestLoad(t, f.engine, ref)
 				handle := ""
 				for id, key := range g.Contexts[ref.Id].Requests {
-					if bytes.Equal(g.Contexts[ref.Id].Transactions[key].Native.Origin.Wire, request) {
+					if bytes.Equal(g.Contexts[ref.Id].Transactions[key].Native.Origin.WireBytes(), request) {
 						handle = id
 					}
 				}
@@ -675,7 +675,7 @@ func TestStateMigratedDigestRetryUsesLiveResponseIdentity(t *testing.T) {
 			}
 			challenge := digestReply(t, original.Native.Origin, status)
 			result = f.apply(t, ref, "migration-digest-challenge", stateEngineInput{Kind: "native-ingest", NativeCompletion: true, Application: f.app, ApplicationLeaseTerm: f.term,
-				Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: challenge.Wire}})
+				Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: challenge.WireBytes()}})
 			if result.Error != "" {
 				t.Fatal(result.Error)
 			}
@@ -713,8 +713,8 @@ func TestStateMigratedDigestRetryUsesLiveResponseIdentity(t *testing.T) {
 			if retry == nil || retry.Native.Key == original.Native.Key || c.Snapshot.RemoteTag != "" {
 				t.Fatal("digest retry adopted challenge tag or reused initial transaction")
 			}
-			first, _ := original.Native.Origin.Parse()
-			next, _ := retry.Native.Origin.Parse()
+			first, _ := sip.ParseMessage(original.Native.Origin.WireBytes())
+			next, _ := sip.ParseMessage(retry.Native.Origin.WireBytes())
 			auth := "Authorization"
 			if status == 407 {
 				auth = "Proxy-Authorization"
@@ -724,7 +724,7 @@ func TestStateMigratedDigestRetryUsesLiveResponseIdentity(t *testing.T) {
 			}
 			accepted := forkReply(t, retry, 200, "accepted-tag")
 			for _, field := range []string{"cseq", "branch", "call-id", "from-tag"} {
-				parsed, err := accepted.Parse()
+				parsed, err := sip.ParseMessage(accepted.WireBytes())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -747,7 +747,7 @@ func TestStateMigratedDigestRetryUsesLiveResponseIdentity(t *testing.T) {
 				}
 			}
 			result = f.apply(t, ref, "migration-digest-accepted", stateEngineInput{Kind: "native-ingest", NativeCompletion: true, Application: f.app, ApplicationLeaseTerm: f.term,
-				Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: accepted.Wire}})
+				Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: accepted.WireBytes()}})
 			if result.Error != "" {
 				t.Fatal(result.Error)
 			}

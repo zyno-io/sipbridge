@@ -2,9 +2,7 @@ package engine
 
 import (
 	"errors"
-	"strconv"
 
-	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
@@ -28,16 +26,12 @@ type stateServerFinal struct {
 }
 
 func stateRenderResponse(message portable.Message, flow *pb.FlowRef) (portable.Message, error) {
-	parsed, err := message.Parse()
+	facts, err := message.Facts()
 	if err != nil {
 		return message, err
 	}
-	if response, ok := parsed.(*sip.Response); ok && flow != nil {
-		response.Via().Params.Add("received", flow.SourceIp)
-		if response.Via().Params.Has("rport") {
-			response.Via().Params.Add("rport", strconv.Itoa(int(flow.SourcePort)))
-		}
-		message.Wire = []byte(response.String())
+	if !facts.IsRequest && flow != nil {
+		return message.WithObservedResponseFlow(flow.SourceIp, int(flow.SourcePort))
 	}
 	return message, nil
 }
@@ -54,9 +48,8 @@ func stateFinalEffect(tx *stateTransaction, body stateEngineEffect) bool {
 	if err != nil {
 		return false
 	}
-	parsed, err := message.Parse()
-	response, ok := parsed.(*sip.Response)
-	return err == nil && ok && response.StatusCode >= 200 && body.WireHash == stateACKHash(message.Wire)
+	facts, err := message.Facts()
+	return err == nil && !facts.IsRequest && facts.Status >= 200 && body.WireHash == stateNativeACKHash(message)
 }
 
 func stateRecordWrittenFinal(tx *stateTransaction, body stateEngineEffect) {
@@ -138,13 +131,13 @@ func stateRelatedResponse(tx *stateTransaction, body stateEngineEffect) bool {
 		return false
 	}
 	rendered, err := stateRenderResponse(*tx.Native.LastResponse, body.Flow)
-	return err == nil && stateACKHash(rendered.Wire) == body.WireHash
+	return err == nil && stateNativeACKHash(rendered) == body.WireHash
 }
 
 func (r *stateReduction) expireUnstartedResponse(c *stateContext, tx *stateTransaction) error {
 	for index, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key || !stateRelatedResponse(tx, body) || effect.DeadlineMS > r.now {
@@ -212,7 +205,7 @@ func (r *stateReduction) retryServerFinal(c *stateContext, tx *stateTransaction)
 	selected.RetryAtMS = min(r.now+tx.Native.Profile.T1, selected.UntilMS)
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return state.ErrCorrupt
 		}
 		if body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key || !stateRelatedResponse(tx, body) {
@@ -230,7 +223,7 @@ func (r *stateReduction) retryServerFinal(c *stateContext, tx *stateTransaction)
 		return err
 	}
 	message, err := stateRenderResponse(*tx.Native.LastResponse, selected.Flow)
-	if err != nil || stateACKHash(message.Wire) != selected.WireHash {
+	if err != nil || stateNativeACKHash(message) != selected.WireHash {
 		return errors.New("retained selected response rendering mismatch")
 	}
 	selected.RetryAtMS = 0
@@ -244,10 +237,9 @@ func stateResponseClass(body stateEngineEffect) (final, unclassified bool) {
 		return body.WireStatus >= 200, false
 	}
 	if len(body.Wire) > 0 {
-		parsed, err := sip.ParseMessage(body.Wire)
+		_, facts, err := body.observedMessage()
 		if err == nil {
-			response, ok := parsed.(*sip.Response)
-			return ok && response.StatusCode >= 200, false
+			return !facts.IsRequest && facts.Status >= 200, false
 		}
 	}
 	return false, true
@@ -259,7 +251,7 @@ func (r *stateReduction) serverFinalRetryLive(c *stateContext, tx *stateTransact
 	}
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil || body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key ||
+		if r.unmarshalEffectMetadata(&body, effect) != nil || body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key ||
 			!stateSelectedResponseEffect(tx, body) || effect.DeadlineMS <= r.now {
 			continue
 		}
@@ -301,7 +293,7 @@ func (r *stateReduction) finishProvisionalNoStart(c *stateContext, tx *stateTran
 	}
 	for _, effect := range r.payload.Effects {
 		var body stateEngineEffect
-		if body.unmarshalMetadata(effect.Payload) != nil {
+		if r.unmarshalEffectMetadata(&body, effect) != nil {
 			return false
 		}
 		if body.Context != c.Snapshot.Context.Id || body.Transaction != tx.Native.Key || !stateRelatedResponse(tx, body) {

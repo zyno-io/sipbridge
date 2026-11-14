@@ -15,20 +15,19 @@ func (r *stateReduction) forkResponse(c *stateContext, tx *stateTransaction, m p
 	if tx.Native.Family != portable.InviteClient {
 		return false, nil
 	}
-	parsed, err := m.Parse()
+	response, err := m.Facts()
 	if err != nil {
 		return true, err
 	}
-	response, ok := parsed.(*sip.Response)
-	if !ok {
+	if response.IsRequest {
 		return true, errors.New("INVITE response required")
 	}
-	origin, err := tx.Native.Origin.Parse()
+	origin, err := tx.Native.Origin.Facts()
 	if err != nil {
 		return true, err
 	}
-	initial := tag(origin.To().Params) == ""
-	key := tag(response.From().Params) + "/" + tag(response.To().Params)
+	initial := origin.ToTag == ""
+	key := response.FromTag + "/" + response.ToTag
 	if !initial {
 		d, exists := c.Dialogs[key]
 		if !exists {
@@ -42,31 +41,31 @@ func (r *stateReduction) forkResponse(c *stateContext, tx *stateTransaction, m p
 		if err = r.dialogEffectsFor(c, key, effects); err != nil {
 			return true, err
 		}
-		if !response.IsProvisional() {
-			if response.IsSuccess() && key == c.Dialog {
-				c.Snapshot.LocalSdp = append([]byte(nil), origin.Body()...)
-				c.Snapshot.RemoteSdp = append([]byte(nil), response.Body()...)
+		if !(response.Status >= 100 && response.Status < 200) {
+			if (response.Status >= 200 && response.Status < 300) && key == c.Dialog {
+				c.Snapshot.LocalSdp = stateMessageBody(tx.Native.Origin)
+				c.Snapshot.RemoteSdp = stateMessageBody(m)
 				c.Snapshot.RemoteTarget = next.Target
 				r.touch(c)
 			}
-			c.Result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: mustObserve(tx.Native.Origin.Wire, true), Response: mustObserve(m.Wire, false), Snapshot: stateSnapshot(c, r.engine.cfg.Process)}
+			c.Result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: stateProjectMessage(tx.Native.Origin, true), Response: stateProjectMessage(m, false), Snapshot: stateSnapshot(c, r.engine.cfg.Process)}
 		}
 		return true, nil
 	}
-	if response.StatusCode >= 300 {
+	if response.Status >= 300 {
 		if c.Dialog == "" && !c.Snapshot.Ended {
 			c.Snapshot.Ended = true
 			c.RetireMS = r.now + 120000
 			r.touch(c)
-			r.event(c, pb.DialogEvent_FAILED, mustObserve(m.Wire, false), tx.Command)
+			r.eventNative(c, pb.DialogEvent_FAILED, m, tx.Command, response)
 		}
 		return true, nil
 	}
-	if response.StatusCode <= 100 || tag(response.To().Params) == "" || response.Contact() == nil {
-		if response.IsSuccess() {
+	if response.Status <= 100 || response.ToTag == "" || !response.HasContact {
+		if response.Status >= 200 && response.Status < 300 {
 			return true, errors.New("successful INVITE requires remote tag and Contact")
 		}
-		r.event(c, pb.DialogEvent_PROVISIONAL, mustObserve(m.Wire, false), tx.Command)
+		r.eventNative(c, pb.DialogEvent_PROVISIONAL, m, tx.Command, response)
 		return true, nil
 	}
 	d, exists := c.Dialogs[key]
@@ -85,9 +84,9 @@ func (r *stateReduction) forkResponse(c *stateContext, tx *stateTransaction, m p
 			return true, err
 		}
 	}
-	if !response.IsSuccess() {
+	if !(response.Status >= 200 && response.Status < 300) {
 		c.Dialogs[key] = d
-		r.event(c, pb.DialogEvent_PROVISIONAL, mustObserve(m.Wire, false), tx.Command)
+		r.eventNative(c, pb.DialogEvent_PROVISIONAL, m, tx.Command, response)
 		return true, nil
 	}
 	winning := c.Dialog == key
@@ -123,14 +122,14 @@ func (r *stateReduction) forkResponse(c *stateContext, tx *stateTransaction, m p
 	c.Snapshot.LocalTag = d.LocalTag
 	c.Snapshot.RemoteTag = d.RemoteTag
 	c.Snapshot.RemoteTarget = d.Target
-	c.Snapshot.RemoteSdp = append([]byte(nil), response.Body()...)
+	c.Snapshot.RemoteSdp = stateMessageBody(m)
 	r.index(c, m, false)
 	r.touch(c)
 	if err = r.dialogEffectsFor(c, key, effects); err != nil {
 		return true, err
 	}
 	if firstAnswer {
-		r.event(c, pb.DialogEvent_ANSWERED, mustObserve(m.Wire, false), tx.Command)
+		r.eventNative(c, pb.DialogEvent_ANSWERED, m, tx.Command, response)
 	}
 	return true, nil
 }

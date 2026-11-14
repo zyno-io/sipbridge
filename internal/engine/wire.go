@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/emiago/sipgo/sip"
+	"github.com/emiago/sipgo/sip/portable"
 	"github.com/icholy/digest"
 	pb "sipbridge/internal/controlpb"
 )
@@ -114,6 +115,133 @@ func projectObservedMessage(wire []byte, m sip.Message, outbound bool) *pb.SipMe
 		w.Authorization = &pb.DigestCredentials{Username: auth.Username, Realm: auth.Realm, Nonce: auth.Nonce, Uri: auth.URI, Response: auth.Response, Algorithm: auth.Algorithm, Qop: auth.QOP, Nc: fmt.Sprintf("%08x", auth.Nc), Cnonce: auth.Cnonce}
 	}
 	return w
+}
+
+// projectNativeMessage constructs a public DTO only at its delivery boundary.
+// Its input already owns its validated SIP facts and exact bytes.
+func projectNativeMessage(message portable.Message, outbound bool) (*pb.SipMessage, error) {
+	return projectFrozenMessage(message, outbound, false)
+}
+
+// Observed projection preserves the independent ingress validation contract.
+func projectObservedNativeMessage(message portable.Message, outbound bool) (*pb.SipMessage, error) {
+	return projectFrozenMessage(message, outbound, true)
+}
+
+func projectFrozenMessage(message portable.Message, outbound, observed bool) (*pb.SipMessage, error) {
+	var facts portable.MessageFacts
+	var err error
+	if observed {
+		facts, err = message.ObservedFacts()
+	} else {
+		facts, err = message.Facts()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !observed && facts.IsRequest {
+		if _, keyErr := message.ClientTxKey(); keyErr != nil {
+			return nil, fmt.Errorf("RFC 3261 Via branch required")
+		}
+	}
+	var all []portable.Header
+	if observed {
+		all, err = message.ObservedHeaders()
+	} else {
+		all, err = message.Headers()
+	}
+	if err != nil {
+		return nil, err
+	}
+	var body []byte
+	if observed {
+		body, err = message.ObservedBody()
+	} else {
+		body, err = message.Body()
+	}
+	if err != nil {
+		return nil, err
+	}
+	w := &pb.SipMessage{Wire: message.WireBytes(), Body: body, Addresses: make(map[string]*pb.AddressList), Method: string(facts.Method), Uri: facts.URI, Status: uint32(facts.Status), Reason: facts.Reason}
+	for _, h := range all {
+		name := strings.ToLower(h.Name)
+		w.Headers = append(w.Headers, &pb.Header{Name: name, Value: h.Value})
+		if name == "from" || name == "to" || name == "contact" || name == "refer-to" || name == "referred-by" || name == "p-asserted-identity" || name == "remote-party-id" {
+			var uri sip.Uri
+			params := sip.NewParams()
+			display, parseErr := sip.ParseAddressValue(h.Value, &uri, &params)
+			if parseErr == nil {
+				if w.Addresses[name] == nil {
+					w.Addresses[name] = &pb.AddressList{}
+				}
+				w.Addresses[name].Values = append(w.Addresses[name].Values, &pb.Address{Name: display, Uri: uri.String(), Params: params.Items()})
+			}
+		}
+	}
+	var vias []portable.ViaFacts
+	if observed {
+		vias, err = message.ObservedVias()
+	} else {
+		vias, err = message.Vias()
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, via := range vias {
+		w.Vias = append(w.Vias, &pb.Via{Protocol: via.Transport, Host: via.Host, Port: uint32(via.Port), Params: sip.HeaderParams(via.Params).Items()})
+	}
+	w.Selectors, err = frozenMessageSelectors(message, facts, outbound, observed)
+	if err != nil {
+		return nil, err
+	}
+	for _, h := range all {
+		if strings.EqualFold(h.Name, "Authorization") {
+			if auth, parseErr := digest.ParseCredentials(h.Value); parseErr == nil {
+				w.Authorization = &pb.DigestCredentials{Username: auth.Username, Realm: auth.Realm, Nonce: auth.Nonce, Uri: auth.URI, Response: auth.Response, Algorithm: auth.Algorithm, Qop: auth.QOP, Nc: fmt.Sprintf("%08x", auth.Nc), Cnonce: auth.Cnonce}
+			}
+			break
+		}
+	}
+	return w, nil
+}
+
+func nativeMessageSelectors(message portable.Message, outbound bool) ([]string, error) {
+	facts, err := message.Facts()
+	if err != nil {
+		return nil, err
+	}
+	return frozenMessageSelectors(message, facts, outbound, false)
+}
+
+func frozenMessageSelectors(message portable.Message, facts portable.MessageFacts, outbound, observed bool) ([]string, error) {
+	var selectors []string
+	var key string
+	var err error
+	if facts.IsRequest != outbound {
+		if observed {
+			key, err = message.ObservedCancelServerTxKey()
+		} else {
+			key, err = message.CancelServerTxKey()
+		}
+		if err == nil && key != "" {
+			selectors = append(selectors, opaque("stx:", key))
+		}
+	} else {
+		if observed {
+			key, err = message.ObservedClientTxKey()
+		} else {
+			key, err = message.ClientTxKey()
+		}
+		if err == nil && key != "" {
+			selectors = append(selectors, opaque("ctx:", key))
+		}
+	}
+	if facts.FromTag != "" && facts.ToTag != "" {
+		tags := []string{facts.FromTag, facts.ToTag}
+		sort.Strings(tags)
+		selectors = append(selectors, opaque("dlg:", facts.CallID, tags[0], tags[1]))
+	}
+	return selectors, nil
 }
 
 // observeSelectors preserves wire validation and native key rules without

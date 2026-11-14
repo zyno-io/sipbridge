@@ -67,7 +67,7 @@ func TestStateInitialInviteTimeoutReportsFailureAndRetainsLateCleanup(t *testing
 				t.Fatalf("setup did not fail exactly once: %+v", c)
 			}
 			start := len(r.payload.Effects)
-			r.in = stateEngineInput{Kind: "ingest", Context: c.Snapshot.Context, Application: c.Snapshot.Application, Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: forkReply(t, tx, 200, "late").Wire}}
+			r.in = stateEngineInput{Kind: "ingest", Context: c.Snapshot.Context, Application: c.Snapshot.Application, Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: c.Flow, Wire: forkReply(t, tx, 200, "late").WireBytes()}}
 			if err := r.ingest(); err != nil {
 				t.Fatal(err)
 			}
@@ -154,12 +154,12 @@ func TestStateRejectedRemoteReinviteReleasesOfferWithoutChangingAcceptedState(t 
 				if err != nil {
 					t.Fatal(err)
 				}
-				parsed, err := m.Parse()
+				parsed, err := sip.ParseMessage(m.WireBytes())
 				if err != nil {
 					t.Fatal(err)
 				}
 				parsed.To().Params.Add("tag", "local")
-				m.Wire = []byte(parsed.String())
+				m = portable.RestoreMessage([]byte(parsed.String()), m.Transport(), m.Source(), m.Destination())
 				return m
 			}
 			m := request(20)
@@ -206,12 +206,12 @@ func TestPresentationFailureReleasesRemoteReinvite(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				parsed, err := m.Parse()
+				parsed, err := sip.ParseMessage(m.WireBytes())
 				if err != nil {
 					t.Fatal(err)
 				}
 				parsed.To().Params.Add("tag", "local")
-				m.Wire = []byte(parsed.String())
+				m = portable.RestoreMessage([]byte(parsed.String()), m.Transport(), m.Source(), m.Destination())
 				return m
 			}
 			m := request(20)

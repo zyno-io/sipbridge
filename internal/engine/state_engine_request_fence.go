@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -78,7 +77,7 @@ func (e *StateEngine) requestFlowProof(flow *pb.FlowRef, wire []byte) (string, e
 }
 
 func stateExactServerRequest(tx *stateTransaction, m portable.Message) bool {
-	return stateServerTransaction(tx) && portable.MatchRequest(tx.Native.Origin, m) && bytes.Equal(tx.Native.Origin.Wire, m.Wire)
+	return stateServerTransaction(tx) && portable.MatchRequest(tx.Native.Origin, m) && tx.Native.Origin.EqualWire(m)
 }
 
 type stateRequestFence struct {
@@ -101,10 +100,9 @@ func (r *stateReduction) protectRequestFence() error {
 	if flow == nil || len(wire) == 0 {
 		return nil
 	}
-	m := portable.Message{Wire: wire, Transport: flow.Transport}
-	parsed, err := m.Parse()
-	request, ok := parsed.(*sip.Request)
-	if err != nil || !ok || request.IsAck() {
+	m := r.incomingMessage(wire, flow, r.in.Kind != "reject")
+	facts, err := m.Facts()
+	if err != nil || !facts.IsRequest || facts.Method == sip.ACK {
 		return nil
 	}
 	proof, err := r.engine.requestFlowProof(flow, wire)
@@ -113,7 +111,7 @@ func (r *stateReduction) protectRequestFence() error {
 	}
 	for _, id := range stateOwnerContextIDs(r.group) {
 		c := r.group.Contexts[id]
-		if c.Rejection && proto.Equal(c.Flow, flow) && bytes.Equal(c.Origin.Wire, wire) {
+		if c.Rejection && proto.Equal(c.Flow, flow) && c.Origin.EqualWireBytes(wire) {
 			fence := &stateRequestFence{context: id, kind: "refused"}
 			for key, tx := range c.Transactions {
 				if stateExactServerRequest(tx, m) {
@@ -165,9 +163,9 @@ func (r *stateReduction) admitRequestFlow(tx *stateTransaction, flow *pb.FlowRef
 		return true, nil // A fresh RPC identity cannot slide an existing proof's floor.
 	}
 	if r.deadline > 0 && r.now >= r.deadline {
-		parsed, err := sip.ParseMessage(wire)
-		request, ok := parsed.(*sip.Request)
-		if err != nil || !ok || !request.IsCancel() && request.Method != sip.BYE {
+		message := r.incomingMessage(wire, flow, true)
+		facts, err := message.Facts()
+		if err != nil || !facts.IsRequest || facts.Method != sip.CANCEL && facts.Method != sip.BYE {
 			return false, nil
 		}
 	}

@@ -123,18 +123,18 @@ func TestSettledNotifyRetirementRequiresEveryPositiveProof(t *testing.T) {
 			case "missing-final":
 				tx.Native.LastResponse = nil
 			case "malformed-final":
-				tx.Native.LastResponse = &portable.Message{Wire: []byte("bad"), Transport: "tls"}
+				tx.Native.LastResponse = stateTestPortablePtr([]byte("bad"), "tls", "", "")
 			case "wrong-kind-final":
 				tx.Native.LastResponse = &tx.Native.Origin
 			case "failure", "mismatch":
-				message, _ := tx.Native.LastResponse.Parse()
+				message, _ := sip.ParseMessage(tx.Native.LastResponse.WireBytes())
 				response := message.(*sip.Response)
 				if name == "failure" {
 					response.StatusCode = 481
 				} else {
 					response.CSeq().SeqNo++
 				}
-				tx.Native.LastResponse = &portable.Message{Wire: []byte(response.String()), Transport: "tls"}
+				tx.Native.LastResponse = stateTestPortablePtr([]byte(response.String()), "tls", "", "")
 			case "timer":
 				tx.Native.Timers = map[portable.Timer]portable.Deadline{portable.TimerF: {Active: true, At: r.now + 1000, Generation: 1}}
 			case "digest":

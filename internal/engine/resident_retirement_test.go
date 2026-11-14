@@ -13,7 +13,7 @@ import (
 func TestResidentTerminalRegisterRetainsCompactDisposition(t *testing.T) {
 	e, c, tx := residentSubscriptionFixture(t)
 	request := stateTestRequest("REGISTER", 1, "", "register")
-	native, err := portable.NewTransaction(portable.NonInviteServer, portable.Message{Wire: request.Wire, Transport: "tls"}, portable.DefaultTimers(), "local")
+	native, err := portable.NewTransaction(portable.NonInviteServer, portable.RestoreMessage(request.Wire, "tls", "", ""), portable.DefaultTimers(), "local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestResidentTerminalRegisterRetainsCompactDisposition(t *testing.T) {
 	e.bytes = c.bytes
 	e.reserved = c.reserved
 	e.retireResidentTransactionLocked(c, tx)
-	if !tx.retired || len(tx.native.Origin.Wire) != 0 || tx.wireHash != sha256.Sum256(request.Wire) || e.transactions["selector"] != c {
+	if !tx.retired || len(tx.native.Origin.WireBytes()) != 0 || tx.wireHash != sha256.Sum256(request.Wire) || e.transactions["selector"] != c {
 		t.Fatal("terminal request did not retain compact exact disposition")
 	}
 	if tx.policy != nil || tx.application != nil || tx.credential != nil || tx.flow != flow || tx.requestID != requestID || tx.presentDeadline != presentDeadline {
@@ -71,7 +71,7 @@ func TestResidentSubscriptionTransactionRetiresWithoutRetiringSubscription(t *te
 	e.contexts = map[string]*residentContext{c.snapshot.Context.Id: c}
 	e.transactions = map[string]*residentContext{"old-transaction": c}
 	e.retireResidentTransactionLocked(c, tx)
-	if !tx.retired || len(tx.native.Origin.Wire) != 0 {
+	if !tx.retired || len(tx.native.Origin.WireBytes()) != 0 {
 		t.Fatal("terminal subscription transaction retained its wire")
 	}
 	tx.retireAt = time.Now().Add(-time.Second)
@@ -86,7 +86,7 @@ func TestResidentTransactionCompactionReleasesReceiptReference(t *testing.T) {
 	e.maxBytes = 64 << 20
 	e.deadlineWake = make(chan struct{}, 1)
 	request := stateTestRequest("REGISTER", 1, "", "receipt-retirement")
-	native, err := portable.NewTransaction(portable.NonInviteServer, portable.Message{Wire: request.Wire, Transport: "tls"}, portable.DefaultTimers(), "local")
+	native, err := portable.NewTransaction(portable.NonInviteServer, portable.RestoreMessage(request.Wire, "tls", "", ""), portable.DefaultTimers(), "local")
 	if err != nil {
 		t.Fatal(err)
 	}

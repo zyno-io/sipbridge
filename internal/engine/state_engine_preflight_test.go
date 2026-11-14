@@ -51,7 +51,7 @@ func preflightFixture(t *testing.T, method string) (nativeOwnerFixture, *pb.Cont
 func TestStateControlPreflightClassificationIsConservative(t *testing.T) {
 	request := stateTestRequest("REGISTER", 1, "", "registration")
 	in := stateEngineInput{Kind: "ingest", Ingest: &pb.OwnerIngest{Flow: &pb.FlowRef{Transport: "tls"}, Wire: request.Wire}}
-	ordinary := &stateContext{Snapshot: &pb.ContextSnapshot{Kind: pb.ContextSnapshot_TRANSACTION}, Origin: portable.Message{Wire: request.Wire, Transport: "tls"}}
+	ordinary := &stateContext{Snapshot: &pb.ContextSnapshot{Kind: pb.ContextSnapshot_TRANSACTION}, Origin: portable.RestoreMessage(request.Wire, "tls", "", "")}
 	if !stateSkipSubscriptionPreflight(in, nil) || !stateSkipSubscriptionPreflight(in, ordinary) {
 		t.Fatal("proven ordinary registration could not reuse its preflight classification")
 	}
@@ -77,7 +77,7 @@ func TestStateControlPreflightClassificationIsConservative(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			c := *ordinary
 			c.Snapshot = &pb.ContextSnapshot{Kind: ordinary.Snapshot.Kind}
-			subscribe := portable.Message{Wire: stateTestRequest("SUBSCRIBE", 1, "", "potential").Wire, Transport: "tls"}
+			subscribe := portable.RestoreMessage(stateTestRequest("SUBSCRIBE", 1, "", "potential").Wire, "tls", "", "")
 			switch kind {
 			case "actual":
 				c.Subscription = &stateSubscription{}
@@ -88,7 +88,7 @@ func TestStateControlPreflightClassificationIsConservative(t *testing.T) {
 			case "transaction":
 				c.Transactions = map[string]*stateTransaction{"pending": {Native: portable.Transaction{Origin: subscribe}}}
 			case "unknown":
-				c.Origin.Wire = nil
+				c.Origin = portable.RestoreMessage(nil, c.Origin.Transport(), c.Origin.Source(), c.Origin.Destination())
 			}
 			if stateSkipSubscriptionPreflight(in, &c) {
 				t.Fatal("actual or potential subscription skipped the separate fresh preflight")

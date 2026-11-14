@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -71,6 +72,7 @@ type stateEngineInput struct {
 }
 
 type stateEngineEffect struct {
+	prepared      portable.Message        `json:"-"` // Operation-local validation; never serialized.
 	AfterACK      string                  `json:"afterACK,omitempty"`
 	Application   *pb.ProcessRef          `json:"application,omitempty"`
 	Authorization *pb.EffectAuthorization `json:"authorization,omitempty"`
@@ -316,15 +318,12 @@ func (e *StateEngine) LocateRoute(ctx context.Context, message *pb.SipMessage) (
 	if message == nil {
 		return nil, errors.New("SIP message required")
 	}
-	observed, err := Observe(message.Wire, false)
+	parsed, err := parseObservedMessage(message.Wire)
 	if err != nil {
 		return nil, err
 	}
-	message = observed
-	callID, err := stateMessageCallID(message.Wire)
-	if err != nil {
-		return nil, err
-	}
+	message = projectObservedMessage(message.Wire, parsed, false)
+	callID := parsed.CallID().Value()
 	ref, err := e.store.GroupForCallID(callID)
 	if err != nil {
 		return nil, err
@@ -332,7 +331,7 @@ func (e *StateEngine) LocateRoute(ctx context.Context, message *pb.SipMessage) (
 	if e.autonomousCompletion() {
 		to, from := message.Addresses["to"].GetValues(), message.Addresses["from"].GetValues()
 		if message.Status == 0 && len(to) > 0 && len(from) > 0 && to[0].GetParams()["tag"] != "" && from[0].GetParams()["tag"] != "" {
-			snapshot, err := e.locateExisting(ctx, ref, message)
+			snapshot, err := e.locateExisting(ctx, ref, message, parsed)
 			if err != nil || snapshot != nil {
 				return snapshot, err
 			}
@@ -382,7 +381,7 @@ func (e *StateEngine) LocateRoute(ctx context.Context, message *pb.SipMessage) (
 }
 
 // locateExisting returns only a fresh routing hint; ingest must validate again.
-func (e *StateEngine) locateExisting(ctx context.Context, ref state.Ref, message *pb.SipMessage) (*pb.ContextSnapshot, error) {
+func (e *StateEngine) locateExisting(ctx context.Context, ref state.Ref, message *pb.SipMessage, parsed ...sip.Message) (*pb.ContextSnapshot, error) {
 	e.lifecycleMu.Lock()
 	if e.closed {
 		e.lifecycleMu.Unlock()
@@ -423,7 +422,7 @@ func (e *StateEngine) locateExisting(ctx context.Context, ref state.Ref, message
 		if c.Rejection || c.OwnerLost || c.Snapshot.Ended {
 			return nil, nil
 		}
-		if err := stateRetiredInvite(c, message, now); err != nil {
+		if err := stateRetiredInvite(c, message, now, parsed...); err != nil {
 			var refusal *portable.ProtocolError
 			if errors.As(err, &refusal) {
 				return nil, rejectIngest(uint32(refusal.Status), "native context unavailable")
@@ -452,10 +451,11 @@ func (e *StateEngine) Reject(ctx context.Context, flow *pb.FlowRef, message *pb.
 	var ref *pb.ContextRef
 	var err error
 	if e.autonomousCompletion() {
-		callID, parseErr := stateMessageCallID(message.Wire)
-		if parseErr != nil {
-			return parseErr
+		parsed, parseErr := sip.ParseMessage(message.Wire)
+		if parseErr != nil || parsed.CallID() == nil {
+			return errors.New("valid Call-ID required")
 		}
+		callID := parsed.CallID().Value()
 		group, groupErr := e.store.GroupForCallID(callID)
 		if groupErr != nil {
 			return groupErr
@@ -466,10 +466,10 @@ func (e *StateEngine) Reject(ctx context.Context, flow *pb.FlowRef, message *pb.
 			if message.Method == "ACK" {
 				return nil
 			} // Never allocate in response to an unknown ACK.
-			observed, parseErr := Observe(message.Wire, false)
-			if parseErr != nil {
+			if parseErr := validateObservedMessage(parsed); parseErr != nil {
 				return parseErr
 			}
+			observed := projectObservedMessage(message.Wire, parsed, false)
 			to, from := observed.Addresses["to"].GetValues(), observed.Addresses["from"].GetValues()
 			if observed.Status == 0 && len(to) > 0 && len(from) > 0 && to[0].GetParams()["tag"] != "" && from[0].GetParams()["tag"] != "" {
 				// Positive absence of a tagged context is a 481 even without a
@@ -1014,14 +1014,16 @@ func stateDispatchableEffect(effect state.Effect, now int64) bool {
 func (e *StateEngine) dispatchEffects(ref state.Ref, effects []state.Effect, source callbackSource) {
 	eventPrefix := make(map[string]bool)
 	for _, effect := range effects {
+		var prepared *stateEngineEffect
 		if effect.Kind == "event" {
 			var body stateEngineEffect
 			if body.unmarshalMetadata(effect.Payload) != nil || eventPrefix[body.Context] {
 				continue
 			}
 			eventPrefix[body.Context] = true
+			prepared = &body
 		}
-		e.dispatchEffectWithinSource(e.ctx, ref, effect, true, source)
+		e.dispatchEffectWithinPrepared(e.ctx, ref, effect, true, source, prepared)
 	}
 }
 
@@ -1048,9 +1050,17 @@ func (e *StateEngine) dispatchEffectWithin(parent context.Context, ref state.Ref
 }
 
 func (e *StateEngine) dispatchEffectWithinSource(parent context.Context, ref state.Ref, effect state.Effect, chain bool, source callbackSource) {
+	e.dispatchEffectWithinPrepared(parent, ref, effect, chain, source, nil)
+}
+
+func (e *StateEngine) dispatchEffectWithinPrepared(parent context.Context, ref state.Ref, effect state.Effect, chain bool, source callbackSource, prepared *stateEngineEffect) {
 	var body stateEngineEffect
-	if body.unmarshalMetadata(effect.Payload) != nil {
-		return
+	if prepared != nil {
+		body = *prepared
+	} else {
+		if body.unmarshalMetadata(effect.Payload) != nil {
+			return
+		}
 	}
 	if !stateSupportedEffectKind(effect.Kind) || e.autonomousCompletion() && (effect.Kind == "wire" || effect.Kind == "deliver" && !body.Native) {
 		return

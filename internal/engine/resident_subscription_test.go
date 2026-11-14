@@ -21,11 +21,11 @@ func residentSubscriptionFixture(t *testing.T) (*ResidentMemory, *residentContex
 		authority: NewResidentMemoryAuthority("test", "1")}
 	message := stateTestRequest("SUBSCRIBE", 1, "", "subscribe")
 	wire := strings.Replace(string(message.Wire), "Content-Length:", "Event: message-summary\r\nExpires: 90\r\nContent-Length:", 1)
-	native, err := portable.NewTransaction(portable.NonInviteServer, portable.Message{Wire: []byte(wire), Transport: "tls"}, portable.DefaultTimers(), "local")
+	native, err := portable.NewTransaction(portable.NonInviteServer, portable.RestoreMessage([]byte(wire), "tls", "", ""), portable.DefaultTimers(), "local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := native.Origin.Parse()
+	parsed, err := sip.ParseMessage(native.Origin.WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestResidentSubscriptionCandidateRejectIsAtomic(t *testing.T) {
 	if c.subscription != nil || !proto.Equal(c.snapshot, before) {
 		t.Fatal("candidate mutated live subscription")
 	}
-	if sub.Event != "message-summary" || snapshot.Kind != pb.ContextSnapshot_SUBSCRIPTION || !bytes.Contains(message.Wire, []byte("202 Accepted")) {
+	if sub.Event != "message-summary" || snapshot.Kind != pb.ContextSnapshot_SUBSCRIPTION || !bytes.Contains(message.WireBytes(), []byte("202 Accepted")) {
 		t.Fatal("missing candidate subscription/response")
 	}
 	response.Headers[0].Value = "-1"

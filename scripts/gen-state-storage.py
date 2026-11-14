@@ -24,12 +24,16 @@ if "--check" in sys.argv:
             source = ROOT / entry
             if source.is_dir(): shutil.copytree(source,target/entry)
             else: shutil.copy2(source,target/entry)
-        subprocess.run([sys.executable,str(target/"scripts/gen-state-storage.py")],cwd=target,check=True)
+        generation = [sys.executable,str(target/"scripts/gen-state-storage.py")]
+        if "--adapters-only" in sys.argv:
+            generation.append("--adapters-only")
+        subprocess.run(generation,cwd=target,check=True)
         drift = [entry for entry in OUTPUTS if (target/entry).read_bytes() != (ROOT/entry).read_bytes()]
         if drift: raise SystemExit("storage generator drift: " + ", ".join(drift))
     print("private storage generation reproduced without modifying the checkout")
     raise SystemExit(0)
-if "--direct-only" not in sys.argv:
+adapters_only = "--adapters-only" in sys.argv
+if "--direct-only" not in sys.argv and not adapters_only:
     protoc = os.environ.get("PROTOC", "protoc")
     version = subprocess.check_output([protoc,"--version"],text=True).strip()
     if version != "libprotoc 3.21.12": raise RuntimeError("require protoc 3.21.12; got " + version)
@@ -119,11 +123,17 @@ for t, item in sorted(types.items()):
         if old not in [f["name"] for f in fields]: schema.append(f"  reserved {num}; // {old}")
     encode = [f"func storageEncode{message}(v {go(t,owner)}) *storagepb.{message} {{", f"  out := &storagepb.{message}{{}}"]
     decode = [f"func storageDecode{message}(v *storagepb.{message}) {go(t,owner)} {{", f"  var out {go(t,owner)}", "  if v == nil { return out }"]
+    opaque_message = t == "github.com/emiago/sipgo/sip/portable.Message"
+    if opaque_message:
+        decode += ["  var wire []byte", "  var transport, source, destination string"]
     extras = []
     for f in fields:
         ft = f["type"]; number = numbers[f["name"]]
         proto_field = field_name(f["name"])
         pf = "".join(part[0].upper()+part[1:] for part in proto_field.split("_")); vf = "v." + f["name"]; of = "out." + f["name"]
+        if opaque_message:
+            vf += "Bytes()" if f["name"] == "Wire" else "()"
+            of = f["name"].lower()
         if ft.startswith("map[") or ft.startswith("[]") and ft != "[]uint8":
             wrapper = message + f["name"][0].upper() + f["name"][1:] + "Values"
             schema.append(f"  {wrapper} {proto_field} = {number}; // {f['name']} (nil versus empty preserved)")
@@ -170,11 +180,21 @@ for t, item in sorted(types.items()):
             else:
                 encode += [f"  out.{pf} = {expr(ft,vf,owner,'Encode')}"]
                 decode += [f"  {of} = {expr(ft,'v.'+pf,owner,'Decode')}"]
+    if opaque_message:
+        decode += ["  out = portable.RestoreMessage(wire, transport, source, destination)"]
     schema += ["}", *extras, ""]
     outputs[owner] += encode + ["  return out", "}", ""] + decode + ["  return out", "}", ""]
 direct_reader = generate_direct_group_reader(types, registry, name, go)
-registry_file.write_text(json.dumps(registry,indent=2,sort_keys=True)+"\n")
-(ROOT/"proto/sipbridge-storage.proto").write_text("\n".join(schema))
+registry_text = json.dumps(registry,indent=2,sort_keys=True)+"\n"
+schema_text = "\n".join(schema)
+if adapters_only:
+    # Runtime representation changes can need new adapters without changing the
+    # existing descriptor. Refuse to use this mode for any schema change.
+    if registry_file.read_text() != registry_text or (ROOT/"proto/sipbridge-storage.proto").read_text() != schema_text:
+        raise RuntimeError("adapters-only requires the unchanged storage schema and registry")
+else:
+    registry_file.write_text(registry_text)
+    (ROOT/"proto/sipbridge-storage.proto").write_text(schema_text)
 for owner, lines in outputs.items():
     imports = ['"sipbridge/internal/storagepb"']
     if owner == "engine": imports += ['pb "sipbridge/internal/controlpb"', '"github.com/emiago/sipgo/sip/portable"']
@@ -182,10 +202,11 @@ for owner, lines in outputs.items():
     file = ROOT / "internal" / owner / "storage_generated.go"
     file.write_text(data)
     subprocess.run(["gofmt","-w",str(file)],check=True)
-protoc = os.environ.get("PROTOC", "protoc")
-version = subprocess.check_output([protoc,"--version"],text=True).strip()
-if version != "libprotoc 3.21.12": raise RuntimeError("require protoc 3.21.12; got " + version)
-subprocess.run([protoc,"-Iproto","--go_out=.","--go_opt=module=sipbridge","proto/sipbridge-storage.proto"],check=True)
+if not adapters_only:
+    protoc = os.environ.get("PROTOC", "protoc")
+    version = subprocess.check_output([protoc,"--version"],text=True).strip()
+    if version != "libprotoc 3.21.12": raise RuntimeError("require protoc 3.21.12; got " + version)
+    subprocess.run([protoc,"-Iproto","--go_out=.","--go_opt=module=sipbridge","proto/sipbridge-storage.proto"],check=True)
 
 direct_path = ROOT / "internal/engine/storage_direct_generated.go"
 direct_path.write_text(direct_reader)

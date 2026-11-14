@@ -9,5 +9,6 @@ python3 scripts/prepare-native-fixtures.py "$native_test_dir/sipgo"
 cd "$native_test_dir/sipgo"
 go generate ./...
 go test ./...
+go test -race ./sip/portable
 go test -race . -run 'TestDialog(Directional|ByeAndAck|IndependentRemote|FirstRemote|LocalSequence|ServerAckAfter|ByeRemote|RemoteCSeq|LocalBye)'
 go test -race ./sip -run 'Test(ServerTxCancel|TransactionLayerCancelBorrowedBranch|TransactionIngress|TransactionLayerMatchClientResponse)'

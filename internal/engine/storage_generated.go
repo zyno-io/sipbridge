@@ -163,10 +163,10 @@ func storageDecodePortableInviteProcedure(v *storagepb.PortableInviteProcedure) 
 
 func storageEncodePortableMessage(v portable.Message) *storagepb.PortableMessage {
 	out := &storagepb.PortableMessage{}
-	out.Wire = v.Wire
-	out.Transport = v.Transport
-	out.Source = v.Source
-	out.Destination = v.Destination
+	out.Wire = v.WireBytes()
+	out.Transport = v.Transport()
+	out.Source = v.Source()
+	out.Destination = v.Destination()
 	return out
 }
 
@@ -175,10 +175,13 @@ func storageDecodePortableMessage(v *storagepb.PortableMessage) portable.Message
 	if v == nil {
 		return out
 	}
-	out.Wire = v.Wire
-	out.Transport = v.Transport
-	out.Source = v.Source
-	out.Destination = v.Destination
+	var wire []byte
+	var transport, source, destination string
+	wire = v.Wire
+	transport = v.Transport
+	source = v.Source
+	destination = v.Destination
+	out = portable.RestoreMessage(wire, transport, source, destination)
 	return out
 }
 

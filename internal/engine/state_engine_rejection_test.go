@@ -83,17 +83,17 @@ func processRejectedInviteACK(t *testing.T, autonomous bool) {
 		}
 	}
 	assertPending()
-	ack, err := portable.BuildNon2xxACK(portable.Message{Wire: wire, Transport: "udp"}, portable.Message{Wire: []byte(final.String()), Transport: "udp"})
+	ack, err := portable.BuildNon2xxACK(portable.RestoreMessage(wire, "udp", "", ""), portable.RestoreMessage([]byte(final.String()), "udp", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// A subsequent refused INVITE on the same UDP flow/Call-ID is a route-lane
 	// barrier: its response follows completion of that flow's preceding ACK.
-	foreign.send(t, ack.Wire)
+	foreign.send(t, ack.WireBytes())
 	foreign.send(t, wire)
 	foreign.receive(t, sip.INVITE, 403)
 	assertPending()
-	wrong, err := ack.Parse()
+	wrong, err := sip.ParseMessage(ack.WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func processRejectedInviteACK(t *testing.T, autonomous bool) {
 	if autonomous {
 		h.closeController(worker.peer)
 	}
-	phone.send(t, ack.Wire)
+	phone.send(t, ack.WireBytes())
 	until := time.NewTimer(3 * time.Second)
 	defer until.Stop()
 	tick := time.NewTicker(5 * time.Millisecond)
@@ -218,17 +218,17 @@ func TestStateNativeProcessRejectionCannotReplayOrReplaceAdmittedTransaction(t *
 					// its exact transaction ACK. Otherwise the three outstanding
 					// UDP G/H procedures turn this isolation test into a race
 					// against unrelated retransmission/physical-effect deadlines.
-					ack, err := portable.BuildNon2xxACK(portable.Message{Wire: attempt.wire, Transport: transport}, portable.Message{Wire: []byte(response.String()), Transport: transport})
+					ack, err := portable.BuildNon2xxACK(portable.RestoreMessage(attempt.wire, transport, "", ""), portable.RestoreMessage([]byte(response.String()), transport, "", ""))
 					if err != nil {
 						t.Fatal(err)
 					}
-					attempt.phone.send(t, ack.Wire)
+					attempt.phone.send(t, ack.WireBytes())
 					until := time.Now().Add(3 * time.Second)
 					for {
 						_, current := h.record(callID)
 						confirmed := false
 						for _, c := range current.Contexts {
-							if !c.Rejection || !bytes.Equal(c.Origin.Wire, attempt.wire) {
+							if !c.Rejection || !bytes.Equal(c.Origin.WireBytes(), attempt.wire) {
 								continue
 							}
 							for _, tx := range c.Transactions {
@@ -250,8 +250,8 @@ func TestStateNativeProcessRejectionCannotReplayOrReplaceAdmittedTransaction(t *
 					}
 					tx := current.Transactions[key]
 					currentDialogs, _ := marshalRetainedFixture(current.Dialogs)
-					if tx == nil || !proto.Equal(tx.Flow, flow) || !bytes.Equal(tx.Native.Origin.Wire, origin.Wire) ||
-						tx.Native.LastResponse == nil || !bytes.Equal(tx.Native.LastResponse.Wire, final.Wire) || !bytes.Equal(currentDialogs, dialogs) {
+					if tx == nil || !proto.Equal(tx.Flow, flow) || !bytes.Equal(tx.Native.Origin.WireBytes(), origin.WireBytes()) ||
+						tx.Native.LastResponse == nil || !bytes.Equal(tx.Native.LastResponse.WireBytes(), final.WireBytes()) || !bytes.Equal(currentDialogs, dialogs) {
 						t.Fatal("rejection overwrote retained response, origin, dialog or return flow")
 					}
 					for _, id := range after.Selectors {

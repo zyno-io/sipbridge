@@ -88,19 +88,33 @@ def generate_direct_group_reader(types, registry, name, go):
     for t in sorted(reachable):
         item = types[t]
         message = name(t)
-        lines += [f"func storageRead{message}(data []byte) (out {go(t, 'engine')}, err error) {{", "  for len(data) > 0 {", "    field, rest, err := storageDirectNext(data)", "    if err != nil { return out, err }", "    data = rest", "    switch field.number {"]
+        opaque_message = t == "github.com/emiago/sipgo/sip/portable.Message"
+        lines += [f"func storageRead{message}(data []byte) (out {go(t, 'engine')}, err error) {{"]
+        if opaque_message:
+            lines += ["  var wire []byte", "  var transport, source, destination string"]
+        lines += ["  for len(data) > 0 {", "    field, rest, err := storageDirectNext(data)", "    if err != nil { return out, err }", "    data = rest", "    switch field.number {"]
         for f in item["fields"]:
             ft = f["type"]
             number = registry[message][f["name"]]
             dest = "out." + f["name"]
+            if opaque_message:
+                dest = f["name"].lower()
             lines.append(f"    case {number}: // {f['name']}")
+            if opaque_message and f["name"] == "Wire":
+                # RestoreMessage takes its own immutable copy. Keep this
+                # decoder-local slice borrowed until that single handoff.
+                lines.append("      wire = field.bytes")
+                continue
             if ft.startswith("map[") or ft.startswith("[]") and ft != "[]uint8":
                 reader = "storageRead" + message + f["name"][0].upper() + f["name"][1:] + "Values"
                 lines += [f"      decoded, err := {reader}(field.bytes)", "      if err != nil { return out, err }", f"      {dest} = decoded"]
                 collections.append((reader, ft))
             else:
                 lines += ["      " + line for line in read_value(ft, "field", dest)]
-        lines += ["    default: return out, storagecodec.ErrRecord", "    }", "  }", "  return out, nil", "}", ""]
+        lines += ["    default: return out, storagecodec.ErrRecord", "    }", "  }"]
+        if opaque_message:
+            lines.append("  out = portable.RestoreMessage(wire, transport, source, destination)")
+        lines += ["  return out, nil", "}", ""]
 
     for reader, t in collections:
         lines += [f"func {reader}(data []byte) (out {go(t, 'engine')}, err error) {{", "  count, err := storageDirectCount(data)", "  if err != nil { return out, err }"]

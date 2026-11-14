@@ -23,14 +23,14 @@ func liveSubscriptionWithUnansweredRefresh(t *testing.T) (*stateReduction, *stat
 	if c.Subscription == nil || c.Snapshot.Answered || c.Snapshot.Ended {
 		t.Fatal("fixture needs accepted live subscription")
 	}
-	parsed, err := initial.Native.Origin.Parse()
+	parsed, err := sip.ParseMessage(initial.Native.Origin.WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
 	parsed.To().Params.Add("tag", c.Snapshot.LocalTag)
 	parsed.CSeq().SeqNo++
 	parsed.Via().Params.Add("branch", "z9hG4bK-unanswered-refresh")
-	refresh := portable.Message{Wire: []byte(parsed.String()), Transport: "tls"}
+	refresh := portable.RestoreMessage([]byte(parsed.String()), "tls", "", "")
 	native, err := portable.NewTransaction(portable.NonInviteServer, refresh, portable.DefaultTimers(), c.Tag)
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +40,7 @@ func liveSubscriptionWithUnansweredRefresh(t *testing.T) (*stateReduction, *stat
 		t.Fatal(err)
 	}
 	tx := &stateTransaction{Native: native, Flow: c.Flow, Application: c.Snapshot.Application, RequestID: "refresh"}
-	if _, err = r.admitRequestFlow(tx, c.Flow, refresh.Wire); err != nil {
+	if _, err = r.admitRequestFlow(tx, c.Flow, refresh.WireBytes()); err != nil {
 		t.Fatal(err)
 	}
 	c.Transactions[native.Key], c.Requests[tx.RequestID], c.Subscription.Pending = tx, native.Key, native.Key
@@ -92,14 +92,14 @@ func TestSubscriptionExpiryEndsUnansweredRefreshAtTerminalTransition(t *testing.
 
 func subscriptionNotifyFixture(t *testing.T, r *stateReduction, c *stateContext, refresh *stateTransaction) *stateTransaction {
 	t.Helper()
-	parsed, err := refresh.Native.Origin.Parse()
+	parsed, err := sip.ParseMessage(refresh.Native.Origin.WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := parsed.(*sip.Request)
 	request.Method, request.CSeq().MethodName = sip.NOTIFY, sip.NOTIFY
 	request.Via().Params.Add("branch", "z9hG4bK-outstanding-notify")
-	native, err := portable.NewTransaction(portable.NonInviteClient, portable.Message{Wire: []byte(request.String()), Transport: "tls"}, portable.DefaultTimers(), "")
+	native, err := portable.NewTransaction(portable.NonInviteClient, portable.RestoreMessage([]byte(request.String()), "tls", "", ""), portable.DefaultTimers(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

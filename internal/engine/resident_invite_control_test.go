@@ -45,8 +45,8 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	if err = <-ingestDone; err != nil {
 		t.Fatal(err)
 	}
-	origin := portable.Message{Wire: message.Wire, Transport: "tls"}
-	response := portable.Message{Wire: wire, Transport: "tls"}
+	origin := portable.RestoreMessage(message.Wire, "tls", "", "")
+	response := portable.RestoreMessage(wire, "tls", "", "")
 	remote, err := portable.NewDialog(portable.UAC, origin, response, portable.DefaultTimers())
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +57,7 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		handled, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: ack.Wire})
+		handled, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: ack.WireBytes()})
 		if !handled && err == nil {
 			t.Error("ACK not handled")
 		}
@@ -79,7 +79,7 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	reinviteFlow.ConnectionId = "replacement-tls"
 	renewDone := make(chan error, 1)
 	go func() {
-		_, err := e.ingest(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: reinviteFlow, Wire: reinvite.Wire, Admission: pb.OwnerIngest_TLS_DIALOG_CONTINUITY}, time.Now().Add(2*time.Second))
+		_, err := e.ingest(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: reinviteFlow, Wire: reinvite.WireBytes(), Admission: pb.OwnerIngest_TLS_DIALOG_CONTINUITY}, time.Now().Add(2*time.Second))
 		renewDone <- err
 	}()
 	adoption := readControllerEnvelope(t, ctx, conn)
@@ -124,11 +124,11 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("re-INVITE rejection missing")
 	}
-	rejectAck, err := portable.BuildNon2xxACK(portable.Message{Wire: reinvite.Wire, Transport: "tls"}, portable.Message{Wire: rejectedWire, Transport: "tls"})
+	rejectAck, err := portable.BuildNon2xxACK(portable.RestoreMessage(reinvite.WireBytes(), "tls", "", ""), portable.RestoreMessage(rejectedWire, "tls", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if handled, ackErr := e.tryNativeCompletion(ctx, reinviteFlow, &pb.SipMessage{Wire: rejectAck.Wire}); ackErr != nil || !handled {
+	if handled, ackErr := e.tryNativeCompletion(ctx, reinviteFlow, &pb.SipMessage{Wire: rejectAck.WireBytes()}); ackErr != nil || !handled {
 		t.Fatal("re-INVITE rejection ACK failed", handled, ackErr)
 	}
 	writeControllerEnvelope(t, ctx, conn, &pb.Envelope{SessionId: session, CorrelationId: renewal.CorrelationId, Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}}})
@@ -141,7 +141,7 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	}
 	failedDone := make(chan error, 1)
 	go func() {
-		_, err := e.ingest(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: reinviteFlow, Wire: failedInvite.Wire}, time.Now().Add(2*time.Second))
+		_, err := e.ingest(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: reinviteFlow, Wire: failedInvite.WireBytes()}, time.Now().Add(2*time.Second))
 		failedDone <- err
 	}()
 	failedPresentation := readControllerEnvelope(t, ctx, conn)
@@ -158,11 +158,11 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("failed presentation did not send 503")
 	}
-	failedAck, err := portable.BuildNon2xxACK(portable.Message{Wire: failedInvite.Wire, Transport: "tls"}, portable.Message{Wire: failedWire, Transport: "tls"})
+	failedAck, err := portable.BuildNon2xxACK(portable.RestoreMessage(failedInvite.WireBytes(), "tls", "", ""), portable.RestoreMessage(failedWire, "tls", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if handled, ackErr := e.tryNativeCompletion(ctx, reinviteFlow, &pb.SipMessage{Wire: failedAck.Wire}); ackErr != nil || !handled {
+	if handled, ackErr := e.tryNativeCompletion(ctx, reinviteFlow, &pb.SipMessage{Wire: failedAck.WireBytes()}); ackErr != nil || !handled {
 		t.Fatal("failed presentation ACK missing", handled, ackErr)
 	}
 	state, err := e.findContext(route.Context)
@@ -181,7 +181,7 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	}
 	cancelInviteDone := make(chan error, 1)
 	go func() {
-		_, err := e.ingest(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: reinviteFlow, Wire: cancelInvite.Wire}, time.Now().Add(2*time.Second))
+		_, err := e.ingest(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: reinviteFlow, Wire: cancelInvite.WireBytes()}, time.Now().Add(2*time.Second))
 		cancelInviteDone <- err
 	}()
 	cancelPresented := readControllerEnvelope(t, ctx, conn)
@@ -194,7 +194,7 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	}
 	cancelDone := make(chan error, 1)
 	go func() {
-		handled, err := e.tryNativeCompletion(ctx, reinviteFlow, &pb.SipMessage{Wire: cancelRequest.Wire})
+		handled, err := e.tryNativeCompletion(ctx, reinviteFlow, &pb.SipMessage{Wire: cancelRequest.WireBytes()})
 		if !handled && err == nil {
 			t.Error("re-INVITE CANCEL not handled")
 		}
@@ -226,11 +226,11 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	if len(cancelFinal) == 0 {
 		t.Fatal("CANCEL did not produce 487")
 	}
-	cancelAck, err := portable.BuildNon2xxACK(cancelInvite, portable.Message{Wire: cancelFinal, Transport: "tls"})
+	cancelAck, err := portable.BuildNon2xxACK(cancelInvite, portable.RestoreMessage(cancelFinal, "tls", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if handled, ackErr := e.tryNativeCompletion(ctx, reinviteFlow, &pb.SipMessage{Wire: cancelAck.Wire}); ackErr != nil || !handled {
+	if handled, ackErr := e.tryNativeCompletion(ctx, reinviteFlow, &pb.SipMessage{Wire: cancelAck.WireBytes()}); ackErr != nil || !handled {
 		t.Fatal("cancelled re-INVITE ACK missing", handled, ackErr)
 	}
 	writeControllerEnvelope(t, ctx, conn, &pb.Envelope{SessionId: session, CorrelationId: cancelPresented.CorrelationId, Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}}})
@@ -243,7 +243,7 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	}
 	freshDone := make(chan error, 1)
 	go func() {
-		_, err := e.ingest(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: reinviteFlow, Wire: freshInvite.Wire}, time.Now().Add(2*time.Second))
+		_, err := e.ingest(ctx, peer, &pb.OwnerIngest{Context: route.Context, Application: peer.Application(), Flow: reinviteFlow, Wire: freshInvite.WireBytes()}, time.Now().Add(2*time.Second))
 		freshDone <- err
 	}()
 	fresh := readControllerEnvelope(t, ctx, conn)
@@ -265,7 +265,7 @@ func TestResidentInitialInviteResponseAndACK(t *testing.T) {
 	}
 	byeDone := make(chan error, 1)
 	go func() {
-		handled, err := e.tryNativeCompletion(ctx, reinviteFlow, &pb.SipMessage{Wire: bye.Wire})
+		handled, err := e.tryNativeCompletion(ctx, reinviteFlow, &pb.SipMessage{Wire: bye.WireBytes()})
 		if !handled && err == nil {
 			t.Error("BYE not handled natively")
 		}
@@ -313,7 +313,7 @@ func TestResidentCancelSelectsNative487WithoutPresentation(t *testing.T) {
 	if presented.GetRequest() == nil {
 		t.Fatal("INVITE not presented")
 	}
-	cancel, err := portable.BuildCancel(portable.Message{Wire: message.Wire, Transport: "tls"})
+	cancel, err := portable.BuildCancel(portable.RestoreMessage(message.Wire, "tls", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestResidentCancelSelectsNative487WithoutPresentation(t *testing.T) {
 	replacement.ConnectionId = "cancel-replacement"
 	cancelDone := make(chan error, 1)
 	go func() {
-		handled, err := e.tryNativeCompletion(ctx, replacement, &pb.SipMessage{Wire: cancel.Wire})
+		handled, err := e.tryNativeCompletion(ctx, replacement, &pb.SipMessage{Wire: cancel.WireBytes()})
 		if !handled && err == nil {
 			t.Error("CANCEL not handled")
 		}
@@ -396,7 +396,7 @@ func TestResidentOwnerLossSendsByeAfterAcknowledgedInvite(t *testing.T) {
 	if err = <-done; err != nil {
 		t.Fatal(err)
 	}
-	remote, err := portable.NewDialog(portable.UAC, portable.Message{Wire: message.Wire, Transport: "tls"}, portable.Message{Wire: wire, Transport: "tls"}, portable.DefaultTimers())
+	remote, err := portable.NewDialog(portable.UAC, portable.RestoreMessage(message.Wire, "tls", "", ""), portable.RestoreMessage(wire, "tls", "", ""), portable.DefaultTimers())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ func TestResidentOwnerLossSendsByeAfterAcknowledgedInvite(t *testing.T) {
 	replacement.ConnectionId = "reconnected"
 	ackDone := make(chan error, 1)
 	go func() {
-		_, err := e.tryNativeCompletion(ctx, replacement, &pb.SipMessage{Wire: ack.Wire})
+		_, err := e.tryNativeCompletion(ctx, replacement, &pb.SipMessage{Wire: ack.WireBytes()})
 		ackDone <- err
 	}()
 	event := readControllerEnvelope(t, ctx, conn)
@@ -419,7 +419,7 @@ func TestResidentOwnerLossSendsByeAfterAcknowledgedInvite(t *testing.T) {
 	if err = <-ackDone; err != nil {
 		t.Fatal(err)
 	}
-	handled, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: ack.Wire})
+	handled, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: ack.WireBytes()})
 	if err != nil || !handled {
 		t.Fatal("duplicate ACK not handled", handled, err)
 	}
@@ -582,11 +582,11 @@ func TestResidentInitialInviteTimeoutReportsFailure(t *testing.T) {
 	if !ended {
 		t.Fatal("INVITE timeout left context live")
 	}
-	late, err := portable.BuildResponseWithHeaders(portable.Message{Wire: initialWire, Transport: "tls"}, 200, "OK", nil, "late-fork", "sip:phone@example.test", nil)
+	late, err := portable.BuildResponseWithHeaders(portable.RestoreMessage(initialWire, "tls", "", ""), 200, "OK", nil, "late-fork", "sip:phone@example.test", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	handled, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: late.Wire})
+	handled, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: late.WireBytes()})
 	if err != nil || !handled {
 		t.Fatal("late successful fork not handled", handled, err)
 	}
@@ -646,7 +646,7 @@ func TestResidentOwnerLossDefersUASByeUntilACK(t *testing.T) {
 		t.Fatal("owner loss sent BYE before ACK")
 	default:
 	}
-	remote, err := portable.NewDialog(portable.UAC, portable.Message{Wire: message.Wire, Transport: "tls"}, portable.Message{Wire: wire, Transport: "tls"}, portable.DefaultTimers())
+	remote, err := portable.NewDialog(portable.UAC, portable.RestoreMessage(message.Wire, "tls", "", ""), portable.RestoreMessage(wire, "tls", "", ""), portable.DefaultTimers())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -655,7 +655,10 @@ func TestResidentOwnerLossDefersUASByeUntilACK(t *testing.T) {
 		t.Fatal(err)
 	}
 	ackDone := make(chan error, 1)
-	go func() { _, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: ack.Wire}); ackDone <- err }()
+	go func() {
+		_, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: ack.WireBytes()})
+		ackDone <- err
+	}()
 	event := readControllerEnvelope(t, ctx, conn)
 	if event.GetDialogEvent().GetKind() != pb.DialogEvent_ACKNOWLEDGED {
 		t.Fatal("late ACK event missing")
@@ -696,13 +699,13 @@ func TestResidentUDPCancelReplayRespectsEmissionQuota(t *testing.T) {
 	if presented.GetRequest() == nil {
 		t.Fatal("INVITE not presented")
 	}
-	cancel, err := portable.BuildCancel(portable.Message{Wire: message.Wire, Transport: "udp"})
+	cancel, err := portable.BuildCancel(portable.RestoreMessage(message.Wire, "udp", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
 	cancelDone := make(chan error, 1)
 	go func() {
-		_, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: cancel.Wire})
+		_, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: cancel.WireBytes()})
 		cancelDone <- err
 	}()
 	event := readControllerEnvelope(t, ctx, conn)
@@ -726,7 +729,7 @@ func TestResidentUDPCancelReplayRespectsEmissionQuota(t *testing.T) {
 	}
 	count := 1
 	for range stateTransactionEmissions + 3 {
-		handled, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: cancel.Wire})
+		handled, err := e.tryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: cancel.WireBytes()})
 		if err != nil || !handled {
 			t.Fatal("CANCEL replay failed", handled, err)
 		}
@@ -739,7 +742,7 @@ func TestResidentUDPCancelReplayRespectsEmissionQuota(t *testing.T) {
 	if count != stateProfileTransmissions {
 		t.Fatalf("CANCEL emitted %d times, want %d", count, stateProfileTransmissions)
 	}
-	parsed, err := sip.ParseMessage(cancel.Wire)
+	parsed, err := sip.ParseMessage(cancel.WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}

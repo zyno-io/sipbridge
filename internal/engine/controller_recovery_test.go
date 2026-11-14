@@ -221,7 +221,7 @@ func recoveryEstablished(t *testing.T, f nativeOwnerFixture, callID string, gene
 		t.Fatal(err)
 	}
 	result = f.apply(t, ref, callID+"-ack", stateEngineInput{Kind: "ingest", Application: f.app, ApplicationLeaseTerm: f.term, ApplicationGeneration: generation,
-		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: ack.Wire}})
+		Ingest: &pb.OwnerIngest{Context: ref, Application: f.app, Flow: f.flow, Wire: ack.WireBytes()}})
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}
@@ -230,7 +230,7 @@ func recoveryEstablished(t *testing.T, f nativeOwnerFixture, callID string, gene
 	if !snapshot.Answered || !snapshot.InitialAck || snapshot.Ended || snapshot.AttachmentGeneration != generation {
 		t.Fatal("fixture did not establish a confirmed native dialog")
 	}
-	return ref, ack.Wire
+	return ref, ack.WireBytes()
 }
 
 func recoveryUnknownInfo(t *testing.T, f nativeOwnerFixture, ref *pb.ContextRef) (state.Effect, *pb.FlowWrite) {

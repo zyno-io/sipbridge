@@ -16,12 +16,12 @@ func provisionalResponseFixture(t *testing.T) (*stateReduction, *stateContext, *
 	r, c, tx := advertiseFixture(t, "udp", sip.INVITE, "")
 	r.deadline = r.now + 20000
 	r.result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}
-	request, err := tx.Native.Origin.Parse()
+	request, err := sip.ParseMessage(tx.Native.Origin.WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
 	request.Via().Params.Add("rport", "")
-	tx.Native.Origin.Wire = []byte(request.String())
+	tx.Native.Origin = portable.RestoreMessage([]byte(request.String()), tx.Native.Origin.Transport(), tx.Native.Origin.Source(), tx.Native.Origin.Destination())
 	c.Origin = tx.Native.Origin.Clone()
 	return r, c, tx
 }
@@ -148,11 +148,11 @@ func TestStateProvisionalNoStartRecoversExact180ThenAllows487(t *testing.T) {
 			if c.Snapshot.CommandSequence != 2 || c.Result.Certainty != pb.OperationResult_COMPLETED || final.Command != finalCommand {
 				t.Fatal("next-sequence487 failed to select and physically complete")
 			}
-			completedFinal, finalWire, finalEmissions := proto.Clone(c.Result), append([]byte(nil), tx.Native.LastResponse.Wire...), tx.Emissions
+			completedFinal, finalWire, finalEmissions := proto.Clone(c.Result), tx.Native.LastResponse.WireBytes(), tx.Emissions
 			recordResponseWrite(t, r, firstWrite, pb.DeliveryResult_NOT_WRITTEN)
 			r.now += tx.Native.Profile.T1
 			if err := r.recoverServerResponses(); err != nil || !proto.Equal(c.Result, completedFinal) ||
-				!bytes.Equal(tx.Native.LastResponse.Wire, finalWire) || tx.Emissions != finalEmissions || tx.Emissions > stateTransactionEmissions {
+				!tx.Native.LastResponse.EqualWireBytes(finalWire) || tx.Emissions != finalEmissions || tx.Emissions > stateTransactionEmissions {
 				t.Fatalf("late180 no-start rearmed or rolled back the written487: %v", err)
 			}
 		})

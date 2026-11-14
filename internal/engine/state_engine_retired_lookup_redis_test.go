@@ -30,7 +30,7 @@ func TestStateRetiringDialogLookupRefusesResumeBeforeBusinessRouting(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	message, err := Observe(resume.Wire, false)
+	message, err := Observe(resume.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestStateRetiringDialogLookupRefusesResumeBeforeBusinessRouting(t *testing.
 			if !stateExactServerRequest(tx, resume) || tx.Native.LastResponse == nil {
 				continue
 			}
-			parsed, parseErr := tx.Native.LastResponse.Parse()
+			parsed, parseErr := sip.ParseMessage(tx.Native.LastResponse.WireBytes())
 			if parseErr != nil {
 				t.Fatal(parseErr)
 			}

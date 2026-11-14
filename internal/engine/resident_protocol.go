@@ -12,6 +12,13 @@ import (
 	pb "sipbridge/internal/controlpb"
 )
 
+func residentObservedNative(wire []byte, parsed sip.Message, flow *pb.FlowRef, frozen ...portable.Message) (portable.Message, error) {
+	if len(frozen) > 0 && !frozen[0].IsZero() {
+		return frozen[0], nil
+	}
+	return portable.FreezeMessage(wire, parsed, flow.Transport, net.JoinHostPort(flow.SourceIp, strconv.Itoa(int(flow.SourcePort))), "")
+}
+
 // residentStartServer stages the initial native transition without changing an
 // index or context. Its caller publishes the returned record and obligations
 // together after admission and capacity checks.
@@ -19,26 +26,15 @@ func residentStartServer(message portable.Message, flow *pb.FlowRef, application
 	if flow == nil || application == nil || requestID == "" || localTag == "" {
 		return nil, nil, errors.New("server transaction identity required")
 	}
-	parsed, err := message.Parse()
+	facts, err := message.Facts()
 	if err != nil {
 		return nil, nil, err
 	}
-	request, ok := parsed.(*sip.Request)
-	if !ok {
+	if !facts.IsRequest || facts.Method == sip.ACK || facts.Method == sip.CANCEL {
 		return nil, nil, errors.New("new server transaction requires a request")
 	}
-	return residentStartServerParsed(message, flow, application, localTag, requestID, deadline, now, request)
-}
-
-func residentStartServerParsed(message portable.Message, flow *pb.FlowRef, application *pb.ProcessRef, localTag, requestID string, deadline time.Time, now int64, request *sip.Request) (*residentTransaction, []portable.Effect, error) {
-	if flow == nil || application == nil || requestID == "" || localTag == "" {
-		return nil, nil, errors.New("server transaction identity required")
-	}
-	if request == nil || request.IsAck() || request.IsCancel() {
-		return nil, nil, errors.New("new server transaction requires an ordinary request")
-	}
 	family := portable.NonInviteServer
-	if request.IsInvite() {
+	if facts.Method == sip.INVITE {
 		family = portable.InviteServer
 	}
 	native, err := portable.NewTransaction(family, message, portable.DefaultTimers(), localTag)
@@ -52,6 +48,16 @@ func residentStartServerParsed(message portable.Message, flow *pb.FlowRef, appli
 	return &residentTransaction{native: next, flow: proto.Clone(flow).(*pb.FlowRef), application: proto.Clone(application).(*pb.ProcessRef), requestID: requestID, presentDeadline: deadline}, effects, nil
 }
 
+func residentStartServerParsed(message portable.Message, flow *pb.FlowRef, application *pb.ProcessRef, localTag, requestID string, deadline time.Time, now int64, request *sip.Request) (*residentTransaction, []portable.Effect, error) {
+	if flow == nil || application == nil || requestID == "" || localTag == "" {
+		return nil, nil, errors.New("server transaction identity required")
+	}
+	if request == nil || request.IsAck() || request.IsCancel() {
+		return nil, nil, errors.New("new server transaction requires an ordinary request")
+	}
+	return residentStartServer(message, flow, application, localTag, requestID, deadline, now)
+}
+
 // prepareResidentInitial creates candidate records only; the admission proof,
 // accounting and indexes are committed by the caller under the local locks.
 func (e *ResidentMemory) prepareResidentInitial(in *pb.OwnerIngest, deadline time.Time, now time.Time) (*residentContext, *residentTransaction, []portable.Effect, error) {
@@ -61,7 +67,7 @@ func (e *ResidentMemory) prepareResidentInitial(in *pb.OwnerIngest, deadline tim
 	if err := e.validateRef(in.Context); err != nil {
 		return nil, nil, nil, err
 	}
-	parsed, err := (portable.Message{Wire: in.Wire, Transport: in.Flow.Transport}).Parse()
+	parsed, err := sip.ParseMessage(in.Wire)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -72,15 +78,17 @@ func (e *ResidentMemory) prepareResidentInitial(in *pb.OwnerIngest, deadline tim
 	return e.prepareResidentInitialParsed(in, deadline, now, request)
 }
 
-func (e *ResidentMemory) prepareResidentInitialParsed(in *pb.OwnerIngest, deadline time.Time, now time.Time, request *sip.Request) (*residentContext, *residentTransaction, []portable.Effect, error) {
+func (e *ResidentMemory) prepareResidentInitialParsed(in *pb.OwnerIngest, deadline time.Time, now time.Time, request *sip.Request, frozen ...portable.Message) (*residentContext, *residentTransaction, []portable.Effect, error) {
 	if in == nil || in.Context == nil || in.Flow == nil || !validSendProcess(in.Application) {
 		return nil, nil, nil, errors.New("inbound authority required")
 	}
 	if err := e.validateRef(in.Context); err != nil {
 		return nil, nil, nil, err
 	}
-	message := portable.Message{Wire: in.Wire, Transport: in.Flow.Transport,
-		Source: net.JoinHostPort(in.Flow.SourceIp, strconv.Itoa(int(in.Flow.SourcePort)))}
+	message, err := residentObservedNative(in.Wire, request, in.Flow, frozen...)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	if request == nil || request.To() == nil || request.From() == nil || request.CallID() == nil || request.CallID().Value() != in.Context.State.CallId || tag(request.To().Params) != "" || request.IsAck() || request.IsCancel() {
 		return nil, nil, nil, errors.New("invalid initial request identity")
 	}

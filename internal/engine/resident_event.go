@@ -6,6 +6,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
@@ -17,7 +18,7 @@ type residentEvent struct {
 	id        string
 	context   *residentContext
 	message   *pb.DialogEvent
-	wire      []byte
+	native    portable.Message
 	selectors []string
 	deadline  time.Time
 	next      time.Time
@@ -30,6 +31,25 @@ type residentEvent struct {
 
 // Retain wire metadata only; reconstruct the public message at delivery.
 func (e *ResidentMemory) stageResidentEventLocked(c *residentContext, kind pb.DialogEvent_Kind, message *pb.SipMessage, operation string, deadline time.Time, budgets ...*residentBudget) (*residentEvent, error) {
+	var native portable.Message
+	if message != nil && len(message.Wire) != 0 {
+		transport := ""
+		if c != nil && c.snapshot != nil {
+			transport = c.snapshot.Transport
+		}
+		if transport == "" {
+			transport = "tls"
+		}
+		var err error
+		native, err = portable.ParseMessage(message.Wire, transport, "", "")
+		if err != nil {
+			return nil, err
+		}
+	}
+	return e.stageResidentEventNativeLocked(c, kind, message, native, operation, deadline, budgets...)
+}
+
+func (e *ResidentMemory) stageResidentEventNativeLocked(c *residentContext, kind pb.DialogEvent_Kind, message *pb.SipMessage, native portable.Message, operation string, deadline time.Time, budgets ...*residentBudget) (*residentEvent, error) {
 	if kind == pb.DialogEvent_UNSPECIFIED || c.snapshot == nil || deadline.IsZero() || !time.Now().Before(deadline) {
 		return nil, errors.New("invalid lifecycle event or deadline")
 	}
@@ -52,10 +72,10 @@ func (e *ResidentMemory) stageResidentEventLocked(c *residentContext, kind pb.Di
 	event := &residentEvent{id: "event-" + uuid.NewString(), context: c, deadline: deadline, budget: budget,
 		message: &pb.DialogEvent{Kind: kind, Snapshot: proto.Clone(c.snapshot).(*pb.ContextSnapshot), OperationId: operation}}
 	if message != nil {
-		event.wire = append([]byte(nil), message.Wire...)
+		event.native = native
 		event.selectors = append([]string(nil), message.Selectors...)
 	}
-	event.bytes = int64(unsafe.Sizeof(*event)+unsafe.Sizeof(*event.message)) + residentSnapshotBytes(event.message.Snapshot) + int64(len(operation)+len(event.wire)) + 128
+	event.bytes = int64(unsafe.Sizeof(*event)+unsafe.Sizeof(*event.message)) + residentSnapshotBytes(event.message.Snapshot) + int64(len(operation)) + event.native.RetainedBytes() + 128
 	for _, selector := range event.selectors {
 		event.bytes += int64(len(selector)) + 16
 	}
@@ -124,8 +144,8 @@ func (e *ResidentMemory) deliverResidentEvent(parent context.Context, event *res
 	accepted := false
 	peer, err := e.control.Peer(application)
 	public := &pb.DialogEvent{Kind: event.message.Kind, Snapshot: event.message.Snapshot, OperationId: event.message.OperationId, Error: event.message.Error}
-	if err == nil && len(event.wire) != 0 {
-		public.Message, err = Observe(event.wire, false)
+	if err == nil && !event.native.IsZero() {
+		public.Message, err = projectNativeMessage(event.native, false)
 		if err == nil {
 			public.Message.Selectors = event.selectors
 		}

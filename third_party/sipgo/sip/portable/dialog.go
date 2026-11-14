@@ -1,7 +1,6 @@
 package portable
 
 import (
-	"bytes"
 	"errors"
 	"math"
 	"net"
@@ -119,30 +118,30 @@ func NewDialog(role Role, origin, reply Message, profile TimerProfile) (Dialog, 
 	}
 	o, _ := request(origin)
 	r, _ := response(reply)
-	if !o.IsInvite() || r.StatusCode <= 100 || r.StatusCode >= 300 || tag(o.From().Params) == "" || tag(r.To().Params) == "" {
+	if !(o.facts.Method == sip.INVITE) || r.facts.Status <= 100 || r.facts.Status >= 300 || o.facts.FromTag == "" || r.facts.ToTag == "" {
 		return Dialog{}, errors.New("tagged INVITE provisional/success required")
 	}
-	s := Dialog{Version: Version, Role: role, Phase: DialogEarly, CallID: o.CallID().Value(), Transport: origin.Transport, Profile: profile, Timers: make(map[Timer]Deadline), Offer: NoOffer}
-	p := &InviteProcedure{State: InvitePending, Sequence: o.CSeq().SeqNo, Initial: true, Request: origin.Clone()}
-	var routeHeaders []sip.Header
+	s := Dialog{Version: Version, Role: role, Phase: DialogEarly, CallID: o.facts.CallID, Transport: origin.Transport(), Profile: profile, Timers: make(map[Timer]Deadline), Offer: NoOffer}
+	p := &InviteProcedure{State: InvitePending, Sequence: o.facts.CSeq, Initial: true, Request: origin.Clone()}
+	var routeHeaders []string
 	if role == UAC {
-		s.LocalTag, s.RemoteTag = tag(o.From().Params), tag(r.To().Params)
-		s.LocalURI, s.RemoteURI = o.From().Address.String(), r.To().Address.String()
-		s.LocalCSeq, s.LocalSet = o.CSeq().SeqNo, true
+		s.LocalTag, s.RemoteTag = o.facts.FromTag, r.facts.ToTag
+		s.LocalURI, s.RemoteURI = o.facts.FromURI, r.facts.ToURI
+		s.LocalCSeq, s.LocalSet = o.facts.CSeq, true
 		s.LocalInvite = p
-		if r.Contact() == nil {
+		if r.contact == nil {
 			return Dialog{}, errors.New("remote Contact required")
 		}
-		s.Target = r.Contact().Address.String()
-		routeHeaders = r.GetHeaders("Record-Route")
+		s.Target = r.facts.ContactURI
+		routeHeaders = r.headerValues("Record-Route")
 		for i := len(routeHeaders) - 1; i >= 0; i-- {
-			s.Routes = append(s.Routes, routeHeaders[i].Value())
+			s.Routes = append(s.Routes, routeHeaders[i])
 		}
-		if o.Contact() != nil {
-			s.Contact = o.Contact().Address.String()
+		if o.contact != nil {
+			s.Contact = o.facts.ContactURI
 		}
-		s.SentBy = o.Via().SentBy()
-		if r.IsSuccess() {
+		s.SentBy = o.facts.ViaSentBy
+		if r.facts.Status >= 200 && r.facts.Status < 300 {
 			p.State = InviteAwaitingACK
 			p.Final = cloneMessage(&reply)
 			if !s.Retiring {
@@ -156,21 +155,21 @@ func NewDialog(role Role, origin, reply Message, profile TimerProfile) (Dialog, 
 			s.Offer = RemoteOfferInACK
 		}
 	} else {
-		s.LocalTag, s.RemoteTag = tag(r.To().Params), tag(o.From().Params)
-		s.LocalURI, s.RemoteURI = r.To().Address.String(), o.From().Address.String()
-		s.RemoteCSeq, s.RemoteSet = o.CSeq().SeqNo, true
+		s.LocalTag, s.RemoteTag = r.facts.ToTag, o.facts.FromTag
+		s.LocalURI, s.RemoteURI = r.facts.ToURI, o.facts.FromURI
+		s.RemoteCSeq, s.RemoteSet = o.facts.CSeq, true
 		s.RemoteInvite = p
-		if o.Contact() == nil {
+		if o.contact == nil {
 			return Dialog{}, errors.New("remote Contact required")
 		}
-		s.Target = o.Contact().Address.String()
-		routeHeaders = o.GetHeaders("Record-Route")
+		s.Target = o.facts.ContactURI
+		routeHeaders = o.headerValues("Record-Route")
 		for _, h := range routeHeaders {
-			s.Routes = append(s.Routes, h.Value())
+			s.Routes = append(s.Routes, h)
 		}
-		if r.Contact() != nil {
-			s.Contact = r.Contact().Address.String()
-			s.SentBy = r.Contact().Address.HostPort()
+		if r.contact != nil {
+			s.Contact = r.facts.ContactURI
+			s.SentBy = r.facts.ContactHostPort
 		}
 		if isSDP(o) {
 			s.Offer = RemoteOffer
@@ -182,10 +181,7 @@ func NewDialog(role Role, origin, reply Message, profile TimerProfile) (Dialog, 
 	return s, nil
 }
 
-func isSDP(m sip.Message) bool {
-	headers := m.GetHeaders("Content-Type")
-	return len(m.Body()) > 0 && len(headers) == 1 && strings.EqualFold(strings.TrimSpace(strings.Split(headers[0].Value(), ";")[0]), "application/sdp")
-}
+func isSDP(m *frozenMessage) bool { return m.facts.SDP }
 func cloneProcedure(p *InviteProcedure) *InviteProcedure {
 	if p == nil {
 		return nil
@@ -210,20 +206,20 @@ func (s Dialog) Clone() Dialog {
 }
 func MatchDialogRequest(s Dialog, m Message) bool {
 	r, e := request(m)
-	return e == nil && m.Transport == s.Transport && r.CallID().Value() == s.CallID && tag(r.To().Params) == s.LocalTag && tag(r.From().Params) == s.RemoteTag && s.LocalTag != "" && s.RemoteTag != ""
+	return e == nil && m.Transport() == s.Transport && r.facts.CallID == s.CallID && r.facts.ToTag == s.LocalTag && r.facts.FromTag == s.RemoteTag && s.LocalTag != "" && s.RemoteTag != ""
 }
 func MatchDialogResponse(s Dialog, m Message) bool {
 	r, e := response(m)
-	return e == nil && m.Transport == s.Transport && r.CallID().Value() == s.CallID && tag(r.From().Params) == s.LocalTag && tag(r.To().Params) == s.RemoteTag && s.LocalTag != "" && s.RemoteTag != ""
+	return e == nil && m.Transport() == s.Transport && r.facts.CallID == s.CallID && r.facts.FromTag == s.LocalTag && r.facts.ToTag == s.RemoteTag && s.LocalTag != "" && s.RemoteTag != ""
 }
 
 // BuildDialogRequest freezes role-correct loose/strict routes and supplied Via
 // branch without entropy or CSeq allocation. StepDialog owns sequence allocation.
-func BuildDialogRequest(s Dialog, method sip.RequestMethod, sequence uint32, body []byte, branch string) (Message, error) {
+func buildDialogRequest(s Dialog, method sip.RequestMethod, sequence uint32, body []byte, branch string) (*sip.Request, string, error) {
 	if !validToken(string(method)) || !validToken(s.LocalTag) || !validToken(s.RemoteTag) || sequence > math.MaxInt32 ||
 		(s.Transport != "udp" && s.Transport != "tcp" && s.Transport != "tls") || !validBranch(branch) ||
 		strings.ContainsAny(s.Contact+s.SentBy+s.Target+s.LocalURI+s.RemoteURI+s.CallID, "\r\n\x00") {
-		return Message{}, errors.New("invalid dialog build identity")
+		return nil, "", errors.New("invalid dialog build identity")
 	}
 	var target, local, remote sip.Uri
 	for _, v := range []struct {
@@ -231,11 +227,11 @@ func BuildDialogRequest(s Dialog, method sip.RequestMethod, sequence uint32, bod
 		uri  *sip.Uri
 	}{{s.Target, &target}, {s.LocalURI, &local}, {s.RemoteURI, &remote}} {
 		if e := sip.ParseUri(v.text, v.uri); e != nil {
-			return Message{}, e
+			return nil, "", e
 		}
 	}
 	if target.IsEncrypted() && s.Transport != "tls" {
-		return Message{}, errors.New("SIPS requires TLS")
+		return nil, "", errors.New("SIPS requires TLS")
 	}
 	routes := append([]string(nil), s.Routes...)
 	destination := ""
@@ -243,7 +239,7 @@ func BuildDialogRequest(s Dialog, method sip.RequestMethod, sequence uint32, bod
 		var first sip.Uri
 		params := sip.NewParams()
 		if _, e := sip.ParseAddressValue(routes[0], &first, &params); e != nil {
-			return Message{}, e
+			return nil, "", e
 		}
 		destination = first.HostPort()
 		if !first.UriParams.Has("lr") {
@@ -264,11 +260,11 @@ func BuildDialogRequest(s Dialog, method sip.RequestMethod, sequence uint32, bod
 	r.AppendHeader(&fwd)
 	host, portText, e := net.SplitHostPort(s.SentBy)
 	if e != nil {
-		return Message{}, errors.New("local Via sent-by host:port required")
+		return nil, "", errors.New("local Via sent-by host:port required")
 	}
 	port, e := strconv.Atoi(portText)
 	if e != nil || port < 1 || port > 65535 {
-		return Message{}, errors.New("invalid Via port")
+		return nil, "", errors.New("invalid Via port")
 	}
 	vp := sip.NewParams()
 	vp.Add("branch", branch)
@@ -276,20 +272,28 @@ func BuildDialogRequest(s Dialog, method sip.RequestMethod, sequence uint32, bod
 	r.PrependHeader(&sip.ViaHeader{ProtocolName: "SIP", ProtocolVersion: "2.0", Transport: strings.ToUpper(s.Transport), Host: host, Port: port, Params: vp})
 	for _, route := range routes {
 		if strings.ContainsAny(route, "\r\n") {
-			return Message{}, errors.New("invalid route")
+			return nil, "", errors.New("invalid route")
 		}
 		r.AppendHeader(sip.NewHeader("Route", route))
 	}
 	if s.Contact != "" && method != sip.ACK {
 		var contact sip.Uri
 		if e := sip.ParseUri(s.Contact, &contact); e != nil {
-			return Message{}, e
+			return nil, "", e
 		}
 		r.AppendHeader(&sip.ContactHeader{Address: contact})
 	}
-	r.SetBody(bytes.Clone(body))
+	r.SetBody(body)
 	if len(body) > 0 {
 		r.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
+	}
+	return r, destination, nil
+}
+
+func BuildDialogRequest(s Dialog, method sip.RequestMethod, sequence uint32, body []byte, branch string) (Message, error) {
+	r, destination, err := buildDialogRequest(s, method, sequence, body, branch)
+	if err != nil {
+		return Message{}, err
 	}
 	return wire(r, s.Transport, "", destination), nil
 }
@@ -361,9 +365,9 @@ func StepDialog(s Dialog, in DialogInput) (Dialog, []Effect, error) {
 			return s, nil, reject(481, "directional dialog identity mismatch")
 		}
 		r, _ := request(in.Message)
-		if r.IsAck() {
+		if r.facts.Method == sip.ACK {
 			p := d.state.RemoteInvite
-			if p == nil || p.Sequence != r.CSeq().SeqNo || p.State != InviteAwaitingACK && p.State != InviteAcked {
+			if p == nil || p.Sequence != r.facts.CSeq || p.State != InviteAwaitingACK && p.State != InviteAcked {
 				return s, nil, reject(500, "ACK INVITE sequence mismatch")
 			}
 			if p.State == InviteAcked {
@@ -383,26 +387,26 @@ func StepDialog(s Dialog, in DialogInput) (Dialog, []Effect, error) {
 			d.emit(Acknowledged, &in.Message, false)
 			break
 		}
-		if r.IsCancel() {
+		if r.facts.Method == sip.CANCEL {
 			return s, nil, reject(481, "CANCEL requires exact transaction association")
 		}
-		if (s.Retiring || s.Phase == DialogTerminating) && r.Method != sip.BYE {
+		if (s.Retiring || s.Phase == DialogTerminating) && r.facts.Method != sip.BYE {
 			return s, nil, reject(481, "dialog terminating")
 		}
-		if s.RemoteSet && r.CSeq().SeqNo <= s.RemoteCSeq {
+		if s.RemoteSet && r.facts.CSeq <= s.RemoteCSeq {
 			return s, nil, reject(500, "remote CSeq must increase")
 		}
-		if r.IsInvite() && (pending(s.LocalInvite) || pending(s.RemoteInvite) || s.Offer != NoOffer) {
+		if (r.facts.Method == sip.INVITE) && (pending(s.LocalInvite) || pending(s.RemoteInvite) || s.Offer != NoOffer) {
 			return s, nil, reject(491, "INVITE procedure pending")
 		}
-		d.state.RemoteCSeq, d.state.RemoteSet = r.CSeq().SeqNo, true
-		if r.IsInvite() {
-			d.state.RemoteInvite = &InviteProcedure{State: InvitePending, Sequence: r.CSeq().SeqNo, Request: in.Message.Clone()}
+		d.state.RemoteCSeq, d.state.RemoteSet = r.facts.CSeq, true
+		if r.facts.Method == sip.INVITE {
+			d.state.RemoteInvite = &InviteProcedure{State: InvitePending, Sequence: r.facts.CSeq, Request: in.Message.Clone()}
 			if in.Offer || isSDP(r) {
 				d.state.Offer = RemoteOffer
 			}
 		}
-		if r.Method == sip.BYE {
+		if r.facts.Method == sip.BYE {
 			m, e := ResponseFor(in.Message, 200, "OK", nil, s.LocalTag)
 			if e != nil {
 				return s, nil, e
@@ -558,7 +562,7 @@ func (s Dialog) Validate() error {
 			return errors.New("invalid INVITE sequence")
 		}
 		r, e := request(p.Request)
-		if e != nil || !r.IsInvite() || r.CSeq().SeqNo != p.Sequence || r.CallID().Value() != s.CallID {
+		if e != nil || !(r.facts.Method == sip.INVITE) || r.facts.CSeq != p.Sequence || r.facts.CallID != s.CallID {
 			return errors.New("retained INVITE identity mismatch")
 		}
 	}
@@ -578,25 +582,25 @@ func (d *dialogTransition) reply(m Message, answer, offer bool) {
 		return
 	}
 	r, _ := response(m)
-	if tag(r.To().Params) != s.LocalTag {
+	if r.facts.ToTag != s.LocalTag {
 		d.err = reject(481, "response local tag mismatch")
 		return
 	}
 	if p.State == InviteRejected || p.State == InviteAcked {
-		if p.Final == nil || !bytes.Equal(p.Final.Wire, m.Wire) {
+		if p.Final == nil || !p.Final.EqualWire(m) {
 			d.err = errors.New("conflicting INVITE final")
 		}
 		return
 	}
 	if p.State == InviteAwaitingACK {
-		if r.IsSuccess() && p.Final != nil && bytes.Equal(p.Final.Wire, m.Wire) {
+		if (r.facts.Status >= 200 && r.facts.Status < 300) && p.Final != nil && p.Final.EqualWire(m) {
 			d.emit(Respond, p.Final, true)
 		} else {
 			d.err = errors.New("conflicting INVITE final")
 		}
 		return
 	}
-	if r.IsProvisional() {
+	if r.facts.Status < 200 {
 		if s.Offer == RemoteOffer && isSDP(r) {
 			s.Offer = NoOffer
 		}
@@ -604,20 +608,20 @@ func (d *dialogTransition) reply(m Message, answer, offer bool) {
 		return
 	}
 	p.Final = cloneMessage(&m)
-	if r.IsSuccess() {
+	if r.facts.Status >= 200 && r.facts.Status < 300 {
 		p.State = InviteAwaitingACK
-		if r.Contact() != nil {
-			s.Contact = r.Contact().Address.String()
+		if r.contact != nil {
+			s.Contact = r.facts.ContactURI
 			if s.SentBy == "" {
-				s.SentBy = r.Contact().Address.HostPort()
+				s.SentBy = r.facts.ContactHostPort
 			}
 		}
 		if !s.Retiring {
 			s.Phase = DialogAwaitingACK
 		}
 		o, _ := request(p.Request)
-		if o.Contact() != nil {
-			s.Target = o.Contact().Address.String()
+		if o.contact != nil {
+			s.Target = o.facts.ContactURI
 		}
 		if s.Offer == RemoteOffer && !isSDP(r) {
 			d.err = reject(488, "INVITE answer required")
@@ -645,7 +649,7 @@ func (d *dialogTransition) receive(m Message) {
 	if s.LocalBye != nil && MatchResponse(*s.LocalBye, m) && MatchDialogResponse(*s, m) {
 		r, _ := response(m)
 		d.emit(ReportResponse, &m, false)
-		if !r.IsProvisional() {
+		if !(r.facts.Status < 200) {
 			d.end()
 		}
 		return
@@ -656,7 +660,7 @@ func (d *dialogTransition) receive(m Message) {
 		return
 	}
 	r, _ := response(m)
-	if r.IsProvisional() {
+	if r.facts.Status < 200 {
 		if p.State == InvitePending && s.Offer == LocalOffer && isSDP(r) {
 			s.Offer = NoOffer
 		}
@@ -666,7 +670,7 @@ func (d *dialogTransition) receive(m Message) {
 		return
 	}
 	if p.State == InviteRejected {
-		if p.Final == nil || !bytes.Equal(p.Final.Wire, m.Wire) {
+		if p.Final == nil || !p.Final.EqualWire(m) {
 			d.err = reject(481, "conflicting INVITE final")
 			return
 		}
@@ -674,7 +678,7 @@ func (d *dialogTransition) receive(m Message) {
 		return
 	}
 	if p.State == InviteAcked || p.State == InviteAwaitingACK {
-		if !r.IsSuccess() || p.Final == nil || !bytes.Equal(p.Final.Wire, m.Wire) {
+		if !(r.facts.Status >= 200 && r.facts.Status < 300) || p.Final == nil || !p.Final.EqualWire(m) {
 			d.err = reject(481, "conflicting INVITE final")
 			return
 		}
@@ -686,17 +690,17 @@ func (d *dialogTransition) receive(m Message) {
 		return
 	}
 	p.Final = cloneMessage(&m)
-	if r.IsSuccess() {
-		if r.Contact() == nil {
+	if r.facts.Status >= 200 && r.facts.Status < 300 {
+		if r.contact == nil {
 			d.err = errors.New("successful INVITE Contact required")
 			return
 		}
-		s.Target = r.Contact().Address.String()
+		s.Target = r.facts.ContactURI
 		if p.Initial {
 			s.Routes = nil
-			headers := r.GetHeaders("Record-Route")
+			headers := r.headerValues("Record-Route")
 			for i := len(headers) - 1; i >= 0; i-- {
-				s.Routes = append(s.Routes, headers[i].Value())
+				s.Routes = append(s.Routes, headers[i])
 			}
 		}
 		p.State = InviteAwaitingACK

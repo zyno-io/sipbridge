@@ -33,16 +33,38 @@ func (r *stateReduction) selectorsForWire(wire []byte, outbound bool) ([]string,
 	return r.projectionForWire(wire).directionSelectors(outbound)
 }
 
-func (r *stateReduction) portableIdentity(message portable.Message) (wireIdentity, error) {
-	projection := r.projectionForWire(message.Wire)
-	if projection.portableEligible && (message.Transport == "udp" || message.Transport == "tcp" || message.Transport == "tls") {
-		return projection.identity, nil
+func stateSelectorsForMessage(message portable.Message, outbound bool) ([]string, error) {
+	facts, err := message.Facts()
+	if err != nil {
+		return nil, err
 	}
-	parsed, err := message.Parse()
+	client, clientErr := message.ClientTxKey()
+	if facts.IsRequest && clientErr != nil {
+		return nil, clientErr
+	}
+	key, prefix := client, "ctx:"
+	if facts.IsRequest != outbound {
+		key, _ = message.CancelServerTxKey()
+		prefix = "stx:"
+	}
+	var selectors []string
+	if key != "" {
+		selectors = append(selectors, opaque(prefix, key))
+	}
+	if facts.FromTag != "" && facts.ToTag != "" {
+		tags := []string{facts.FromTag, facts.ToTag}
+		sort.Strings(tags)
+		selectors = append(selectors, opaque("dlg:", facts.CallID, tags[0], tags[1]))
+	}
+	return selectors, nil
+}
+
+func (r *stateReduction) portableIdentity(message portable.Message) (wireIdentity, error) {
+	facts, err := message.Facts()
 	if err != nil {
 		return wireIdentity{}, err
 	}
-	return projectedWireIdentity(parsed), nil
+	return wireIdentity{Method: facts.CSeqMethod, Sequence: facts.CSeq, ToTag: facts.ToTag, ViaBranch: facts.ViaBranch, SentBy: facts.ViaSentBy}, nil
 }
 
 func (r *stateReduction) clearSelectorMemo() {

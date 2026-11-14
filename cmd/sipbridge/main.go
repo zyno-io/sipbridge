@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/emiago/sipgo/sip"
+	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
 	"sipbridge/internal/buildinfo"
 	"sipbridge/internal/capture"
@@ -229,17 +230,23 @@ func run() error {
 	ingressOptions := engine.IngressOptions{PreferredController: *initialController, SourceIP: sourceIP, Capture: sipCapture,
 		MethodPolicy: methodPolicy, AuthPolicy: authPolicy}
 	if stateConfig.Backend != state.RedisBackend {
-		ingressOptions.DirectCompletion = func(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, parsed sip.Message) (bool, error) {
+		ingressOptions.DirectReject = func(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, status uint32, parsed sip.Message, native portable.Message) error {
+			if residentNative == nil {
+				return errors.New("native rejection authority unavailable")
+			}
+			return residentNative.RejectParsed(ctx, flow, message, status, parsed, native)
+		}
+		ingressOptions.DirectCompletion = func(ctx context.Context, flow *pb.FlowRef, message *pb.SipMessage, parsed sip.Message, native portable.Message) (bool, error) {
 			if residentNative == nil {
 				return false, errors.New("native completion authority unavailable")
 			}
-			return residentNative.TryNativeCompletionParsed(ctx, flow, message, parsed)
+			return residentNative.TryNativeCompletionParsed(ctx, flow, message, parsed, native)
 		}
-		ingressOptions.DirectRequest = func(ctx context.Context, peer *control.Peer, flow *pb.FlowRef, message *pb.SipMessage, parsed sip.Message) error {
+		ingressOptions.DirectRequest = func(ctx context.Context, peer *control.Peer, flow *pb.FlowRef, message *pb.SipMessage, parsed sip.Message, native portable.Message) error {
 			if residentNative == nil {
 				return errors.New("native request authority unavailable")
 			}
-			return residentNative.ReceiveRequestParsed(ctx, peer, flow, message, parsed)
+			return residentNative.ReceiveRequestParsed(ctx, peer, flow, message, parsed, native)
 		}
 	}
 	ingress = engine.NewIngress(process, server, *advertise, 4096, ingressOptions)

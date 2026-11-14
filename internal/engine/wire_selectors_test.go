@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 )
 
@@ -124,8 +125,9 @@ func TestWireProjectionPreservesPortableValidation(t *testing.T) {
 	for _, sample := range cases {
 		t.Run(sample.name, func(t *testing.T) {
 			for _, transport := range []string{"udp", "tcp", "tls", "", "TLS", "ws"} {
-				message := portable.Message{Wire: sample.wire, Transport: transport, Source: "192.0.2.1:1234", Destination: "192.0.2.2:5061"}
-				parsed, expectedErr := message.Parse()
+				message := portable.RestoreMessage(sample.wire, transport, "192.0.2.1:1234", "192.0.2.2:5061")
+				_, expectedErr := message.Facts()
+				parsed, _ := sip.ParseMessage(sample.wire)
 				for _, selectorsFirst := range []bool{false, true} {
 					r := new(stateReduction)
 					if selectorsFirst {
@@ -142,11 +144,11 @@ func TestWireProjectionPreservesPortableValidation(t *testing.T) {
 						}
 					}
 					// The wire-only cache must not authorize a changed transport.
-					message.Transport = "unsupported"
+					message = portable.RestoreMessage(sample.wire, "unsupported", "192.0.2.1:1234", "192.0.2.2:5061")
 					if _, err := r.portableIdentity(message); err == nil {
 						t.Fatal("cached wire bypassed transport validation")
 					}
-					message.Transport = transport
+					message = portable.RestoreMessage(sample.wire, transport, "192.0.2.1:1234", "192.0.2.2:5061")
 				}
 			}
 		})
@@ -167,7 +169,7 @@ func TestSelectorMemoOwnsKeysAndSeparatesDirection(t *testing.T) {
 	if reflect.DeepEqual(first, other) || len(r.selectorMemo) != 1 {
 		t.Fatal("direction aliased")
 	}
-	identity, err := r.portableIdentity(portable.Message{Wire: sample.wire, Transport: "tls"})
+	identity, err := r.portableIdentity(portable.RestoreMessage(sample.wire, "tls", "", ""))
 	if err != nil || len(r.selectorMemo) != 1 || r.selectorMemoBytes != len(sample.wire) {
 		t.Fatal("portable identity did not share the bounded wire key", err)
 	}
@@ -177,7 +179,7 @@ func TestSelectorMemoOwnsKeysAndSeparatesDirection(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(first, again) || len(r.selectorMemo) != 1 {
 		t.Fatal("memo key aliases mutable input")
 	}
-	got, err := r.portableIdentity(portable.Message{Wire: original, Transport: "tls"})
+	got, err := r.portableIdentity(portable.RestoreMessage(original, "tls", "", ""))
 	if err != nil || got != identity {
 		t.Fatal("scalar identity aliases mutable input", err)
 	}
@@ -214,9 +216,9 @@ func TestSelectorMemoBudgetFallsBackWithoutChangingKeys(t *testing.T) {
 				if err != nil || !reflect.DeepEqual(got, expected) {
 					t.Fatal("budget changed selector semantics", err)
 				}
-				message := portable.Message{Wire: sample.wire, Transport: "tls"}
+				message := portable.RestoreMessage(sample.wire, "tls", "", "")
 				identity, err := r.portableIdentity(message)
-				parsed, parseErr := message.Parse()
+				parsed, parseErr := sip.ParseMessage(sample.wire)
 				if err != nil || parseErr != nil || identity != projectedWireIdentity(parsed) {
 					t.Fatal("budget changed portable identity", err, parseErr)
 				}

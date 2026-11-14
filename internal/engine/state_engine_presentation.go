@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 
 	pb "sipbridge/internal/controlpb"
@@ -66,15 +65,14 @@ func (r *stateReduction) presentationFailed() error {
 		return nil
 	}
 	if tx.Native.LastResponse != nil {
-		response, err := tx.Native.LastResponse.Parse()
+		final, err := tx.Native.LastResponse.Facts()
 		if err != nil {
 			return err
 		}
-		final, ok := response.(*sip.Response)
-		if !ok {
+		if final.IsRequest {
 			return errors.New("invalid retained server response")
 		}
-		if final.StatusCode >= 200 {
+		if final.Status >= 200 {
 			return nil
 		}
 	}

@@ -22,11 +22,11 @@ func (r *stateReduction) transactionEnded(c *stateContext, tx *stateTransaction,
 			c.Result.Error = failure
 		}
 	}
-	origin, err := tx.Native.Origin.Parse()
+	origin, err := tx.Native.Origin.Facts()
 	if err != nil {
 		return err
 	}
-	if tx.Native.Family == portable.InviteClient && tag(origin.To().Params) == "" && !c.Snapshot.Answered && !c.Snapshot.Ended && c.Dialog == "" && tx.DigestEffect == "" {
+	if tx.Native.Family == portable.InviteClient && origin.ToTag == "" && !c.Snapshot.Answered && !c.Snapshot.Ended && c.Dialog == "" && tx.DigestEffect == "" {
 		// Early branches cannot become application dialogs after the initial
 		// procedure ends. Keep their exact origins for late 2xx ACK/BYE duties.
 		c.Snapshot.Ended = true
@@ -34,10 +34,10 @@ func (r *stateReduction) transactionEnded(c *stateContext, tx *stateTransaction,
 		r.touch(c)
 		r.event(c, pb.DialogEvent_FAILED, nil, tx.Command, failure)
 	}
-	if tx.Native.Family != portable.NonInviteClient || origin.CSeq().MethodName != sip.BYE {
+	if tx.Native.Family != portable.NonInviteClient || origin.CSeqMethod != sip.BYE {
 		return nil
 	}
-	key := tag(origin.From().Params) + "/" + tag(origin.To().Params)
+	key := origin.FromTag + "/" + origin.ToTag
 	d, exists := c.Dialogs[key]
 	if !exists || d.LocalBye == nil || !portable.MatchRequest(*d.LocalBye, tx.Native.Origin) {
 		return nil

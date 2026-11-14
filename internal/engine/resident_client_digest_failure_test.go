@@ -24,12 +24,12 @@ func TestResidentDigestRejectsInvalidOrStaleLookup(t *testing.T) {
 				result, _ := e.commandResidentClient(ctx, peer, command, "digest-failure", time.Now().Add(5*time.Second))
 				results <- result
 			}()
-			origin := portable.Message{Wire: <-writes, Transport: "tls"}
+			origin := portable.RestoreMessage(<-writes, "tls", "", "")
 			challenge, err := portable.BuildResponseWithHeaders(origin, 401, "Unauthorized", nil, "carrier", "", []portable.Header{{Name: "WWW-Authenticate", Value: `Digest realm="carrier",nonce="nonce",algorithm=MD5,qop="auth"`}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			observed, err := Observe(challenge.Wire, false)
+			observed, err := Observe(challenge.WireBytes(), false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,19 +97,19 @@ func TestResidentInviteDigestACKPrecedesAuthenticatedRetry(t *testing.T) {
 	if err != nil || result.Certainty != pb.OperationResult_ACCEPTED {
 		t.Fatal("INVITE not accepted", err)
 	}
-	origin := portable.Message{Wire: <-writes, Transport: "tls"}
+	origin := portable.RestoreMessage(<-writes, "tls", "", "")
 	challenge, err := portable.BuildResponseWithHeaders(origin, 401, "Unauthorized", nil, "carrier", "", []portable.Header{{Name: "WWW-Authenticate", Value: `Digest realm="carrier",nonce="nonce",algorithm=MD5,qop="auth"`}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := Observe(challenge.Wire, false)
+	observed, err := Observe(challenge.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	completion := make(chan error, 1)
 	go func() { _, err := e.completeResidentClient(ctx, flow, observed); completion <- err }()
-	ack := portable.Message{Wire: <-writes, Transport: "tls"}
-	parsed, err := ack.Parse()
+	ack := portable.RestoreMessage(<-writes, "tls", "", "")
+	parsed, err := sip.ParseMessage(ack.WireBytes())
 	if err != nil || parsed.CSeq().MethodName != sip.ACK {
 		t.Fatal("challenge ACK missing", err)
 	}
@@ -118,8 +118,8 @@ func TestResidentInviteDigestACKPrecedesAuthenticatedRetry(t *testing.T) {
 		t.Fatal("credential lookup missing")
 	}
 	writeControllerEnvelope(t, ctx, connection, &pb.Envelope{SessionId: session, CorrelationId: lookup.CorrelationId, Payload: &pb.Envelope_CredentialResult{CredentialResult: &pb.CredentialResult{Username: "phone", Password: "synthetic-test-secret", Version: "one"}}})
-	retry := portable.Message{Wire: <-writes, Transport: "tls"}
-	parsed, err = retry.Parse()
+	retry := portable.RestoreMessage(<-writes, "tls", "", "")
+	parsed, err = sip.ParseMessage(retry.WireBytes())
 	if err != nil || parsed.CSeq().MethodName != sip.INVITE || parsed.CSeq().SeqNo != 2 || header(parsed, "Authorization") == "" {
 		t.Fatal("authenticated INVITE missing", err)
 	}

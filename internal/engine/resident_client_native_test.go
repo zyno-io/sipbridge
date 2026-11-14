@@ -37,7 +37,7 @@ func TestResidentClientStartUsesNativeTransaction(t *testing.T) {
 		if tx.native.Family != tc.family || !send {
 			t.Fatalf("unexpected native start: %s %#v", tx.native.Family, effects)
 		}
-		parsed, err := tx.native.Origin.Parse()
+		parsed, err := sip.ParseMessage(tx.native.Origin.WireBytes())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +100,7 @@ func TestResidentClientNonInviteResponseCompletesExactReceipt(t *testing.T) {
 		unrelated = append(unrelated, other)
 	}
 	e.contexts[c.snapshot.Context.Id] = c
-	request, err := Observe(tx.native.Origin.Wire, true)
+	request, err := Observe(tx.native.Origin.WireBytes(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestResidentClientNonInviteResponseCompletesExactReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := Observe(response.Wire, false)
+	observed, err := Observe(response.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestResidentClientNonInviteResponseCompletesExactReceipt(t *testing.T) {
 		t.Fatal("response did not settle its own receipt independently")
 	}
 	result := residentCommandResultLocked(c, receipt)
-	if result.GetResponse().GetStatus() != 200 || result.GetResponse().GetMethod() != "OPTIONS" || !bytes.Equal(result.GetResponse().GetWire(), response.Wire) {
+	if result.GetResponse().GetStatus() != 200 || result.GetResponse().GetMethod() != "OPTIONS" || !bytes.Equal(result.GetResponse().GetWire(), response.WireBytes()) {
 		t.Fatal("public receipt used forged metadata")
 	}
 	for _, other := range unrelated {
@@ -171,11 +171,11 @@ func TestResidentLosingForkWaitsForWrittenACK(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		observed, err := Observe(response.Wire, false)
+		observed, err := Observe(response.WireBytes(), false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		parsed, err := response.Parse()
+		parsed, err := sip.ParseMessage(response.WireBytes())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -248,12 +248,12 @@ func TestResidentOpenOptionsWritesAndCompletesOnResponse(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("no request write")
 	}
-	request := portable.Message{Wire: wire, Transport: "tls"}
+	request := portable.RestoreMessage(wire, "tls", "", "")
 	response, err := portable.BuildResponseWithHeaders(request, 200, "OK", nil, "remote", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := Observe(response.Wire, false)
+	observed, err := Observe(response.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,11 +288,11 @@ func TestResidentOpenInviteProducesACKAndAnsweredEvent(t *testing.T) {
 	e.mu.Lock()
 	e.maxBytes = e.bytes + e.reserved
 	e.mu.Unlock()
-	response, err := portable.BuildResponseWithHeaders(portable.Message{Wire: wire, Transport: "tls"}, 200, "OK", nil, "remote", "sip:phone@example.test", nil)
+	response, err := portable.BuildResponseWithHeaders(portable.RestoreMessage(wire, "tls", "", ""), 200, "OK", nil, "remote", "sip:phone@example.test", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := Observe(response.Wire, false)
+	observed, err := Observe(response.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestResidentCancelBeforeProvisionalStartsPairedTransaction(t *testing.T) {
 	if err != nil || result.Certainty != pb.OperationResult_ACCEPTED {
 		t.Fatal("INVITE not accepted", err)
 	}
-	origin := portable.Message{Wire: <-writes, Transport: "tls"}
+	origin := portable.RestoreMessage(<-writes, "tls", "", "")
 	cancel := &pb.Command{Context: result.Snapshot.Context, Sequence: 2, Action: &pb.Command_Cancel{Cancel: &pb.Cancel{}}}
 	cancelResult, err := e.commandResidentClient(ctx, peer, cancel, "cancel", time.Now().Add(5*time.Second))
 	if err != nil || cancelResult.Certainty != pb.OperationResult_ACCEPTED {
@@ -378,7 +378,7 @@ func TestResidentCancelBeforeProvisionalStartsPairedTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := Observe(provisional.Wire, false)
+	observed, err := Observe(provisional.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,7 +465,7 @@ func TestResidentLateOfferWaitsForControllerACKAnswer(t *testing.T) {
 	if err != nil || result.Certainty != pb.OperationResult_ACCEPTED {
 		t.Fatal("INVITE not accepted", err)
 	}
-	origin := portable.Message{Wire: <-writes, Transport: "tls"}
+	origin := portable.RestoreMessage(<-writes, "tls", "", "")
 	if !proto.Equal(<-physicalFlows, flow) {
 		t.Fatal("initial flow changed")
 	}
@@ -474,7 +474,7 @@ func TestResidentLateOfferWaitsForControllerACKAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := Observe(response.Wire, false)
+	observed, err := Observe(response.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -562,11 +562,11 @@ func TestResidentLosingForkRemoteByeDoesNotEndWinner(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		observed, err := Observe(response.Wire, false)
+		observed, err := Observe(response.WireBytes(), false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		parsed, err := response.Parse()
+		parsed, err := sip.ParseMessage(response.WireBytes())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -602,7 +602,7 @@ func TestResidentLosingForkRemoteByeDoesNotEndWinner(t *testing.T) {
 		return result
 	}
 	priorEvents := len(c.events)
-	handled, err := e.tryNativeCompletion(context.Background(), c.flow, &pb.SipMessage{Wire: bye.Wire})
+	handled, err := e.tryNativeCompletion(context.Background(), c.flow, &pb.SipMessage{Wire: bye.WireBytes()})
 	if err != nil || !handled {
 		t.Fatal("losing branch BYE was not handled", err)
 	}

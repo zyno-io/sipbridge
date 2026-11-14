@@ -276,21 +276,21 @@ func TestChallengeACKProofDoesNotAuthorizeAnotherFlowOrTransaction(t *testing.T)
 	request.To().Params.Add("tag", localChallengeTag(policy.SigningKey, request, flow))
 	request.Method, request.CSeq().MethodName = sip.ACK, sip.ACK
 	ack, err := Observe([]byte(request.String()), false)
-	if err != nil || !ingress.localChallengeACK(ack, flow) {
+	if err != nil || !ingress.localChallengeACK(ack, flow, nil) {
 		t.Fatal("valid local challenge ACK was not consumed", err)
 	}
 	changed := proto.Clone(flow).(*pb.FlowRef)
 	changed.ConnectionId = "other"
-	if ingress.localChallengeACK(ack, changed) {
+	if ingress.localChallengeACK(ack, changed, nil) {
 		t.Fatal("challenge proof moved to a different physical flow")
 	}
 	request.CSeq().SeqNo++
 	altered, _ := Observe([]byte(request.String()), false)
-	if ingress.localChallengeACK(altered, flow) {
+	if ingress.localChallengeACK(altered, flow, nil) {
 		t.Fatal("challenge proof moved to a different transaction")
 	}
 	policy.SigningKey = bytes.Repeat([]byte{8}, 32)
-	if err := ingress.UpdateChallengePolicy(policy); err != nil || !ingress.localChallengeACK(ack, flow) {
+	if err := ingress.UpdateChallengePolicy(policy); err != nil || !ingress.localChallengeACK(ack, flow, nil) {
 		t.Fatal("bounded retired key could not finish its challenge ACK", err)
 	}
 	for count := 0; count < 12; count++ {

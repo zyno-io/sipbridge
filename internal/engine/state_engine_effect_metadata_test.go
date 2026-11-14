@@ -6,6 +6,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/state"
 	"sipbridge/internal/storagecodec"
 )
 
@@ -28,6 +29,93 @@ func metadataFixtureEffect(t testing.TB, kind string, rejection bool) stateEngin
 		t.Fatal("unknown fixture arm")
 	}
 	return stateEngineEffect{Context: "fixture", Envelope: envelope, Wire: message.Wire, Rejection: rejection}
+}
+
+func TestEffectMetadataReusesObservedMessageAndPreservesWeakValidation(t *testing.T) {
+	valid := selectorWireCases()[0].wire
+	for name, wire := range map[string][]byte{
+		"method-mismatch": bytes.ReplaceAll(valid, []byte("CSeq: 7 INVITE"), []byte("CSeq: 7 BYE")),
+	} {
+		t.Run(name, func(t *testing.T) {
+			expected, err := Observe(wire, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := metadataFixtureEffect(t, "request", false)
+			value.Wire = wire
+			encoded, err := value.MarshalBinary()
+			if err != nil {
+				t.Fatal(err)
+			}
+			effect := state.Effect{ID: "same-effect", Payload: encoded}
+			r := new(stateReduction)
+			var first, second stateEngineEffect
+			if err := r.unmarshalEffectMetadata(&first, effect); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.unmarshalEffectMetadata(&second, effect); err != nil || first.prepared != second.prepared {
+				t.Fatal("repeated metadata scan did not reuse its immutable message", err)
+			}
+			if err := second.materializeMessage(); err != nil || !proto.Equal(expected, second.Envelope.GetRequest().GetMessage()) {
+				t.Fatalf("observed projection changed: %v\nexpected: %v\ngot: %v", err, expected, second.Envelope.GetRequest().GetMessage())
+			}
+			if _, err := second.prepared.Facts(); err == nil {
+				t.Fatal("observed validation bypassed strict portable validation")
+			}
+			value.Wire = valid
+			effect.Payload, err = value.MarshalBinary()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var changed stateEngineEffect
+			if err := r.unmarshalEffectMetadata(&changed, effect); err != nil || changed.prepared == first.prepared || !changed.prepared.EqualWireBytes(valid) {
+				t.Fatal("changed effect wire reused stale facts", err)
+			}
+		})
+	}
+}
+
+func TestPhysicalEffectLazyMessageClassification(t *testing.T) {
+	_, _, tx := forkFixture(t)
+	valid := forkReply(t, tx, 200, "remote")
+	for _, sample := range []struct {
+		name   string
+		wire   []byte
+		final  bool
+		opaque bool
+	}{
+		{"valid", valid.WireBytes(), true, false},
+		{"missing mandatory identity", []byte("SIP/2.0 200 OK\r\nContent-Length: 0\r\n\r\n"), false, true},
+		{"invalid wire", []byte("not SIP"), false, true},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			value := stateEngineEffect{Wire: sample.wire}
+			encoded, err := value.MarshalBinary()
+			if err != nil {
+				t.Fatal(err)
+			}
+			effect := state.Effect{ID: "physical", Kind: "deliver", Payload: encoded}
+			r := new(stateReduction)
+			var first, second stateEngineEffect
+			if err := r.unmarshalEffectMetadata(&first, effect); err != nil {
+				t.Fatal("unrelated metadata read eagerly validated physical wire", err)
+			}
+			if first.prepared.IsZero() {
+				t.Fatal("physical wire has no lazy immutable holder")
+			}
+			final, opaque := stateResponseClass(first)
+			if final != sample.final || opaque != sample.opaque {
+				t.Fatalf("classification changed: final=%t opaque=%t", final, opaque)
+			}
+			if err := r.unmarshalEffectMetadata(&second, effect); err != nil || second.prepared != first.prepared {
+				t.Fatal("repeated physical scan did not reuse its holder", err)
+			}
+			final, opaque = stateResponseClass(second)
+			if final != sample.final || opaque != sample.opaque {
+				t.Fatal("repeated classification changed", final, opaque)
+			}
+		})
+	}
 }
 
 func TestEffectMetadataMaterializesOnlyAtProjectionBoundary(t *testing.T) {

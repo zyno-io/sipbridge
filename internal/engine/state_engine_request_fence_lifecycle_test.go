@@ -21,19 +21,19 @@ import (
 func TestRequestFenceRetentionDoesNotSlideOnRepeatedInput(t *testing.T) {
 	r, c, tx := advertiseFixture(t, "tls", sip.OPTIONS, "")
 	r.deadline = r.now + 2000
-	if admitted, err := r.admitRequestFlow(tx, c.Flow, tx.Native.Origin.Wire); err != nil || !admitted {
+	if admitted, err := r.admitRequestFlow(tx, c.Flow, tx.Native.Origin.WireBytes()); err != nil || !admitted {
 		t.Fatalf("initial proof: %v / %v", admitted, err)
 	}
 	first := tx.DispositionUntilMS
 	r.deadline += 100000
-	if admitted, err := r.admitRequestFlow(tx, c.Flow, tx.Native.Origin.Wire); err != nil || !admitted || tx.DispositionUntilMS != first || len(tx.AdmittedFlowProofs) != 1 {
+	if admitted, err := r.admitRequestFlow(tx, c.Flow, tx.Native.Origin.WireBytes()); err != nil || !admitted || tx.DispositionUntilMS != first || len(tx.AdmittedFlowProofs) != 1 {
 		t.Fatalf("new RPC deadline slid the same admission proof: %v / %v", admitted, err)
 	}
 	for index := 1; index < stateRequestFlowProofLimit; index++ {
 		flow := proto.Clone(c.Flow).(*pb.FlowRef)
 		flow.ConnectionId = fmt.Sprintf("admitted-%d", index)
 		r.deadline++
-		if admitted, err := r.admitRequestFlow(tx, flow, tx.Native.Origin.Wire); err != nil || !admitted || tx.DispositionUntilMS != r.deadline+120000 {
+		if admitted, err := r.admitRequestFlow(tx, flow, tx.Native.Origin.WireBytes()); err != nil || !admitted || tx.DispositionUntilMS != r.deadline+120000 {
 			t.Fatalf("new admitted flow did not receive its fixed floor: %v / %v", admitted, err)
 		}
 	}
@@ -41,10 +41,10 @@ func TestRequestFenceRetentionDoesNotSlideOnRepeatedInput(t *testing.T) {
 	flow := proto.Clone(c.Flow).(*pb.FlowRef)
 	flow.ConnectionId = "over-cap"
 	r.deadline += 100000
-	if admitted, err := r.admitRequestFlow(tx, flow, tx.Native.Origin.Wire); err != nil || admitted || tx.DispositionUntilMS != fullFloor {
+	if admitted, err := r.admitRequestFlow(tx, flow, tx.Native.Origin.WireBytes()); err != nil || admitted || tx.DispositionUntilMS != fullFloor {
 		t.Fatalf("saturated new flow changed admitted proof: %v / %v", admitted, err)
 	}
-	if admitted, err := r.admitRequestFlow(tx, c.Flow, tx.Native.Origin.Wire); err != nil || !admitted || tx.DispositionUntilMS != fullFloor {
+	if admitted, err := r.admitRequestFlow(tx, c.Flow, tx.Native.Origin.WireBytes()); err != nil || !admitted || tx.DispositionUntilMS != fullFloor {
 		t.Fatal("saturated proof reuse slid retention or stopped its admitted source")
 	}
 }
@@ -147,7 +147,7 @@ func TestRequestFenceProtectsBothGCPathsForLateIngestAndReject(t *testing.T) {
 			r, c, tx := advertiseFixture(t, "tls", sip.OPTIONS, "")
 			r.deadline = r.now + 2000
 			if kind != "ingest" {
-				if _, err := r.admitRequestFlow(tx, c.Flow, tx.Native.Origin.Wire); err != nil {
+				if _, err := r.admitRequestFlow(tx, c.Flow, tx.Native.Origin.WireBytes()); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -173,7 +173,7 @@ func TestRequestFenceProtectsBothGCPathsForLateIngestAndReject(t *testing.T) {
 					t.Fatal("fixture must separate protocol retirement from proof retention")
 				}
 			}
-			message, err := Observe(tx.Native.Origin.Wire, false)
+			message, err := Observe(tx.Native.Origin.WireBytes(), false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -217,7 +217,7 @@ func TestRequestFenceExpiredInputsCannotStartNewWork(t *testing.T) {
 			c.Transactions, c.Requests = make(map[string]*stateTransaction), make(map[string]string)
 			c.Subscription = &stateSubscription{Event: "dialog", RemoteSequence: 1, Target: "sip:original@example.test", ExpiresMS: r.now + 60000}
 			r.deadline = r.now - 1
-			message, err := Observe(tx.Native.Origin.Wire, false)
+			message, err := Observe(tx.Native.Origin.WireBytes(), false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -243,13 +243,13 @@ func TestRequestFenceSaturationCannotRecreateFinalThroughReject(t *testing.T) {
 	for index := 0; index < stateRequestFlowProofLimit; index++ {
 		flow := proto.Clone(c.Flow).(*pb.FlowRef)
 		flow.ConnectionId = fmt.Sprintf("flow-%d", index)
-		if _, err := r.admitRequestFlow(tx, flow, tx.Native.Origin.Wire); err != nil {
+		if _, err := r.admitRequestFlow(tx, flow, tx.Native.Origin.WireBytes()); err != nil {
 			t.Fatal(err)
 		}
 	}
 	unproved := proto.Clone(c.Flow).(*pb.FlowRef)
 	unproved.ConnectionId = "unproved-extra-flow"
-	message, err := Observe(tx.Native.Origin.Wire, false)
+	message, err := Observe(tx.Native.Origin.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestRequestFenceNativeMetadataIsMandatory(t *testing.T) {
 			r, c, tx := advertiseFixture(t, "tls", sip.OPTIONS, "")
 			r.group.Version = 1
 			r.deadline = r.now + 2000
-			if _, err := r.admitRequestFlow(tx, c.Flow, tx.Native.Origin.Wire); err != nil {
+			if _, err := r.admitRequestFlow(tx, c.Flow, tx.Native.Origin.WireBytes()); err != nil {
 				t.Fatal(err)
 			}
 			switch invalid {

@@ -126,6 +126,25 @@ func (uri *Uri) Clone() *Uri {
 	return &c
 }
 
+// CloneOwned copies URI strings as well as parameter slices. A long-lived
+// immutable native fact must not pin a larger parser input through a substring,
+// including the private uninterpreted portion of a non-SIP URI.
+func (uri Uri) CloneOwned() Uri {
+	uri.Scheme, uri.raw, uri.User, uri.Password, uri.Host = strings.Clone(uri.Scheme), strings.Clone(uri.raw), strings.Clone(uri.User), strings.Clone(uri.Password), strings.Clone(uri.Host)
+	clone := func(in HeaderParams) HeaderParams {
+		if in == nil {
+			return nil
+		}
+		out := make(HeaderParams, len(in))
+		for i, v := range in {
+			out[i] = HeaderKV{K: strings.Clone(v.K), V: strings.Clone(v.V)}
+		}
+		return out
+	}
+	uri.UriParams, uri.Headers = clone(uri.UriParams), clone(uri.Headers)
+	return uri
+}
+
 // IsEncrypted returns true if uri is SIPS uri
 func (uri *Uri) IsEncrypted() bool {
 	return uri.Scheme == "sips"

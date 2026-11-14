@@ -17,12 +17,12 @@ func serverFinalFixture(t *testing.T, method sip.RequestMethod) (*stateReduction
 	r, c, tx := advertiseFixture(t, "tls", method, "")
 	r.deadline = r.now + 20000
 	r.result = &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}
-	parsed, err := tx.Native.Origin.Parse()
+	parsed, err := sip.ParseMessage(tx.Native.Origin.WireBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
 	parsed.Via().Params.Add("rport", "")
-	tx.Native.Origin.Wire = []byte(parsed.String())
+	tx.Native.Origin = portable.RestoreMessage([]byte(parsed.String()), tx.Native.Origin.Transport(), tx.Native.Origin.Source(), tx.Native.Origin.Destination())
 	c.Origin = tx.Native.Origin.Clone()
 	return r, c, tx
 }
@@ -62,7 +62,7 @@ func completeResponseEffectAt(t *testing.T, r *stateReduction, index int, outcom
 func replayRequestOnFlow(t *testing.T, r *stateReduction, c *stateContext, tx *stateTransaction, flow *pb.FlowRef) {
 	t.Helper()
 	r.in = stateEngineInput{Kind: "ingest", Context: c.Snapshot.Context, Application: c.Snapshot.Application,
-		Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: flow, Wire: tx.Native.Origin.Wire,
+		Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: flow, Wire: tx.Native.Origin.WireBytes(),
 			Admission: pb.OwnerIngest_AUTHENTICATED_BINDING, PrincipalId: c.Snapshot.PrincipalId, BindingId: c.Snapshot.BindingId}}
 	if err := r.ingest(); err != nil {
 		t.Fatal(err)
@@ -274,7 +274,7 @@ func TestStateReliableFinalUnknownAndWrittenAnyFlowNeverRetryAutomatically(t *te
 				if err != nil {
 					t.Fatal(err)
 				}
-				other.Wire, other.Envelope, other.WireHash = nil, nil, stateACKHash(wire.Wire)
+				other.Wire, other.Envelope, other.WireHash = nil, nil, stateACKHash(wire.WireBytes())
 				if legacy {
 					other.WireStatus = 0
 				}
@@ -298,7 +298,7 @@ func TestStateReliableFinalExplicitReplayMayUseNewFlowDespiteOldUnknown(t *testi
 	flow := proto.Clone(tx.Flow).(*pb.FlowRef)
 	flow.ConnectionId, flow.SourcePort = "admitted-new-TLS", flow.SourcePort+1
 	r.in = stateEngineInput{Kind: "ingest", Context: c.Snapshot.Context, Application: c.Snapshot.Application,
-		Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: flow, Wire: tx.Native.Origin.Wire,
+		Ingest: &pb.OwnerIngest{Context: c.Snapshot.Context, Application: c.Snapshot.Application, Flow: flow, Wire: tx.Native.Origin.WireBytes(),
 			Admission: pb.OwnerIngest_AUTHENTICATED_BINDING, PrincipalId: c.Snapshot.PrincipalId, BindingId: c.Snapshot.BindingId}}
 	if err := r.ingest(); err != nil {
 		t.Fatal(err)

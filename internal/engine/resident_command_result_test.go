@@ -52,12 +52,12 @@ func TestResidentSupersededReceiptRetainsExactWireUntilOriginalWaiter(t *testing
 	c.command = first
 	e.maxBytes = e.bytes + e.reserved
 	request := stateTestRequest("OPTIONS", 1, "", "receipt-request")
-	native := portable.Message{Wire: request.Wire, Transport: "tls"}
+	native := portable.RestoreMessage(request.Wire, "tls", "", "")
 	response, err := portable.BuildResponseWithHeaders(native, 200, "OK", nil, "remote", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	observedResponse, err := Observe(response.Wire, false)
+	observedResponse, err := Observe(response.WireBytes(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,16 +70,16 @@ func TestResidentSupersededReceiptRetainsExactWireUntilOriginalWaiter(t *testing
 	c.command = second
 	c.snapshot.CommandSequence, c.snapshot.Revision = 2, 2
 	releaseResidentCommandWireLocked(c, first)
-	if len(first.requestWire) == 0 || len(first.responseWire) == 0 {
+	if first.requestMessage.WireLen() == 0 || first.responseMessage.WireLen() == 0 {
 		t.Fatal("supersession discarded the original waiter pin")
 	}
 	finishResidentCommandLocked(c, second, &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, SipStatus: 486})
 	result, err := awaitResidentCommand(context.Background(), c, first)
 	if err != nil || result.SipStatus != 200 || result.GetSnapshot().CommandSequence != 2 || result.GetSnapshot().Revision != 2 ||
-		!bytes.Equal(result.GetRequest().GetWire(), request.Wire) || !bytes.Equal(result.GetResponse().GetWire(), response.Wire) {
+		!bytes.Equal(result.GetRequest().GetWire(), request.Wire) || !bytes.Equal(result.GetResponse().GetWire(), response.WireBytes()) {
 		t.Fatal("superseded waiter lost its exact outcome or current snapshot", result, err)
 	}
-	if len(first.requestWire) != 0 || len(first.responseWire) != 0 || first.borrowed != 0 {
+	if first.requestMessage.WireLen() != 0 || first.responseMessage.WireLen() != 0 || first.borrowed != 0 {
 		t.Fatal("old receipt retained wire after original waiter returned")
 	}
 	result.Request.Wire[0] = 'X'
@@ -108,14 +108,14 @@ func TestResidentReplayWaiterPinsSupersededWire(t *testing.T) {
 	c.command = newResidentCommand("second", 2)
 	c.snapshot.CommandSequence = 2
 	releaseResidentCommandWireLocked(c, first)
-	if len(first.requestWire) == 0 {
+	if first.requestMessage.WireLen() == 0 {
 		t.Fatal("supersession discarded active replay evidence")
 	}
 	result, err := awaitResidentReplay(context.Background(), c, first)
 	if err != nil || !bytes.Equal(result.GetRequest().GetWire(), request.Wire) || result.Snapshot.CommandSequence != 2 {
 		t.Fatal("replay lost exact request", result, err)
 	}
-	if first.replayWaiters != 0 || len(first.requestWire) != 0 || first.borrowed != 0 {
+	if first.replayWaiters != 0 || first.requestMessage.WireLen() != 0 || first.borrowed != 0 {
 		t.Fatal("completed replay retained stale evidence")
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/emiago/sipgo/sip"
+	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
@@ -26,11 +27,11 @@ func forbidOptionsState(i *Ingress) *atomic.Int64 {
 	probes := new(atomic.Int64)
 	i.stateWriter = &evidenceWriter{}
 	i.stateCompletion = func(context.Context, *pb.FlowRef, *pb.SipMessage) (bool, error) { probes.Add(1); return false, nil }
-	i.directCompletion = func(context.Context, *pb.FlowRef, *pb.SipMessage, sip.Message) (bool, error) {
+	i.directCompletion = func(context.Context, *pb.FlowRef, *pb.SipMessage, sip.Message, portable.Message) (bool, error) {
 		probes.Add(1)
 		return false, nil
 	}
-	i.directRequest = func(context.Context, *control.Peer, *pb.FlowRef, *pb.SipMessage, sip.Message) error {
+	i.directRequest = func(context.Context, *control.Peer, *pb.FlowRef, *pb.SipMessage, sip.Message, portable.Message) error {
 		probes.Add(1)
 		return nil
 	}
@@ -125,6 +126,50 @@ func TestLocalOptionsDoesNotInterceptResponseCompletion(t *testing.T) {
 	}
 }
 
+func TestLocalResponseDoesNotMutateIngressRequest(t *testing.T) {
+	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	remote, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remote.Close()
+	wire := localOptionsWire("udp", "", "", "")
+	parsed, err := parseObservedMessage(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := parsed.(*sip.Request)
+	before := request.String()
+	host, portText, err := net.SplitHostPort(remote.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow := &physicalFlow{packet: listener, remote: remote.LocalAddr(), ref: &pb.FlowRef{SourceIp: host, SourcePort: uint32(port)}}
+	i := NewIngress(nil, nil, "", 1)
+	i.localResponseParsedWithin(context.Background(), flow, projectIngressMessage(wire, parsed), request, 200, "options-", nil)
+	if request.String() != before {
+		t.Fatal("local response mutated the observed ingress request")
+	}
+	_ = remote.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 4096)
+	n, _, err := remote.ReadFrom(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := parseObservedMessage(buf[:n])
+	if err != nil || response.Via().Params.GetOr("received", "") != host || response.Via().Params.GetOr("rport", "") != portText {
+		t.Fatalf("response lost observed flow: %s (%v)", buf[:n], err)
+	}
+}
+
 func TestIngressOptionsProjectionSkipsUnusedDTOWithoutChangingOtherMessages(t *testing.T) {
 	wire := localOptionsWire("tls", "", "Authorization: Digest username=\"phone\", realm=\"example.test\", nonce=\"nonce\", uri=\"sip:service@example.test\", response=\"00000000000000000000000000000000\"\r\n", "")
 	parsed, err := parseObservedMessage(wire)
@@ -151,6 +196,29 @@ func TestIngressOptionsProjectionSkipsUnusedDTOWithoutChangingOtherMessages(t *t
 	}{{business, request}, {[]byte(response.String()), response}} {
 		if !proto.Equal(projectIngressMessage(input.wire, input.parsed), projectObservedMessage(input.wire, input.parsed, false)) {
 			t.Fatal("ingress changed the full business/native response DTO")
+		}
+	}
+}
+
+func TestDirectIngressDefersRichProjectionAndKeepsChallengeFacts(t *testing.T) {
+	i := NewIngress(nil, nil, "", 1)
+	i.directCompletion = func(context.Context, *pb.FlowRef, *pb.SipMessage, sip.Message, portable.Message) (bool, error) {
+		return false, nil
+	}
+	i.authPolicy = &pb.InboundAuthPolicy{RequireRegister: true}
+	for _, auth := range []string{"", "Authorization: Digest username=\"phone\", realm=\"example.test\", nonce=\"n\", uri=\"sip:service@example.test\", response=\"00000000000000000000000000000000\"\r\n"} {
+		wire := []byte(strings.Replace(string(methodPolicyWire("REGISTER", "tls", "")), "Content-Length:", auth+"Content-Length:", 1))
+		parsed, err := parseObservedMessage(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		small := i.projectInboundMessage(wire, parsed)
+		full := projectObservedMessage(wire, parsed, false)
+		if i.requiresLocalChallenge(small) != i.requiresLocalChallenge(full) || len(small.Selectors) != len(full.Selectors) {
+			t.Fatal("deferred projection changed local admission")
+		}
+		if len(small.Headers) != 1 || len(full.Headers) <= len(small.Headers) {
+			t.Fatal("direct ingress eagerly built rich headers")
 		}
 	}
 }

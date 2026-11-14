@@ -26,7 +26,7 @@ func digestFixture(t *testing.T, status int, methods ...sip.RequestMethod) (*sta
 	c.Credential = &pb.CredentialRef{Id: "credential-ref", Version: "version-1"}
 	c.Result = &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}
 	// Full URI parameters and query headers must survive digest computation.
-	parsed, _ := tx.Native.Origin.Parse()
+	parsed, _ := sip.ParseMessage(tx.Native.Origin.WireBytes())
 	request := parsed.(*sip.Request)
 	request.Recipient.UriParams.Add("user", "phone")
 	request.Recipient.Headers.Add("Subject", "test")
@@ -35,7 +35,7 @@ func digestFixture(t *testing.T, status int, methods ...sip.RequestMethod) (*sta
 		request.CSeq().MethodName = methods[0]
 		c.Snapshot.Kind = pb.ContextSnapshot_TRANSACTION
 	}
-	tx.Native.Origin.Wire = []byte(request.String())
+	tx.Native.Origin = portable.RestoreMessage([]byte(request.String()), tx.Native.Origin.Transport(), tx.Native.Origin.Source(), tx.Native.Origin.Destination())
 	c.Origin = tx.Native.Origin
 	if len(methods) != 0 {
 		old := tx.Native.Key
@@ -326,7 +326,7 @@ func testStateDigestCrossReplicaRedisCommitAndReplay(t *testing.T, cas bool) {
 	_, group := stateTestLoad(t, b, ref)
 	c := group.Contexts[ref.Id]
 	challenge := digestReply(t, c.Origin, 407)
-	result = stateTestApply(t, b, ref, "challenge", stateEngineInput{Kind: "ingest", Application: application, Ingest: &pb.OwnerIngest{Context: ref, Application: application, Flow: flow, Wire: challenge.Wire, Admission: pb.OwnerIngest_EXISTING_FLOW}})
+	result = stateTestApply(t, b, ref, "challenge", stateEngineInput{Kind: "ingest", Application: application, Ingest: &pb.OwnerIngest{Context: ref, Application: application, Flow: flow, Wire: challenge.WireBytes(), Admission: pb.OwnerIngest_EXISTING_FLOW}})
 	if result.Error != "" {
 		t.Fatal(result.Error)
 	}
@@ -401,7 +401,7 @@ func testStateDigestCrossReplicaRedisCommitAndReplay(t *testing.T, cas bool) {
 	}
 	// Both workers must see the same immutable retry identity after a new load.
 	_, finalGroup := stateTestLoad(t, b, ref)
-	if !bytes.Equal(finalGroup.Contexts[ref.Id].Origin.Wire, derived.Wire) {
+	if !bytes.Equal(finalGroup.Contexts[ref.Id].Origin.WireBytes(), derived.Wire) {
 		t.Fatal("retry wire not stable")
 	}
 }

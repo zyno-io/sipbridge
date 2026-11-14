@@ -23,8 +23,8 @@ is needed only when sipbridge runs with `--require-auth-methods`.
 | `sip.command-admission.v1` | With request decisions | Commands and request decisions carry policy/delivery admission. See [Commands](./commands.md#admission). |
 | `sip.command-budget.v1` | With request decisions | A `command` may wait up to 40,000 ms instead of 2,000 ms. |
 | `sip.dialog-continuity.v1` | With request decisions | Native validation of replacement TLS flow attempts and their explicit admission basis. |
-| `sip.request-decision.v1` | Memory | One request notification, controller decision and native committed result. See the [direct-decision contract](../spec/protocol.md#direct-request-decision-memory-target). |
-| `sip.controller-reattach.v1` | No | Enables recovery tokens, attachment generations and owner-scoped inventory. A replacement process must prove ownership and reconcile before ready status. |
+| `sip.request-decision.v1` | Memory | One request notification, controller decision and native committed result. See the [direct-decision contract](../spec/protocol.md#direct-request-decision-memory). |
+| `sip.controller-reattach.v1` | No; Redis checkpoint only | Enables recovery tokens, attachment generations and owner-scoped inventory. A replacement process must prove ownership and reconcile before ready status. |
 | `sip.local-challenge.v1` | Only with `--require-auth-methods` | [Local initial digest challenges](../guide/application.md#local-initial-digest-challenges). sipbridge offers it only when configured for them, and then requires it. |
 
 "Required" means sipbridge closes the handshake if the capability is missing.
@@ -42,10 +42,11 @@ The initial control contract is major `1`, minor `0`. A session keeps the versio
 and capabilities selected by its handshake until it closes.
 
 - Optional behavior requires a negotiated capability.
-- Unknown optional JSON fields are ignored. Unknown operations and required enum
-  values are refused.
-- JSON field names, enum names and protobuf declarations are part of the same
-  wire contract. Use the schema and generated bindings from this repository.
+- Standard protobuf decoding discards unknown optional fields. Semantic checks
+  refuse unknown operations and required enum values.
+- The protobuf schema, field numbers, generated codecs and full receipt identify
+  compatibility. Use the [binary framing rules](./overview.md#binary-encoding);
+  there is no JSON fallback or legacy subprotocol.
 
 See [Protocol: compatibility, reload and drain](../spec/protocol.md#_11-compatibility-reload-and-drain)
 for session negotiation, credential reload and the proposed drain behavior.

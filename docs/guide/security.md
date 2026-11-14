@@ -24,7 +24,7 @@ identify an allowed controller.
 
 ```text
 wss://<sipbridge control endpoint>/v1/control
-Sec-WebSocket-Protocol: sipbridge.control.json.v1
+Sec-WebSocket-Protocol: sipbridge.control.protobuf.v1
 ```
 
 All modes require `GET /v1/control` without a query string, the v1 subprotocol,

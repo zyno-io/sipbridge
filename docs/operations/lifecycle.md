@@ -1,7 +1,9 @@
 # Scheduling, connections and lifecycle operations
 
 This chapter maps the [runtime contract](../runtime.md#owned-scheduling) to
-background and failure flows. [Execution](execution.md) owns mutation/write
+checkpoint background and failure flows. Memory uses its local deadline heap
+and direct record lifecycle in [Memory core](../memory-core.md); it has no worker
+presence, coordinator election or checkpoint scan. [Execution](execution.md) owns mutation/write
 accounting; [SIP flows](sip.md) own individual protocol procedures.
 
 ## Separate ownership and separate clocks
@@ -16,7 +18,7 @@ the others. Scheduling hints grant no protocol or physical-write authority.
 
 ```mermaid
 flowchart LR
-    A[Authenticated control connection] --> B[Validate hello and capabilities]
+    A[Authenticated binary control connection] --> B[Decode protobuf; validate hello and capabilities]
     B --> C[Acquire application lease and session claim]
     C --> D[Hello acknowledgement and explicit readiness]
     D --> E[Correlated heartbeat and bounded lease renewal]
@@ -179,16 +181,19 @@ Sources: [waiters](../../internal/engine/state_engine_waiters.go),
 | Retained item | Reason and release boundary |
 | --- | --- |
 | Live dialog/subscription | Shared identity, routing and sequence until its terminal/retirement rules |
-| Server request/final | Exact replay and admitted-flow proofs through fixed cutoffs, even after reliable transaction termination |
+| Checkpoint server request/final | Exact replay and admitted-flow proofs through fixed cutoffs, even after reliable transaction termination |
+| Memory TCP/TLS REGISTER | Release the completed procedure after final WRITTEN, settlement, dispatcher acknowledgement and all waiters/duties end; [owning rule](../memory-core.md#completed-reliable-register-lifetime) |
 | Required NOTIFY client | Positive settled write plus matched successful final and no remaining duty permits narrow early retirement |
 | INVITE final/ACK/fork work | Native completion and ACK-before-cleanup-BYE obligations |
 | Uncertain physical evidence | Remains charged/inspectable; timeout does not authorize another write |
 | Operation receipt/current result | Frozen historical outcome and latest command result have different cutoffs/meanings |
 
-Normal operations still traverse retained groups; history can cost CPU without an
+Checkpoint operations still traverse retained groups; history can cost CPU without an
 active SIP timer. Known fixed cutoffs schedule their actual deadline. Other
 unresolved recovery/retirement blockers retain their bounded reconciliation; the
-architecture does not claim all retention work has disappeared. Exact conditions
+architecture does not claim all retention work has disappeared. The Memory REGISTER exception leaves no historical tombstone; absent old
+decision/command retries return UNKNOWN without a snapshot, never NOT_WRITTEN.
+Original waiters keep their detached historical evidence. Exact checkpoint conditions
 are in [runtime](../runtime.md#retirement-and-physical-uncertainty).
 
 ## Connection close, outage and reopen

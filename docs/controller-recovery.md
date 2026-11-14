@@ -1,13 +1,15 @@
 # Controller recovery and authentication
 
 This document owns the v1 controller attachment contract and its authentication
-and state-adapter boundaries.
+and state-adapter boundaries. The current resident Memory service does not
+advertise controller checkpoint recovery; this optional capability is available
+with Redis checkpoint execution.
 
 ## Public contract
 
-sipbridge owns its schema, generated bindings, validators and wire examples in
+sipbridge owns its schema, generated binary bindings and readable message projections in
 this repository. Protocol v1 uses `hello.controller`, `routeResult.controller`,
-`--initial-controller`, `/v1/control` and `sipbridge.control.json.v1`. The public
+`--initial-controller`, `/v1/control` and `sipbridge.control.protobuf.v1`. The public
 project and source links use https://github.com/zyno-io/sipbridge. The generated
 contract receipt identifies the schema used by each build.
 
@@ -33,8 +35,9 @@ authentication and are unchanged by choosing bearer authentication.
 `ApplicationLease.holder` identifies the actual currently attached process from
 `hello.controller`; it never pretends a restarted process has the old epoch.
 `attachmentGeneration` fences application mutations and unstarted application
-writes against every earlier attachment. The selected state adapter alone owns
-this metadata; the engine keeps no resident authoritative SIP state.
+writes against every earlier attachment. The selected runtime alone owns this metadata and protocol authority. Memory
+keeps typed process-local records; Redis uses checkpoint execution. There is no
+second authoritative cache.
 
 Negotiating `sip.controller-reattach.v1` creates a recoverable owner with a
 five-second lease and a ten-second reattach grace. Normal control exchanges renew
@@ -87,8 +90,8 @@ deduplicate and reconcile each context instead of assuming an event replay.
 
 When the original recovery deadline expires, ownership is permanently fenced and
 existing native termination runs. Expired, sealed, retired or missing state cannot
-be recreated by an attachment request. Memory recovery requires the same sipbridge
-process; Redis requires the same compatible retained state authority. Neither a
+be recreated by an attachment request. The encoded MemoryStore checkpoint fixture
+requires the same sipbridge process; Redis requires the same compatible retained state authority. Neither a
 SIP-core restart that loses sockets nor a media-process restart is repaired by
 controller reattachment.
 

@@ -355,11 +355,11 @@ func (h *processHarness) kill(w *processWorker) {
 
 func (p *processController) send(envelope *pb.Envelope) error {
 	envelope.SessionId = p.session
-	data, err := protojson.Marshal(envelope)
+	data, err := proto.Marshal(envelope)
 	if err != nil {
 		return err
 	}
-	return p.connection.Write(p.harness.ctx, websocket.MessageText, data)
+	return p.connection.Write(p.harness.ctx, websocket.MessageBinary, data)
 }
 func (p *processController) call(envelope *pb.Envelope) (*pb.Envelope, error) {
 	if envelope.CorrelationId == "" {
@@ -464,11 +464,11 @@ func (p *processController) read() {
 		if err != nil {
 			return
 		}
-		if kind != websocket.MessageText {
+		if kind != websocket.MessageBinary {
 			continue
 		}
 		envelope := new(pb.Envelope)
-		if protojson.Unmarshal(data, envelope) != nil {
+		if proto.Unmarshal(data, envelope) != nil {
 			return
 		}
 		p.mu.Lock()

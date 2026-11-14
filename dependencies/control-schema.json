@@ -1,17 +1,14 @@
 {
   "repository": "https://github.com/zyno-io/sipbridge",
   "source": "proto/sipbridge-control.proto",
-  "schema_sha256": "cf48454294dda7578a2172f0fc012aad829a7747e357bfeaa23a0688816bc09d",
+  "schema_sha256": "2863d4cc3ac13a547ec6bbbd319a1f40cf14e39b880cc158445daec4e5824a6f",
   "protoc": "3.21.12",
   "protoc_gen_go": "1.36.12",
   "ts_proto": "2.18.3",
-  "generated_go_sha256": "b814b7166d72fff3af42164a6d3e9e57de29448c0da36373f03856286893074a",
-  "generated_ts_sha256": "de402b1956ee4f082799fab7b9d11463cc14813e7ac90167d2bf43627fc8d807",
-  "generated_json_validation_sha256": "42da9bcb9a23b535938e62ff6bc630783f9a4e2f48f8b19cd4adef7aa32282ec",
-  "typescript_validator_sha256": "c0c2c1671e87252b08904f2f82d08d24f979cd5d22bf5f942e81f8e1e1ff7888",
-  "json_cases_sha256": "2e1f5e094cf9eec60f74e35e5e0d42705f8f05283d6d8640337775ed759e8cc7",
+  "generated_go_sha256": "0f594c7cefe9347735ad3581f93b61edb6e0cb882514b50cab46c452f6ec643c",
+  "generated_ts_sha256": "b4b9be64dc1be50b4d28e040a34049c669637ea847f0de297d3f37491614a21b",
   "digest_challenge_case_sha256": "01647794997aa864eab906cccfdacb010673b25d1c2ea6922a3a733878c26004",
-  "wire_encoding": "json",
-  "subprotocol": "sipbridge.control.json.v1",
+  "wire_encoding": "protobuf",
+  "subprotocol": "sipbridge.control.protobuf.v1",
   "protocol_major": 1
 }

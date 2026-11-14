@@ -6,9 +6,11 @@ an empty namespace as ordinary empty state. No provisioning command or namespace
 bootstrap markers are required. Each record retains its schema, incarnation,
 revision, owner lease and finite SIP work bounds.
 
-The service uses the `Backend` interface. `OpenBackend` selects memory by default
-or explicit Redis. `Open`/`OpenDeferred` remain Redis constructors for existing
-fixtures. Shared metadata and validation perform no I/O. Redis retains no protocol
+The Redis checkpoint service uses the `Backend` interface. `OpenBackend` also
+provides an encoded MemoryStore for explicit checkpoint fixtures. The default
+service Memory runtime instead owns typed process-local records in
+[Resident Memory core](../../docs/memory-core.md); it does not open this store.
+`Open`/`OpenDeferred` remain Redis constructors for existing fixtures. Shared metadata and validation perform no I/O. Redis retains no protocol
 cache; the memory adapter alone owns its in-process records, leases and indexes.
 
 Run memory and shared contract tests without Redis:

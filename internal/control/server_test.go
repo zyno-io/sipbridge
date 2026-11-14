@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 )
 
@@ -140,13 +142,13 @@ func (p *testPKI) dial(address string) (*websocket.Conn, error) {
 
 func send(t *testing.T, c *websocket.Conn, e *pb.Envelope) {
 	t.Helper()
-	data, err := encodeJSONEnvelope(e)
+	data, err := proto.Marshal(e)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := c.Write(ctx, websocket.MessageText, data); err != nil {
+	if err := c.Write(ctx, websocket.MessageBinary, data); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -158,10 +160,12 @@ func receive(c *websocket.Conn) (*pb.Envelope, error) {
 	if err != nil {
 		return nil, err
 	}
-	if kind != websocket.MessageText {
-		return nil, fmt.Errorf("expected JSON text message")
+	if kind != websocket.MessageBinary {
+		return nil, fmt.Errorf("expected binary protobuf message")
 	}
-	return decodeJSONEnvelope(data)
+	envelope := &pb.Envelope{}
+	err = (proto.UnmarshalOptions{DiscardUnknown: true, RecursionLimit: 32}).Unmarshal(data, envelope)
+	return envelope, err
 }
 
 func hello(t *testing.T, c *websocket.Conn, instance, epoch string, attempt uint64, bound uint32) *pb.SessionHelloAck {
@@ -267,7 +271,7 @@ func TestAdmissionAndHeartbeat(t *testing.T) {
 }
 
 func TestInvalidControlFrames(t *testing.T) {
-	for _, name := range []string{"session", "direction", "status", "pong", "oversize", "binary", "malformed"} {
+	for _, name := range []string{"session", "direction", "status", "pong", "oversize", "text", "malformed", "unknown-payload", "unknown-action", "unknown-enum"} {
 		t.Run(name, func(t *testing.T) {
 			p := newPKI(t)
 			_, address := testServer(t, p, 4)
@@ -287,15 +291,27 @@ func TestInvalidControlFrames(t *testing.T) {
 				e.Payload = &pb.Envelope_Status{Status: &pb.SessionStatus{AdmitCalls: true}}
 			case "pong":
 				e.Payload = &pb.Envelope_Pong{Pong: &pb.Heartbeat{Nonce: "unsolicited"}}
+			case "unknown-action":
+				e.Payload = &pb.Envelope_Command{Command: &pb.Command{}}
+			case "unknown-enum":
+				e.Payload = &pb.Envelope_RequestDecision{RequestDecision: &pb.RequestDecision{Basis: pb.OwnerIngest_Admission(99)}}
 			}
 			if name == "oversize" {
 				// The peer can close while this invalid write is still flushing.
-				_ = c.Write(context.Background(), websocket.MessageText, []byte(strings.Repeat(" ", 1024)))
-			} else if name == "binary" || name == "malformed" {
-				kind := websocket.MessageBinary
+				_ = c.Write(context.Background(), websocket.MessageBinary, []byte(strings.Repeat(" ", 1024)))
+			} else if name == "unknown-payload" {
+				frame, err := proto.Marshal(&pb.Envelope{CorrelationId: "unknown", SessionId: a.SessionId})
+				if err != nil {
+					t.Fatal(err)
+				}
+				frame = protowire.AppendTag(frame, 501, protowire.BytesType)
+				frame = protowire.AppendBytes(frame, nil)
+				_ = c.Write(context.Background(), websocket.MessageBinary, frame)
+			} else if name == "text" || name == "malformed" {
+				kind := websocket.MessageText
 				data := []byte(`{"correlationId":"case","ping":{}}`)
 				if name == "malformed" {
-					kind = websocket.MessageText
+					kind = websocket.MessageBinary
 					data = []byte{0xff}
 				}
 				c.Write(context.Background(), kind, data)
@@ -311,6 +327,19 @@ func TestInvalidControlFrames(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLegacyJSONSubprotocolIsNotAccepted(t *testing.T) {
+	p := newPKI(t)
+	_, address := testServer(t, p, 4)
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: p.roots, Certificates: []tls.Certificate{p.cert}}}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, address, &websocket.DialOptions{HTTPClient: client, Subprotocols: []string{"sipbridge.control.json.v1"}})
+	if err == nil {
+		conn.CloseNow()
+		t.Fatal("legacy JSON control protocol was accepted")
 	}
 }
 

@@ -33,7 +33,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	controlpkg "sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 )
@@ -320,9 +320,9 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 		capabilities = append(capabilities, controlpkg.RequestDecisionCapability, controlpkg.CommandAdmissionCapability, controlpkg.CommandBudgetCapability, controlpkg.DialogContinuityCapability)
 	}
 	probeHello := &pb.Envelope{CorrelationId: "unavailable-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "unavailable-probe", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 1, Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
-	probeWire, err := protojson.Marshal(probeHello)
+	probeWire, err := proto.Marshal(probeHello)
 	if err == nil {
-		err = probe.Write(attempt, websocket.MessageText, probeWire)
+		err = probe.Write(attempt, websocket.MessageBinary, probeWire)
 	}
 	if err != nil {
 		probe.CloseNow()
@@ -334,7 +334,7 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 	cancel()
 	if offline && probeErr == nil {
 		reply := &pb.Envelope{}
-		if protojson.Unmarshal(replyWire, reply) == nil && reply.GetHelloAck() != nil {
+		if proto.Unmarshal(replyWire, reply) == nil && reply.GetHelloAck() != nil {
 			t.Fatal("unavailable/partial bootstrap admitted control hello")
 		}
 	}
@@ -358,12 +358,12 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 		attempt, cancel := context.WithTimeout(context.Background(), time.Second)
 		candidate, _, err := websocket.Dial(attempt, controlURL, &websocket.DialOptions{HTTPClient: &http.Client{Transport: transport}, HTTPHeader: controlHeaders, Subprotocols: []string{controlpkg.Subprotocol}})
 		if err == nil {
-			encoded, _ := protojson.Marshal(hello)
-			err = candidate.Write(attempt, websocket.MessageText, encoded)
+			encoded, _ := proto.Marshal(hello)
+			err = candidate.Write(attempt, websocket.MessageBinary, encoded)
 			if err == nil {
 				_, wire, readErr := candidate.Read(attempt)
 				reply := &pb.Envelope{}
-				if readErr == nil && protojson.Unmarshal(wire, reply) == nil && reply.GetHelloAck() != nil {
+				if readErr == nil && proto.Unmarshal(wire, reply) == nil && reply.GetHelloAck() != nil {
 					ack = reply.GetHelloAck()
 					controller = candidate
 					cancel()
@@ -395,10 +395,10 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 		t.Fatal("memory must negotiate the direct request decision contract")
 	}
 	frame := &pb.Envelope{SessionId: ack.SessionId, CorrelationId: "recovered-status", Payload: &pb.Envelope_Status{Status: &pb.SessionStatus{RetainedReady: true, BindingsReady: true}}}
-	encoded, _ := protojson.Marshal(frame)
+	encoded, _ := proto.Marshal(frame)
 	attempt, cancel = context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := controller.Write(attempt, websocket.MessageText, encoded); err != nil {
+	if err := controller.Write(attempt, websocket.MessageBinary, encoded); err != nil {
 		t.Fatal(err)
 	}
 	for time.Now().Before(recoveryDeadline) {
@@ -505,16 +505,16 @@ func testStartupStateLoss(t *testing.T, client *redis.Client, prefix string, con
 			break
 		}
 		frame := &pb.Envelope{}
-		if err := protojson.Unmarshal(wire, frame); err != nil {
+		if err := proto.Unmarshal(wire, frame); err != nil {
 			t.Fatal(err)
 		}
 		if ping := frame.GetPing(); ping != nil {
 			pong := &pb.Envelope{SessionId: original.SessionId, CorrelationId: frame.CorrelationId, Payload: &pb.Envelope_Pong{Pong: ping}}
-			wire, err := protojson.Marshal(pong)
+			wire, err := proto.Marshal(pong)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := controller.Write(ctx, websocket.MessageText, wire); err != nil {
+			if err := controller.Write(ctx, websocket.MessageBinary, wire); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -525,11 +525,11 @@ func testStartupStateLoss(t *testing.T, client *redis.Client, prefix string, con
 		t.Fatal("normal reconnect failed", err)
 	}
 	defer replacement.CloseNow()
-	wire, err := protojson.Marshal(hello)
+	wire, err := proto.Marshal(hello)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := replacement.Write(ctx, websocket.MessageText, wire); err != nil {
+	if err := replacement.Write(ctx, websocket.MessageBinary, wire); err != nil {
 		t.Fatal(err)
 	}
 	_, wire, err = replacement.Read(ctx)
@@ -537,7 +537,7 @@ func testStartupStateLoss(t *testing.T, client *redis.Client, prefix string, con
 		t.Fatal("empty Redis required setup before hello", err)
 	}
 	frame := &pb.Envelope{}
-	if err := protojson.Unmarshal(wire, frame); err != nil {
+	if err := proto.Unmarshal(wire, frame); err != nil {
 		t.Fatal(err)
 	}
 	ack := frame.GetHelloAck()

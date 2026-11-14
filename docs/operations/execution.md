@@ -2,8 +2,10 @@
 
 This chapter maps the current implementation of the architecture and runtime
 contracts, including direct one-shot presentation. It follows the source shipped
-with this chapter. The service uses schema 1 / reducer 1 / timers 1 with either
-the Memory or Redis adapter; fixture drivers are separate programs.
+with this chapter. The read/reduce/CAS and retained codec graphs below apply
+to schema 1 / reducer 1 / timers 1 Redis checkpoint execution. The default typed
+Memory path is owned by [Memory core](../memory-core.md); shared control framing
+is identified explicitly below. Fixture drivers are separate programs.
 
 [Architecture](../../ARCHITECTURE.md) owns component boundaries;
 [Runtime](../runtime.md) owns exact admission, proof, retention and failure
@@ -262,8 +264,8 @@ replay or a read-only result; the counters do not distinguish them or track iden
 
 ```mermaid
 flowchart LR
-  A[WebSocket JSON bytes] --> B[Token/object validation]
-  B --> C[Public protobuf DTO]
+  A[Bounded binary WebSocket bytes] --> B[Generated protobuf decode]
+  B --> C[Recognized payload and semantic admission]
   C --> D[Private input protobuf bytes and fingerprint]
   D --> E[Canonical store input JSON and digest]
   E --> F[ReadUpdate: binary Payload plus receipt metadata]
@@ -272,22 +274,22 @@ flowchart LR
   H --> I[Group protobuf bytes inside Payload protobuf]
   I --> J[CAS stores data and JSON receipt metadata]
   H --> K[Compact result JSON; bounded local DTO]
-  K --> L[Public projection and outgoing ProtoJSON]
+  K --> L[Public projection and generated protobuf encode]
 ```
 
 | Boundary | Current allocation/validation work | Ownership/lifetime and source |
 | --- | --- | --- |
-| Incoming control frame | Strict JSON token/object tree, duplicate/type/oneof validation, then ProtoJSON decode into public DTO | One received envelope; [control JSON](../../internal/control/json.go) |
-| Outgoing control frame | ProtoJSON encode, size check and typed producer validation. It does **not** parse/decode its own emitted JSON | Session write buffer; [control JSON](../../internal/control/json.go) |
+| Incoming control frame | Complete encoded byte bound, standard generated protobuf decode, then recognized payload/action, semantic enum and authority checks | One received envelope shared by both runtimes; [binary control](../../internal/control/binary.go), [wire contract](../../PROTOCOL.md#binary-websocket-framing) |
+| Outgoing control frame | Generated protobuf size/encode and negotiated byte bound; write-gate ownership through physical completion | Session write buffer shared by both runtimes; [binary control](../../internal/control/binary.go) |
 | Engine input | Reject retained credential reply; map engine input to private storage DTO; deterministic protobuf encode; SHA-256 fingerprint | Immutable per-operation bytes; [applyCommitted](../../internal/engine/state_engine.go), [binary input](../../internal/engine/state_engine_binary.go) |
 | Store input admission | Validate scalar fields/bounds; canonical JSON envelope and digest once per ReadUpdate; clone payload/lease-ID ownership; retain a scalar/header plus raw-payload hash binding | Private update token only. CAS verifies mutation binding without remarshaling the JSON envelope; [input binding](../../internal/state/input_binding.go) |
 | Store record read | Binary frame preflight and generated outer Payload decode; structural/size checks; full reads additionally decode receipt/proof/pending JSON and owner observations | Fresh independently owned record; [state binary](../../internal/state/binary.go), [metadata](../../internal/state/metadata.go) |
 | Native group decode | Validated direct reader builds the domain group without first building a second generated group graph | Operation-local only; [direct reader](../../internal/engine/storage_direct_generated.go), [group decode](../../internal/engine/state_engine_reduce.go) |
-| Effect metadata decode | Private protobuf decode and policy checks; envelope-backed SIP wire can still be parsed for identity validation | Avoids public SIP DTO construction, not all SIP parsing; [effect binary](../../internal/engine/state_engine_binary.go) |
+| Effect metadata decode | Private protobuf decode and policy checks; selected SIP wire is prepared at most once in the operation, with public DTOs deferred | Unused message fields remain opaque; [effect binary](../../internal/engine/state_engine_binary.go) |
 | Effect encode with a public SIP message | `stateEffectForStorage` constructs the retained envelope metadata without copying the parsed message graph and retains one exact wire representation; immutable metadata is shared only during synchronous encoding | Operation-local storage projection; [effect binary](../../internal/engine/state_engine_binary.go) |
 | Native group encode | Domain-to-generated storage graph conversion, compact cached result projection, deterministic protobuf size/encode | New protocol bytes; [binary codec](../../internal/engine/state_engine_binary.go), [storage frame](../../internal/storagecodec/codec.go) |
 | Payload commit | Outer storage DTO conversion/encode; validate effects/timers/lease membership and encoded capacity; construct JSON guards, projections and receipt | New Redis `data` value plus separate metadata; [Store.commit](../../internal/state/store.go) |
-| Results and callbacks | Canonical callback cloning strips session framing. Callback identity generation can encode the input before applyCommitted encodes it again. Public result materialization parses wire-only cached messages when needed | [callback identity](../../internal/engine/state_engine_json.go), [receipt projection](../../internal/engine/state_engine_receipts.go), [result materialization](../../internal/engine/state_engine_binary.go) |
+| Results and callbacks | Canonical callback cloning strips session framing. Callback identity generation can encode the input before applyCommitted encodes it again. Public result materialization reuses selected immutable wire facts when needed | [callback identity](../../internal/engine/state_engine_json.go), [receipt projection](../../internal/engine/state_engine_receipts.go), [result materialization](../../internal/engine/state_engine_binary.go) |
 | Fresh commit handoff | Copy finite effect bytes/lease refs and optional bounded local result/observation DTOs | No protocol aggregate crosses external I/O; [committed projection](../../internal/execution/result.go) |
 
 Persisted `data` is framed protobuf, not the diagnostic JSON implementations of
@@ -301,9 +303,8 @@ field; lazy result compaction happens only on a later successful commit.
 
 Several checks traverse data without a serialization round trip: structure/size
 validation, commit lease-guard derivation, typed producer validation and CAS input
-binding. Conversely, incoming JSON token validation followed by ProtoJSON decode
-is two decoding passes, and ordinary native group encoding still constructs a
-storage DTO graph. The direct group decoder and reserve exception remove specific
+binding. Incoming control uses one generated binary decode followed by semantic checks.
+Ordinary checkpoint group encoding still constructs a storage DTO graph. The direct group decoder and reserve exception remove specific
 passes; they do not remove all encoding/decoding from the operation.
 
 Lifecycle and dispatch classification each reuse one validated body within their

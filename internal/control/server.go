@@ -18,7 +18,7 @@ import (
 	pb "sipbridge/internal/controlpb"
 )
 
-const Subprotocol = "sipbridge.control.json.v1"
+const Subprotocol = "sipbridge.control.protobuf.v1"
 const MaxEnvelope = 1024 * 1024
 const LocalChallengeCapability = "sip.local-challenge.v1"
 
@@ -438,11 +438,11 @@ func (p *session) read(ctx context.Context) (*pb.Envelope, error) {
 		p.diagnostic("read-transport", err, nil, false)
 		return nil, err
 	}
-	if kind != websocket.MessageText || len(data) == 0 || len(data) > p.bound {
+	if kind != websocket.MessageBinary || len(data) == 0 || len(data) > p.bound {
 		p.diagnostic("read-frame", nil, nil, false)
 		return nil, errors.New("invalid frame")
 	}
-	e, err := decodeJSONEnvelope(data)
+	e, err := decodeEnvelope(data, p.bound)
 	if err != nil {
 		p.diagnostic("read-decode", nil, nil, false)
 		return nil, err
@@ -451,7 +451,7 @@ func (p *session) read(ctx context.Context) (*pb.Envelope, error) {
 	if e.GetCommand() != nil && slices.Contains(p.capabilities, CommandBudgetCapability) {
 		limit = 40000
 	}
-	if !reference.MatchString(e.CorrelationId) || e.Payload == nil || e.RemainingBudgetMs > limit {
+	if !reference.MatchString(e.CorrelationId) || e.Payload == nil || e.RemainingBudgetMs > limit || !validEnvelopeActions(e) {
 		p.diagnostic("read-envelope", nil, e, false)
 		return nil, errors.New("invalid envelope")
 	}
@@ -518,7 +518,7 @@ func (p *session) writeAdmitted(transport, caller context.Context, e *pb.Envelop
 		e.RemainingBudgetMs = uint32(remaining / time.Millisecond)
 	}
 	e.SessionId = p.id
-	data, err := encodeJSONEnvelope(e)
+	data, err := encodeEnvelope(e, p.bound)
 	if err != nil {
 		return err
 	}
@@ -531,7 +531,7 @@ func (p *session) writeAdmitted(transport, caller context.Context, e *pb.Envelop
 	if err := transport.Err(); err != nil {
 		return err
 	}
-	err = p.conn.Write(transport, websocket.MessageText, data)
+	err = p.conn.Write(transport, websocket.MessageBinary, data)
 	if err != nil {
 		p.diagnostic("write", err, e, caller.Err() != nil)
 	}

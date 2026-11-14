@@ -48,7 +48,7 @@ text. Startup errors go to stderr and the process exits with status 1.
 | `SIP state namespace, generation or prefix invalid` | Value does not match its allowed pattern. |
 | `SIP state partitions must be between 1 and 4096` | Bad `SIPBRIDGE_STATE_PARTITIONS`. |
 | `invalid SIP memory group limit` | `SIPBRIDGE_MEMORY_MAX_GROUPS` outside 1 to 1,048,576. |
-| `SIP memory byte limit must be at least 8388608` / `invalid SIP memory capacity` | `SIPBRIDGE_MEMORY_MAX_BYTES` is too small. In practice it must be at least `67108864` (one 64 MiB group). |
+| `SIP memory byte limit must be at least 8388608` / `invalid SIP memory capacity` | `SIPBRIDGE_MEMORY_MAX_BYTES` is below the configured minimum. The resident runtime counts actual retained bytes and completion headroom; it does not reserve 64 MiB per group. |
 | `select exactly one SIP Redis primary or Sentinel discovery source` | Both or neither of `SIPBRIDGE_REDIS_ADDRESS` and `SIPBRIDGE_REDIS_SENTINELS` are set, an address is malformed, or `SIPBRIDGE_REDIS_MASTER` is missing. |
 | `invalid SIP Redis Sentinel endpoint` / `too many SIP Redis Sentinel endpoints` | Malformed entry, or more than 16. |
 | `SIP Redis requires CA and verified server name, or explicit local plaintext` | TLS needs both `SIPBRIDGE_REDIS_CA_FILE` and `SIPBRIDGE_REDIS_SERVER_NAME`; plaintext needs `SIPBRIDGE_REDIS_ALLOW_PLAINTEXT=true` and neither TLS variable. |
@@ -65,7 +65,7 @@ established, sipbridge answers with an HTTP error:
 | `401 control authentication failed` | The bearer token is missing or invalid. Check the token file used by the controller. |
 | `403 control authentication failed` | The client has no verified URI SAN matching `--allowed-client-uri`. Compare the full URI string; mTLS chain failures can happen before HTTP. |
 | `404` | Path is not exactly `/v1/control`, a query string is present, or the method is not `GET`. |
-| `400 unsupported control upgrade` | An `Origin` header was sent, or the `sipbridge.control.json.v1` subprotocol was not offered. |
+| `400 unsupported control upgrade` | An `Origin` header was sent, or the `sipbridge.control.protobuf.v1` subprotocol was not offered. |
 | `503 control session capacity` | 64 sessions are already active. |
 
 Once the WebSocket is open, a problem with `hello` or a later message closes it

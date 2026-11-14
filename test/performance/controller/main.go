@@ -21,7 +21,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
-	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 )
 
@@ -64,7 +64,7 @@ func run() error {
 		return err
 	}
 	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}}}
-	conn, _, err := websocket.Dial(ctx, "wss://core:8443/v1/control", &websocket.DialOptions{HTTPClient: client, Subprotocols: []string{"sipbridge.control.json.v1"}})
+	conn, _, err := websocket.Dial(ctx, "wss://core:8443/v1/control", &websocket.DialOptions{HTTPClient: client, Subprotocols: []string{"sipbridge.control.protobuf.v1"}})
 	if err != nil {
 		return err
 	}
@@ -74,12 +74,15 @@ func run() error {
 	if err = a.send(&pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: a.owner, ConnectionAttempt: 1, Major: 1, Capabilities: []string{"sip.v1", "sip.state.v1", "sip.native-completion.v1", "sip.command-budget.v1", "sip.command-admission.v1", "sip.dialog-continuity.v1", "sip.request-decision.v1"}, Bounds: &pb.Bounds{MaxEnvelopeBytes: 1 << 20}}}}); err != nil {
 		return err
 	}
-	_, wire, err := conn.Read(ctx)
+	kind, wire, err := conn.Read(ctx)
 	if err != nil {
 		return err
 	}
+	if kind != websocket.MessageBinary {
+		return errors.New("fixture requires binary control frame")
+	}
 	var hello pb.Envelope
-	if err = protojson.Unmarshal(wire, &hello); err != nil {
+	if err = (proto.UnmarshalOptions{DiscardUnknown: true, RecursionLimit: 32}).Unmarshal(wire, &hello); err != nil {
 		return err
 	}
 	ack := hello.GetHelloAck()
@@ -100,12 +103,15 @@ func run() error {
 	defer server.Close()
 	fmt.Println("fixture-application-ready")
 	for ctx.Err() == nil {
-		_, data, err := conn.Read(ctx)
+		kind, data, err := conn.Read(ctx)
 		if err != nil {
 			return err
 		}
+		if kind != websocket.MessageBinary {
+			return errors.New("fixture requires binary control frame")
+		}
 		var e pb.Envelope
-		if err := protojson.Unmarshal(data, &e); err != nil {
+		if err := (proto.UnmarshalOptions{DiscardUnknown: true, RecursionLimit: 32}).Unmarshal(data, &e); err != nil {
 			return err
 		}
 		a.mu.Lock()
@@ -131,7 +137,7 @@ func run() error {
 
 func (a *application) send(e *pb.Envelope) error {
 	e.SessionId = a.session
-	data, err := protojson.Marshal(e)
+	data, err := proto.Marshal(e)
 	if err != nil {
 		return err
 	}
@@ -139,7 +145,7 @@ func (a *application) send(e *pb.Envelope) error {
 	defer a.writes.Unlock()
 	ctx, cancel := context.WithTimeout(a.ctx, 4*time.Second)
 	defer cancel()
-	return a.conn.Write(ctx, websocket.MessageText, data)
+	return a.conn.Write(ctx, websocket.MessageBinary, data)
 }
 func (a *application) reply(e, reply *pb.Envelope) error {
 	reply.CorrelationId = e.CorrelationId

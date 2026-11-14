@@ -1,5 +1,8 @@
 # Session
 
+JSON examples on this page are readable projections of generated protobuf
+messages. Send binary envelopes using the [wire profile](./overview.md#binary-encoding), never JSON text frames.
+
 A session is one WebSocket connection between a controller and sipbridge. It
 goes through three stages: the controller introduces itself with `hello` and
 sipbridge replies with `helloAck`; the controller declares itself ready with

@@ -1,14 +1,12 @@
 # Resident Memory core
 
-This is locked architecture revision three for the replacement Memory runtime,
-approved by independent Sol review on 2026-11-13 before implementation.
-Revision two's direct decision contract is implemented; its matched 130-phone
-SIP-process CPU gate remains unmet. Revision three removes repeated SIP parsing
-and wire reconstruction through one immutable native message representation.
-This is the implementation target; it is not a statement that the serving
-revision already implements the representation below.
-The checkpoint runtime follows [runtime](runtime.md) until its replacement is
-qualified. Implementation review and the CPU gate remain separate requirements.
+Revision four was independently reviewed and locked before implementation.
+The typed Memory runtime, immutable SIP messages, binary protobuf control and
+completed reliable REGISTER retirement below are implemented. Memory is the
+process-local default; Redis retains the checkpoint runtime in
+[Runtime](runtime.md). Implementation and protocol evidence do not establish the
+separate matched-traffic CPU gate, which remains unmet; see
+[qualification status](verification.md#memory-cpu-qualification-status).
 
 ## One owner and one execution path
 
@@ -17,8 +15,8 @@ its process lifetime. Indexes select records by context, native transaction key
 and dialog identity. Ordinary operations do not encode/decode stored state,
 reconstruct a Call-ID graph, or enter the generic CAS/effect pipeline.
 The pinned sipgo `StepTransaction` and `StepDialog` functions own SIP decisions.
-Reuse protocol helpers, transport, control codecs and fixtures; replace the
-execution machinery rather than placing another cache behind `state.Backend`.
+Protocol helpers, transport, control codecs and fixtures are shared; Memory
+execution does not place another cache behind `state.Backend`.
 
 ```mermaid
 flowchart LR
@@ -141,12 +139,48 @@ does not relax uncertainty or authorize another write. Valid effects reuse
 their immutable message within the operation, including freshly staged native
 outputs and lifecycle events. No compatibility migration or cleanup is required.
 
-The public JSON profile, schema, controller handshake and SIP replay/retirement
-contract stay unchanged in this revision. Its strict JSON validator cannot be
-deleted on the assumption that ProtoJSON enforces the same null, enum, alias,
-base64, duplicate-key and nesting rules. Reliable REGISTER history is a separate
-lifetime decision; parsing changes alone do not authorize duplicate business
-mutation, early UNKNOWN release or loss of an original waiter's result.
+Control framing follows the canonical
+[binary protocol](../PROTOCOL.md#binary-websocket-framing). The
+subprotocol identifies this explicit wire change. Parsing changes alone never
+authorize early UNKNOWN release or loss of an original waiter's result.
+
+## Completed reliable REGISTER lifetime
+
+A completed TCP/TLS REGISTER is a procedure, not a live registration record.
+The controller owns registration policy, binding identity and registration
+expiry. Native registration-procedure retention ends when the selected final
+response is definitively WRITTEN, dependent native settlement and dispatcher
+acknowledgement are complete, and no original/replay waiter, pending/UNKNOWN
+output, lifecycle event or protocol obligation remains. Release its context,
+transaction selectors, request hash, command receipt and deadline together.
+Do not schedule a two-minute retirement timer for that completed procedure.
+
+```mermaid
+flowchart LR
+    A[REGISTER final selected] --> B[Exact response write]
+    B --> C{Definite WRITTEN, settled and acknowledged?}
+    C -->|No| D[Keep existing obligation or uncertainty]
+    C -->|Yes| E{Any active waiter or other duty?}
+    E -->|Yes| F[Release when last duty ends]
+    E -->|No| G[Drop procedure and selectors]
+```
+
+Original command waiters retain their detached historical result and snapshot;
+retiring a context cannot replace that result with a later ended projection.
+UNKNOWN and unacknowledged work retain their existing fences and bounds.
+Existing context identities are never reused, so a command for the removed
+procedure cannot address a new one.
+An old decision/command retry against an absent context returns UNKNOWN without
+a snapshot. Inspection may prove current context absence; that proof never
+claims the old decision was unaccepted or the SIP response was NOT_WRITTEN.
+This conservative absence rule requires no retained historical marker.
+
+An identical later TCP/TLS REGISTER may become fresh controller work after this
+retirement. There is no native historical duplicate-suppression promise for the
+removed procedure. A controller must treat that fresh request according to its
+registration policy. UDP retransmission and response replay retain their
+existing process-local timers and bytes. Established calls, successful INVITE
+finals/ACK, SUBSCRIBE state and required NOTIFY completion are unchanged.
 
 ## What lives in memory
 
@@ -174,7 +208,7 @@ rejects stale notifications. Idle contexts do no periodic work. There is no
 coordinator election, worker-presence renewal, distributed queue or index repair
 in this runtime. Ordinary UDP retransmission state stays local.
 
-Fresh application requests use the [direct decision contract](../PROTOCOL.md#direct-request-decision-memory-target):
+Fresh application requests use the [direct decision contract](../PROTOCOL.md#direct-request-decision-memory):
 one native notification, one controller decision and one native committed result.
 Memory requires `sip.request-decision.v1`; it has no alternate routing/ingest/
 presentation handshake. Native completion remains local. The native transaction
@@ -219,14 +253,14 @@ Readiness and the existing bounded drain remain separate from liveness. Memory
 restart loses its authority and requires fresh registration/setup. Do not advertise
 controller checkpoint recovery. Initial setup can fail during a process outage.
 
-## Locked delivery order and acceptance
+## Delivery order and acceptance
 
-1. Astra approves this architecture; lock it before implementation.
-2. Implement this one Memory runtime and preserve the public behavior above.
-3. Run protocol, controller and wire qualification; obtain Astra's implementation review.
-4. Deploy one Memory registration worker in staging and compare identical successful
-   REGISTER/SUBSCRIBE/NOTIFY traffic, transport, resources and history with Drachtio.
-5. Only after the Memory CPU gate passes, implement Redis continuity.
+Architecture revisions are locked before implementation and independently reviewed
+with Sol. Qualify protocol, controller and wire behavior for the actual combined
+build, then compare matched successful REGISTER/SUBSCRIBE/NOTIFY traffic, transport,
+resources and history with Drachtio. Promotion requires the CPU gate below; no
+Redis runtime replacement or staging deployment is authorized by a fixture result.
+Only after that gate passes may the later Redis continuity implementation proceed.
 
 The CPU gate is at most the larger of **1.25 times Drachtio CPU** or
 **Drachtio CPU plus 2 millicores** under matched steady traffic. Compare the SIP

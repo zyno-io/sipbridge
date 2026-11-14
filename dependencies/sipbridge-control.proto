@@ -3,9 +3,9 @@ syntax = "proto3";
 package sipbridge.control.v1;
 option go_package = "sipbridge/internal/controlpb";
 
-// Canonical control contract and source for generated JSON codecs/validation.
-// Wire transport is UTF-8 JSON text only (sipbridge.control.json.v1), with
-// lowerCamelCase keys, symbolic enums, uint64 decimal strings and base64 bytes.
+// Canonical control contract and source for generated protobuf codecs.
+// Wire transport is binary protobuf (sipbridge.control.protobuf.v1).
+// Generated JSON conversions support local persistence and diagnostics.
 // Application families require the explicitly negotiated sip.v1 capability.
 // PROTOCOL.md and ARCHITECTURE.md in sipbridge own
 // behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.

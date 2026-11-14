@@ -199,7 +199,7 @@ def main():
                 'harnessSHA256': {str(path.relative_to(HERE)):hashlib.sha256(path.read_bytes()).hexdigest() for path in HERE.rglob('*') if path.is_file() and '__pycache__' not in path.parts},
                 'applicationImages': {role:json.loads(command(['docker','image','inspect','sipbridge-perf-'+role]))[0]['Id'] for role in ('controller','drachtio-app')},
                 'limits': {'core': {'cpus':1,'memoryBytes':536870912}, 'controller': {'cpus':1,'memoryBytes':268435456}},
-                'capture': 'disabled on both cores', 'controllerTransports': {'native':'canonical JSON WebSocket with mTLS','drachtio':'drachtio-srf admin TCP'},
+                'capture': 'disabled on both cores', 'controllerTransports': {'native':'canonical protobuf WebSocket with mTLS','drachtio':'drachtio-srf admin TCP'},
                 'logging': 'Default server loggers; Sofia SIP tracing disabled unless debug flag is explicitly set; no fixture per-message logs',
                 'authentication': 'Fixture application accepts synthetic identities; digest challenge/backend policy work excluded equally',
                 'nativeState': 'Memory only, no Redis; logical admission cap64GiB avoids old per-group64MiB reservation, physical limit512MiB unchanged',

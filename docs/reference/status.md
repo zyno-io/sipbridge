@@ -12,10 +12,10 @@ The `sipbridge` service, with in-memory state (the default) or Redis:
 - SIP over UDP, TCP and TLS. A dialog stays on the transport it started with.
 - SIP transactions, dialogs and timers, handled by a pinned build of the sipgo
   library.
-- The v1 JSON control protocol over authenticated WebSocket: default mTLS,
+- The v1 binary protobuf control protocol over authenticated WebSocket: default mTLS,
   explicit bearer alternatives, heartbeats and credential reload.
-- Controller leases and opt-in timed reattachment, with generation fencing and
-  bounded owner-scoped context listing. Native SIP cleanup handles expired owners.
+- Controller leases, plus Redis checkpoint opt-in reattachment with generation
+  fencing and bounded owner-scoped context listing. Native SIP cleanup handles expired owners.
 - Delivery outcomes reported as `WRITTEN`, `NOT_WRITTEN` or `UNKNOWN`.
 - Continuing a dialog when a client's TLS connection is replaced, including on
   another instance that shares Redis state.
@@ -23,6 +23,9 @@ The `sipbridge` service, with in-memory state (the default) or Redis:
   challenges.
 - Liveness, serving and readiness endpoints, Prometheus counters, structured
   log events and optional SIP capture.
+
+The current Memory implementation and its CPU qualification are separate:
+[the matched CPU gate remains unmet](../verification.md#memory-cpu-qualification-status).
 
 ## Not built yet
 
@@ -32,7 +35,7 @@ The `sipbridge` service, with in-memory state (the default) or Redis:
 | Listing all contexts across an instance | Not available. Recovery exposes only the authenticated owner's bounded context pages. |
 | Output queues and additional operation markers | Designed; not built. |
 | Replacing a sipbridge process without disconnecting clients | Not available. |
-| A client SDK for writing controllers | None. Controllers implement the JSON protocol directly. |
+| A client SDK for writing controllers | Generated Go/TypeScript codecs are provided; controllers implement the session and application lifecycle. |
 | Redis Cluster | Not supported. Use a single primary, optionally with Sentinel. |
 
 ## Limitations to plan around
@@ -40,7 +43,8 @@ The `sipbridge` service, with in-memory state (the default) or Redis:
 These are properties of the current design that affect how you deploy and
 build. Each is explained where it matters:
 
-- In-memory state is lost on restart and defaults to 16 Call-IDs at a time.
+- Memory state is lost on restart. Its default admission limits are 128 resident
+  contexts and 1 GiB of accounted bytes plus completion headroom.
   See [State Backends](../guide/state-backends.md#capacity).
 - Redis replication is asynchronous, so a failover can lose recent state and
   drop the calls that depended on it. See
@@ -86,7 +90,7 @@ not alternative ways to run sipbridge:
 
 | Program | Purpose |
 | --- | --- |
-| `cmd/sipbridge-control` | Runs control sessions only (handshake, heartbeats, JSON validation, certificate reload), with no SIP. Useful for testing a controller's connection code. |
+| `cmd/sipbridge-control` | Runs control sessions only (handshake, heartbeats, binary decoding and semantic validation, certificate reload), with no SIP. Useful for testing a controller's connection code. |
 | `cmd/sipbridge-fixture` | Used by the SIP-over-TLS wire test. It is driven by `test/run.py` and refuses to start any other way. |
 
 The repository also keeps test data from an earlier internal design (labelled

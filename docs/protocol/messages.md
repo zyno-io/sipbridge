@@ -1,5 +1,8 @@
 # Message Families
 
+JSON examples on this page are readable projections of generated protobuf
+messages. Send binary envelopes using the [wire profile](./overview.md#binary-encoding), never JSON text frames.
+
 This page lists the controller message families: who sends them, what
 it is for and what reply it expects. The payload field of an
 [envelope](./overview.md#envelope) names the message type. Each type has a fixed
@@ -34,7 +37,7 @@ In the tables, **C** is the controller and **S** is sipbridge.
 
 Direct Memory `request` notifications are not separately acknowledged: the
 controller sends the decision described in the
-[native contract](../spec/protocol.md#direct-request-decision-memory-target).
+[native contract](../spec/protocol.md#direct-request-decision-memory).
 Checkpoint request presentations and `dialogEvent` use a `result` repeating the
 message's `correlationId`:
 

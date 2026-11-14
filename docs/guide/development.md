@@ -21,16 +21,16 @@ in [AGENTS.md](../../AGENTS.md).
 | `cmd/sipbridge-control` | Test program that runs control sessions only (mutual TLS WebSocket, no SIP). |
 | `cmd/sipbridge-fixture` | Test program for SIP-over-TLS wire tests, driven only by `test/run.py`. |
 | `internal/engine` | Public listeners, the SIP state engine and the socket writer. |
-| `internal/execution` | The read, compute, compare-and-swap loop that every operation goes through. |
+| `internal/execution` | The Redis checkpoint read, compute, compare-and-swap loop; Memory uses touched typed records directly. |
 | `internal/state` | Memory and Redis state stores. |
-| `internal/control` | Control server, JSON validation, TLS reload. |
+| `internal/control` | Control server, generated protobuf decoding and semantic checks, TLS reload. |
 | `internal/controlpb` | Go types generated from the control schema. |
 | `internal/capture` | Optional SIP capture exporter. |
 | `third_party/sipgo` | The pinned copy of the SIP library. Never edited in place. |
 | `proto` | Canonical control schema and shared contract fixtures. |
 | `dependencies` | Version pins, checksums and distributed schema copy. |
 | `tools/protocol` | Pinned standalone schema/code generation tools. |
-| `generated/typescript` | Public TypeScript bindings and strict JSON validation. |
+| `generated/typescript` | Public TypeScript binary codecs, bigint counters and JSON projection conversions. |
 | `docs` | Specification documents and this documentation site. |
 
 ## Rules that protect correctness
@@ -138,7 +138,7 @@ repository root to check links and heading anchors.
 
 ## Protocol generation
 
-The schema and its shared JSON/digest fixtures live under `proto/`. Generation
+The schema and shared digest fixture live under `proto/`. Generation
 needs no other checkout. Install the pinned Node dependencies with
 `npm ci --prefix tools/protocol`, then run `node scripts/generate-control.mjs`.
 Use protoc 3.21.12 and protoc-gen-go 1.36.12; environment variables
@@ -146,5 +146,6 @@ Use protoc 3.21.12 and protoc-gen-go 1.36.12; environment variables
 
 `python3 scripts/verify_control_schema.py --regenerate` reproduces every
 distributed file and verifies its receipt. `npm test --prefix tools/protocol`
-strict-compiles the TypeScript distribution and runs the shared JSON cases.
+strict-compiles the TypeScript distribution and checks its binary codecs and
+application JSON conversions.
 See the [protocol source README](../../proto/README.md) for artifact paths.

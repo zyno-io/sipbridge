@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/state"
 )
 
 // command selects an application response under the context lock. Physical
@@ -33,7 +34,7 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 	c.mu.Lock()
 	if !e.residentContextCurrentLocked(c, cmd.Context) {
 		c.mu.Unlock()
-		return nil, errors.New("resident context changed")
+		return nil, state.ErrNotFound
 	}
 	if tx := c.transactions[c.requests[cmd.GetRespond().GetRequestId()]]; tx != nil && tx.decisionPending {
 		if direct == nil {

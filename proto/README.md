@@ -2,13 +2,18 @@
 
 This directory owns the sipbridge control protocol. `sipbridge-control.proto`
 defines the fields and message types; `PROTOCOL.md` and `docs/runtime.md` define
-what they mean. The JSON cases exercise both Go and TypeScript validation, and
-the digest fixture is shared with native engine tests.
+what they mean. Generated Go/TypeScript codecs carry binary messages; JSON conversions support
+application storage and readable fixture projections. The digest fixture is
+shared with native engine tests.
 
 The current public protocol uses `sipbridge.control.v1` and WebSocket
-subprotocol `sipbridge.control.json.v1`. `sip.controller-reattach.v1` names the
+subprotocol `sipbridge.control.protobuf.v1`. `sip.controller-reattach.v1` names the
 first revision of the optional controller recovery feature; capability revisions
 are independent of the protocol's major version.
+
+Wire behavior and standard decoder semantics are owned by
+[PROTOCOL.md section 3](../PROTOCOL.md#binary-websocket-framing).
+Text frames and the former JSON subprotocol are unsupported.
 
 ## Generate and check
 
@@ -29,10 +34,8 @@ The generated distribution consists of:
 
 - `dependencies/sipbridge-control.proto`, an exact copy of the canonical schema;
 - `internal/controlpb/sipbridge-control.pb.go`, the Go bindings;
-- `generated/typescript/sipbridge-control.ts`, the TypeScript JSON bindings;
-- `generated/typescript/sipbridge-json.ts`, descriptor-derived validation metadata;
-- `generated/typescript/json-validation.ts`, the strict JSON parser/validator;
-- the copied Go test fixtures and `dependencies/control-schema.json`, which
+- `generated/typescript/sipbridge-control.ts`, the TypeScript binary bindings with bigint counters and JSON conversions;
+- the copied digest fixture and `dependencies/control-schema.json`, which
   records source/output checksums and the public protocol version.
 
 Consumers pin the receipt and copy the generated distribution or regenerate

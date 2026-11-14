@@ -132,7 +132,22 @@ the Memory `request` notifications with `requestDecision`, or perform the
 checkpoint routing exchange. A SIP request sent during the demo therefore still
 fails once its original two-second decision budget runs out.
 
-Create a separate module outside the repository and save this as `main.go`:
+Create a separate directory outside the repository. Copy the generated Go
+binding from this exact checkout into its local package; do not import the
+repository's `internal/controlpb` package from an external module or write a
+second contract by hand:
+
+```sh
+mkdir hello-controller
+cd hello-controller
+go mod init example.test/hello-controller
+mkdir controlpb
+cp /path/to/sipbridge/internal/controlpb/sipbridge-control.pb.go controlpb/
+go get github.com/coder/websocket@v1.8.15 google.golang.org/protobuf@v1.36.12
+```
+
+Keep the binding and service schema receipt together when updating the demo.
+Save this as `main.go`:
 
 ```go
 // Command hello-controller is a synthetic control-session demonstration.
@@ -144,32 +159,16 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
+	pb "example.test/hello-controller/controlpb"
 	"github.com/coder/websocket"
+	"google.golang.org/protobuf/proto"
 )
-
-type heartbeat struct {
-	Nonce string `json:"nonce"`
-}
-
-type envelope struct {
-	CorrelationID string          `json:"correlationId"`
-	SessionID     string          `json:"sessionId"`
-	HelloAck      json.RawMessage `json:"helloAck"`
-	Ping          *heartbeat      `json:"ping"`
-}
-
-const helloTemplate = `{"correlationId":"hello-1","hello":{"controller":{"instanceId":"controller-a","epoch":%q},` +
-	`"connectionAttempt":"1","major":1,"minMinor":0,"maxMinor":0,` +
-	`"capabilities":["sip.v1","sip.state.v1","sip.native-completion.v1",` +
-	`"sip.command-admission.v1","sip.command-budget.v1","sip.dialog-continuity.v1","sip.request-decision.v1"],` +
-	`"bounds":{"maxEnvelopeBytes":1048576}}}`
 
 func main() {
 	if len(os.Args) != 2 {
@@ -195,7 +194,7 @@ func main() {
 	defer cancel()
 	conn, _, err := websocket.Dial(ctx, "wss://127.0.0.1:8443/v1/control", &websocket.DialOptions{
 		HTTPClient:      client,
-		Subprotocols:    []string{"sipbridge.control.json.v1"},
+		Subprotocols:    []string{"sipbridge.control.protobuf.v1"},
 		CompressionMode: websocket.CompressionDisabled,
 	})
 	check(err)
@@ -205,39 +204,77 @@ func main() {
 	epoch := make([]byte, 16)
 	_, err = rand.Read(epoch)
 	check(err)
-	hello := fmt.Sprintf(helloTemplate, hex.EncodeToString(epoch))
-	check(conn.Write(ctx, websocket.MessageText, []byte(hello)))
-	_, data, err := conn.Read(ctx)
-	check(err)
-	var ack envelope
-	check(json.Unmarshal(data, &ack))
-	if ack.HelloAck == nil {
-		log.Fatalf("expected helloAck, got %s", data)
+	writeEnvelope(ctx, conn, &pb.Envelope{
+		CorrelationId: "hello-1",
+		Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{
+			Controller:        &pb.ProcessRef{InstanceId: "controller-a", Epoch: hex.EncodeToString(epoch)},
+			ConnectionAttempt: 1,
+			Major:             1,
+			Capabilities: []string{"sip.v1", "sip.state.v1", "sip.native-completion.v1",
+				"sip.command-admission.v1", "sip.command-budget.v1", "sip.dialog-continuity.v1", "sip.request-decision.v1"},
+			Bounds: &pb.Bounds{MaxEnvelopeBytes: 1 << 20},
+		}},
+	}, 1<<20)
+	ack := readEnvelope(ctx, conn, 1<<20).GetHelloAck()
+	if ack == nil || ack.Bounds == nil || ack.Bounds.MaxEnvelopeBytes < 512 || ack.Bounds.MaxEnvelopeBytes > 1<<20 {
+		log.Fatal("invalid hello acknowledgement")
 	}
-	fmt.Printf("helloAck: %s\n", data)
+	bound := int(ack.Bounds.MaxEnvelopeBytes)
+	conn.SetReadLimit(int64(bound))
+	fmt.Printf("helloAck: version %d.%d, envelope bound %d\n", ack.Major, ack.Minor, bound)
 
 	// Declare retained and binding readiness. The demo admits no calls or
 	// subscriptions because it cannot route SIP.
-	status := fmt.Sprintf(`{"correlationId":"status-1","sessionId":%q,"status":{"retainedReady":true,"bindingsReady":true}}`, ack.SessionID)
-	check(conn.Write(ctx, websocket.MessageText, []byte(status)))
+	writeEnvelope(ctx, conn, &pb.Envelope{
+		CorrelationId: "status-1", SessionId: ack.SessionId,
+		Payload: &pb.Envelope_Status{Status: &pb.SessionStatus{RetainedReady: true, BindingsReady: true}},
+	}, bound)
 
 	for {
-		_, data, err := conn.Read(ctx)
+		kind, data, err := conn.Read(ctx)
 		if ctx.Err() != nil {
 			conn.Close(websocket.StatusNormalClosure, "demo complete")
 			return
 		}
 		check(err)
-		var message envelope
-		check(json.Unmarshal(data, &message))
-		if message.Ping == nil {
-			fmt.Printf("unhandled: %s\n", data)
-			continue
+		message := decodeEnvelope(kind, data, bound)
+		if message.SessionId != ack.SessionId {
+			log.Fatal("session changed")
 		}
-		pong := fmt.Sprintf(`{"correlationId":%q,"sessionId":%q,"pong":{"nonce":%q}}`,
-			message.CorrelationID, ack.SessionID, message.Ping.Nonce)
-		check(conn.Write(ctx, websocket.MessageText, []byte(pong)))
+		if ping := message.GetPing(); ping != nil {
+			writeEnvelope(ctx, conn, &pb.Envelope{
+				CorrelationId: message.CorrelationId, SessionId: ack.SessionId,
+				Payload: &pb.Envelope_Pong{Pong: &pb.Heartbeat{Nonce: ping.Nonce}},
+			}, bound)
+		}
 	}
+}
+
+func writeEnvelope(ctx context.Context, conn *websocket.Conn, envelope *pb.Envelope, bound int) {
+	data, err := proto.Marshal(envelope)
+	check(err)
+	if len(data) == 0 || len(data) > bound {
+		log.Fatal("outgoing envelope exceeds bound")
+	}
+	check(conn.Write(ctx, websocket.MessageBinary, data))
+}
+
+func readEnvelope(ctx context.Context, conn *websocket.Conn, bound int) *pb.Envelope {
+	kind, data, err := conn.Read(ctx)
+	check(err)
+	return decodeEnvelope(kind, data, bound)
+}
+
+func decodeEnvelope(kind websocket.MessageType, data []byte, bound int) *pb.Envelope {
+	if kind != websocket.MessageBinary || len(data) == 0 || len(data) > bound {
+		log.Fatal("invalid binary envelope")
+	}
+	envelope := &pb.Envelope{}
+	check((proto.UnmarshalOptions{DiscardUnknown: true, RecursionLimit: 32}).Unmarshal(data, envelope))
+	if envelope.Payload == nil {
+		log.Fatal("missing recognized payload")
+	}
+	return envelope
 }
 
 func check(err error) {
@@ -247,11 +284,9 @@ func check(err error) {
 }
 ```
 
-Run it against the `dev-pki` directory:
+Run it against the synthetic `dev-pki` directory:
 
 ```sh
-go mod init example.test/hello-controller
-go get github.com/coder/websocket@v1.8.15
 go run . /path/to/sipbridge/dev-pki
 ```
 

@@ -27,18 +27,16 @@ subscriptions that share a Call-ID remain separate contexts.
 
 ## Execution model
 
-sipbridge handles every operation the same way. It loads the state for one
-Call-ID from the state store, computes the next state and the messages to send,
-and saves both in a single compare-and-swap write, which succeeds only if
-nobody else changed that state in the meantime. Only after the save does it
-send anything, and the send is done by the process that holds the target
-socket.
+Memory validates and publishes touched typed records under a short local lock,
+then releases it before controller or socket I/O. Redis checkpoint execution
+loads the selected Call-ID state and commits its next state and effects with
+compare-and-swap. Both record the intended output before a socket attempt; the
+process holding that physical socket performs the write. Exact physical evidence
+can settle independently of unrelated state changes.
 
-Two consequences are worth knowing. First, sipbridge keeps no working copy of a
-call in process memory between operations, so any instance sharing the store
-can perform the next step. Second, every message was recorded before it was
-sent, so sipbridge always knows what it intended to send and can report
-truthfully on what happened:
+The selected runtime owns the only authoritative protocol records. A compatible
+Redis worker can execute the next checkpoint operation; Memory state belongs to
+one process and is lost on restart. Delivery outcomes mean:
 
 | Outcome | Meaning | What sipbridge does next |
 | --- | --- | --- |
@@ -59,7 +57,7 @@ claim them just by choosing the same instance name.
 | Owner mode | Live lease | What happens after expiry |
 | --- | --- | --- |
 | Ordinary process-bound owner | 30 seconds | Existing loss detection/recovery checks fence the owner and start cleanup, typically about 40 seconds after its last renewal. |
-| Negotiated `sip.controller-reattach.v1` | 5 seconds | The same principal and saved recovery proof may attach a replacement holder for 10 seconds after the old lease expiry. |
+| Redis checkpoint with `sip.controller-reattach.v1` | 5 seconds | The same principal and saved recovery proof may attach a replacement holder for 10 seconds after the old lease expiry. |
 
 For recovery, `applicationLease.application` is the original lineage,
 `holder` is the actual current process and `attachmentGeneration` rejects work
@@ -98,7 +96,7 @@ sipbridge to attempt something again by itself. See
 sipbridge keeps a context for a while after its call ends, because SIP expects
 it to: late retransmissions and repeated requests still need the right answer.
 
-- A finished context or transaction is kept for at least two minutes. Running
+- A finished context or transaction is kept for the checkpoint retention floor of at least two minutes. Running
   timers, unsent messages or unresolved sends can keep it longer.
 - A context is removed ("retired") only when all of its SIP obligations are
   done. The controller considering the call over is not enough.
@@ -109,6 +107,12 @@ it to: late retransmissions and repeated requests still need the right answer.
   from the capacity for live contexts.
 - Live state is never expired just to make room. When capacity is full, new
   work is refused.
+
+Memory has a narrow [completed reliable REGISTER exception](../memory-core.md#completed-reliable-register-lifetime):
+its finished procedure can be released without a historical tombstone. An old
+decision/command retry for the absent context returns UNKNOWN without a snapshot;
+absence never proves prior non-acceptance or NOT_WRITTEN. Original waiters retain
+their own historical outcome until they finish.
 
 ## Reconnect and restart
 

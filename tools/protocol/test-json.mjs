@@ -1,43 +1,40 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, rmSync, cpSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const toolRoot = dirname(fileURLToPath(import.meta.url));
 const root = resolve(toolRoot, '../..');
-const temporary = mkdtempSync(join(tmpdir(), 'sipbridge-json-check-'));
+const temporary = mkdtempSync(join(toolRoot, '.sipbridge-test-'));
 try {
+    const source = join(temporary, 'source');
+    const output = join(temporary, 'output');
+    mkdirSync(source);
+    cpSync(join(root, 'generated/typescript/sipbridge-control.ts'), join(source, 'sipbridge-control.ts'));
     execFileSync(join(toolRoot, 'node_modules/.bin/tsc'), [
-        '--strict', '--skipLibCheck', '--target', 'ES2022', '--module', 'commonjs',
+        '--strict', '--skipLibCheck', '--target', 'ES2022', '--module', 'Node16', '--moduleResolution', 'Node16',
         '--types', 'node', '--typeRoots', join(toolRoot, 'node_modules/@types'),
-        '--rootDir', join(root, 'generated/typescript'), '--outDir', temporary,
-        join(root, 'generated/typescript/sipbridge-control.ts'),
-        join(root, 'generated/typescript/sipbridge-json.ts'),
-        join(root, 'generated/typescript/json-validation.ts')
+        '--rootDir', source, '--outDir', output, join(source, 'sipbridge-control.ts')
     ], { stdio: 'inherit' });
     const require = createRequire(import.meta.url);
-    const { parseSipbridgeJson, validateSipbridgeJson } = require(join(temporary, 'json-validation.js'));
-    const { Envelope } = require(join(temporary, 'sipbridge-control.js'));
-    const cases = JSON.parse(readFileSync(join(root, 'proto/sipbridge-control-json-cases.json'), 'utf8'));
+    const { Envelope } = require(join(output, 'sipbridge-control.js'));
+    const cases = [
+        '{"correlationId":"case","hello":{"controller":{"instanceId":"controller","epoch":"epoch"},"connectionAttempt":"18446744073709551615","major":1,"bounds":{"maxEnvelopeBytes":4096}}}',
+        '{"correlationId":"case","request":{"snapshot":{"revision":"9007199254740993"},"message":{"wire":"AP+AQQ=="}}}',
+        '{"correlationId":"case","delivery":{"outcome":"UNKNOWN"}}',
+        '{"correlationId":"case","command":{"sequence":"0","cancel":{}}}',
+        '{"correlationId":"case","ingress":{"message":{"headers":[{"name":"X-Test","value":"ok"}],"addresses":{"to":{"values":[{"uri":"sip:a@test","params":{"tag":"abc","__proto__":"safe"}}]}}}}}'
+    ];
     for (const fixture of cases) {
-        let parsed;
-        let valid = true;
-        try {
-            parsed = parseSipbridgeJson(fixture.json);
-            validateSipbridgeJson(parsed);
-        } catch {
-            valid = false;
-        }
-        assert.equal(valid, fixture.valid, fixture.name);
-        if (valid) {
-            const envelope = Envelope.fromJSON(parsed);
-            validateSipbridgeJson(Envelope.toJSON(envelope));
-        }
+        const envelope = Envelope.fromJSON(JSON.parse(fixture));
+        const json = Envelope.toJSON(envelope);
+        const wire = Envelope.encode(envelope).finish();
+        assert.deepEqual(Envelope.toJSON(Envelope.decode(wire)), json, 'protobuf and persistence round trip');
     }
-    console.log(`Standalone TypeScript strict JSON contract: ${cases.length} cases passed`);
+    assert.throws(() => Envelope.decode(Uint8Array.of(255)), 'malformed protobuf must be rejected');
+    console.log(`Standalone TypeScript protobuf and persistence contract: ${cases.length} cases passed`);
 } finally {
     rmSync(temporary, { recursive: true, force: true });
 }

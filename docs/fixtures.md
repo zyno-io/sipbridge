@@ -8,9 +8,9 @@ for commands and [Runtime](runtime.md) for the actual service contract.
 
 ## Session-only executable
 
-`cmd/sipbridge-control` exposes private JSON/mTLS WebSocket sessions without a public
+`cmd/sipbridge-control` exposes private binary protobuf/mTLS WebSocket sessions without a public
 SIP listener. It implements hello/ack, transport supersession, status, heartbeats,
-strict generated JSON validation and TLS reload. It negotiates no SIP capabilities,
+generated protobuf decoding and semantic validation and TLS reload. It negotiates no SIP capabilities,
 refuses SIP readiness and has no attached client socket/native context. It exercises
 real Go/TypeScript transport interoperability, not a working call adapter.
 

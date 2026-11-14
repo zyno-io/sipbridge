@@ -4,12 +4,12 @@ sipbridge is a SIP signaling server that you control from your own application.
 It accepts SIP over UDP, TCP and TLS, holds the connections to phones and
 trunks, and runs the protocol machinery: transactions, dialogs, retransmissions
 and timers. A separate **controller** (your application) connects over an
-authenticated JSON WebSocket and decides how each request is answered. Mutual TLS
+authenticated binary protobuf WebSocket and decides how each request is answered. Mutual TLS
 is the default; bearer authentication is an explicit alternative.
 
 Why you might use it:
 
-- Your application sends short JSON commands and never implements a SIP state
+- Your application sends typed protobuf commands and never implements a SIP state
   machine.
 - Phones stay connected to sipbridge while you restart or redeploy the
   controller.
@@ -46,7 +46,7 @@ lives under [docs](docs):
   choices that affect your application.
 - [Guides](docs/guide/getting-started.md) for running, configuring and
   operating it, and for [building a controller](docs/guide/application.md).
-- [Control protocol](docs/protocol/overview.md): the JSON messages a controller
+- [Control protocol](docs/protocol/overview.md): the protobuf messages a controller
   exchanges with sipbridge.
 - Specifications for maintainers: [ARCHITECTURE.md](ARCHITECTURE.md) (component
   boundaries), [PROTOCOL.md](PROTOCOL.md) (control protocol rules),
@@ -85,7 +85,8 @@ can use a locally built candidate image.
 The service defaults to process-local memory state, suitable for one standalone
 instance. It requires no Redis settings or state identity key. State is lost on
 restart; the controller remains the call-control and policy provider. Memory controllers
-must negotiate `sip.state.v1`. Memory limits and recovery semantics are defined in
+must negotiate `sip.state.v1` and the direct-decision dependency set including
+`sip.request-decision.v1`. Memory limits and recovery semantics are defined in
 [Runtime](docs/runtime.md#configuration-identity-and-loss).
 
 Deployments that share SIP state across instances must explicitly select Redis:
@@ -99,9 +100,10 @@ settings with that selection. Redis settings without explicit Redis selection fa
 startup. Every backend requires the `sip.state.v1` controller capability.
 Backend selection is fixed at startup; there is no automatic fallback or migration.
 
-The private persisted encoding is `protobuf-v1`, independently fenced from the
-public controller contract. Both adapters use it; a JSON-to-binary deployment
-requires drained workers and a fresh namespace. See the normative
+Redis checkpoint persistence uses `protobuf-v1`, independently fenced from the
+public binary control contract. Resident Memory keeps typed records directly.
+A change to control framing alone does not require a Redis namespace reset;
+private format and authority compatibility must be checked explicitly. See the normative
 [binary encoding contract](docs/runtime.md#retained-binary-encoding).
 
 ```bash
@@ -199,7 +201,7 @@ python3 scripts/verify_control_schema.py
 
 The Go tests cover client certificate/URI authorization, heartbeat timeout,
 admission bounds, supersession, malformed frames and TLS reload. Test credentials
-are temporary. Controllers should additionally test their generated JSON codecs
+are temporary. Controllers should additionally test their generated protobuf codecs
 against a real service or the session-only executable. Check each published
 image's schema receipt against the bindings used to build the controller.
 

@@ -3,8 +3,9 @@
 This atlas documents implemented sipbridge execution, including single-read
 completion, metadata projection and attribution counters. It covers normal paths, failure paths,
 retained state and repeated per-operation work. It is a source-coupled map, not a
-redesign proposal or a capacity qualification. It applies to the service CAS path;
-the historical claimed fixture driver is not another supported service mode.
+redesign proposal or a capacity qualification. Memory executes touched typed
+records directly; Redis executes the checkpoint CAS paths detailed in these
+chapters. The historical claimed fixture driver is not another supported mode.
 
 ## Reading order and ownership
 
@@ -43,15 +44,22 @@ one network round trip for every Lua command. A write of a SIP response is not a
 proof of peer receipt. A final SIP response, a command result, a receiver callback
 receipt and a physical-write settlement are distinct outcomes.
 
-The Memory adapter removes Redis network I/O but keeps the execution and ownership
-boundaries. It does not replace the service with a resident parsed SIP user agent.
-The Redis adapter keeps the authoritative protocol outside the process. Both
-reconstruct owned values for native operations; neither keeps an authoritative
-group while waiting for external I/O.
+The default Memory runtime keeps typed protocol records and immutable native
+messages in process. It stages touched records, publishes them under a short
+context lock, then releases the lock before I/O. It does not enter the graph or
+codec pipeline shown above. The Redis checkpoint runtime uses that pipeline and
+keeps authoritative protocol state in Redis. Neither carries a mutable protocol
+aggregate across external I/O. Exact Memory invariants and its execution flow
+are owned by [Resident Memory core](../memory-core.md).
+
+The lifecycle changes in this revision are narrow: binary control decodes one
+generated envelope, and Memory can release completed reliable REGISTER procedures
+when their duties end. Follow the [wire boundary](execution.md#bytes-validation-and-ownership-at-each-boundary)
+and [retention](lifecycle.md#retention-and-the-resulting-work) links for the source map.
 
 ## A concrete repeated path: successful reliable NOTIFY
 
-Take a fresh controller-originated subscription NOTIFY on an accepted live flow,
+For Redis checkpoint execution, take a fresh controller-originated subscription NOTIFY on an accepted live flow,
 with successful peer response, definite commits, no contention, no digest retry
 and no exceptional owner transition. The core logical mutations are:
 
@@ -87,7 +95,7 @@ and [NOTIFY](sip.md#outgoing-subscription-notify).
 | --- | --- |
 | Physical ingress | TCP/TLS accept and close, UDP framing/order lanes, keepalive/framing, method denial, required-auth challenge and local ACK proof |
 | Native ingress | New context allocation, exact existing lookup, controller-admitted ingest, retained completion, scoped refusal, request replay and unmatched response |
-| Public control | Hello/status/heartbeat, Ingest, four Command actions, Inspect, physical Write/InspectEffect, optional controller-context inventory |
+| Public control | Binary hello/status/heartbeat, Memory RequestDecision or checkpoint Ingest, four Command actions, Inspect, physical Write/InspectEffect, optional controller-context inventory |
 | Native mutation catalogue | All fifteen current `stateEngineInput.Kind` cases in the [execution inventory](execution.md#entry-points-and-every-reducer-input) |
 | Application effects | Presentation, lifecycle event, flow adoption, credential lookup, application probe and network open; distinct start/result rules |
 | Physical effects | Native permit preparation, indexed discovery, Reserve, one socket attempt, Complete, inspection, settlement and reclamation |

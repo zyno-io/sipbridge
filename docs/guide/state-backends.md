@@ -2,9 +2,9 @@
 
 sipbridge has to remember things between SIP messages: which transactions are
 open, where each dialog stands, which timers are running and which messages it
-still owes a peer. All of that lives in one place, the **state store**. The
-process works from the store on every operation and keeps no separate copy of
-its own, so whatever the store holds is the truth.
+still owes a peer. The selected runtime is the sole authority: Memory holds typed
+process-local records; Redis holds checkpoints read and committed per operation.
+Neither keeps a second authoritative copy behind the selected runtime.
 
 You choose the store once, at startup, with `SIPBRIDGE_STATE_BACKEND`:
 
@@ -20,9 +20,10 @@ drops calls in progress. Choose Redis when you run more than one instance and
 want a client that reconnects to a different instance to continue its dialog
 there.
 
-The two stores behave the same from a controller's point of view. The control
-protocol, its fields and the `sip.state.v1` capability are identical, so a
-controller does not need to know which one is in use. sipbridge never switches
+Both runtimes use the same binary control schema and `sip.state.v1` capability.
+Memory additionally requires the negotiated direct-decision contract; Redis
+retains checkpoint routing/presentation. Controllers select the negotiated path,
+not a guessed backend. sipbridge never switches
 stores by itself: it does not fall back to memory when Redis is down, and it
 cannot migrate live state from one store to the other. Changing the store means
 restarting the process with new settings.
@@ -45,48 +46,26 @@ ready controller before it reports ready for signaling.
 
 ### Capacity
 
-The unit of accounting is the **Call-ID group**: all the state sipbridge holds
-for one SIP Call-ID. Count distinct Call-IDs when sizing it: a call your
-controller bridges between two parties usually has one for the inbound leg
-and another for the outbound leg. A subscription holds a group for as long as it lasts. A group can
-contain several related pieces, for example the forked branches of one outgoing
-call.
-
-Each group reserves a fixed 64 MiB of the memory budget from the moment it is
-created until it is fully finished. The reservation is large on purpose: it
-guarantees that a call which has started always has room to complete, including
-cleanup after forking and every retransmission. Two settings bound the total:
+Memory counts resident contexts and their owned retained bytes, with finite
+headroom reserved for completion work admitted with each procedure. It does not
+reserve 64 MiB for every Call-ID or encode a checkpoint on every operation.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `SIPBRIDGE_MEMORY_MAX_GROUPS` | 128 | Maximum number of groups |
-| `SIPBRIDGE_MEMORY_MAX_BYTES` | 1 GiB | Maximum reserved bytes: 1 GiB / 64 MiB = **16 groups** |
+| `SIPBRIDGE_MEMORY_MAX_GROUPS` | 128 | Maximum resident contexts |
+| `SIPBRIDGE_MEMORY_MAX_BYTES` | 1 GiB | Accounted retained bytes plus reserved completion headroom |
 
-With the defaults the byte budget is the limit that matters, so a default
-instance holds state for **16 Call-IDs at a time**. That is enough to try things
-out; raise it before you send real traffic. To allow more, raise
-`SIPBRIDGE_MEMORY_MAX_BYTES` by 64 MiB per group, and raise
-`SIPBRIDGE_MEMORY_MAX_GROUPS` as well if you go beyond 128. For example, 64
-groups needs:
+These are admission bounds, not an RSS promise. Go runtime metadata and transient
+transport/codec buffers add overhead. A full budget refuses new work without
+evicting existing obligations. Size for live contexts, unsettled outputs and
+retained results; watch actual memory alongside the resident accounting metrics.
 
-```sh
-SIPBRIDGE_MEMORY_MAX_BYTES=4294967296   # 64 x 64 MiB
-```
-
-Two practical notes:
-
-- The budget counts encoded state, not the memory the process actually uses.
-  A reservation is an accounting ceiling rather than allocated memory, and Go's
-  own overhead comes on top of whatever the state really occupies. Watch real
-  usage and give the container headroom instead of deriving its memory limit
-  from this number.
-- When the budget is full, sipbridge refuses new groups. It never evicts an
-  existing call to make room.
-
-A group keeps its reservation until its SIP work is completely finished, which
-includes a retention period of at least two minutes after a call ends (see
-[Lifecycle and Retention](./lifecycle.md#retention-and-retirement)). Size the
-budget for calls that recently ended as well as calls in progress.
+Completed TCP/TLS REGISTER procedures can disappear once the selected final is
+written, settled and acknowledged and all waiters and other duties end. They are
+not retained registration records. The controller owns registration policy and
+expiry. See the [owning lifetime rule](../memory-core.md#completed-reliable-register-lifetime)
+for the narrow exception and old-retry UNKNOWN behavior. UDP, calls and
+subscription/NOTIFY obligations keep their existing lifetimes.
 
 ## Redis
 

@@ -42,11 +42,18 @@ admin listener defaults to `127.0.0.1:8800`; on a platform that probes from
 outside the container, set `--admin-listen=:8800` (or the pod address) and
 limit who can reach it with network policy.
 
+Controllers must use `sipbridge.control.protobuf.v1` and codecs from the matching
+receipt. The former JSON subprotocol is unsupported. Control framing does not
+change retained field numbers or automatically reset Redis. Compare the full
+public/private receipt and authority profile before a coordinated replacement;
+[Runtime](../runtime.md#configuration-identity-and-loss) owns compatibility and
+loss behavior. Do not infer retained-state compatibility from the v1 label alone.
+
 ## Topology choices
 
 | Topology | State | Notes |
 | --- | --- | --- |
-| One standalone instance | Memory | The simplest setup. A restart loses all SIP state and connections. Remember to raise the [memory capacity](./state-backends.md#capacity) above its default of 16 Call-IDs. |
+| One standalone instance | Memory | The simplest setup. A restart loses all SIP state and connections. Size [resident capacity](./state-backends.md#capacity) for active contexts, retained bytes and completion headroom. |
 | Several instances sharing state | Redis | A client that reconnects to another instance can continue its dialog there. Each connection still belongs to one process. All instances in a namespace need the same identity key, partition count, state format and advertised addresses. |
 
 Every controller should hold a control session to every sipbridge instance it

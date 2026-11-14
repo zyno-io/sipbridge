@@ -1,5 +1,8 @@
 # Commands and Outcomes
 
+JSON examples on this page are readable projections of generated protobuf
+messages. Send binary envelopes using the [wire profile](./overview.md#binary-encoding), never JSON text frames.
+
 A `command` is how the controller makes sipbridge do something: answer a
 request, place a call, send a request inside a dialog, or cancel. Every command
 gets a `result`, and the most important part of a result is how *certain*
@@ -153,6 +156,11 @@ that block or cause a replay.
 A dropped session is the same situation in disguise: any command without a
 result is unknown from your side, even if sipbridge completed it. After
 reconnecting, inspect before you act.
+
+Memory can retire a [completed reliable REGISTER procedure](../memory-core.md#completed-reliable-register-lifetime)
+without a historical tombstone. A retry for that absent context returns UNKNOWN
+without a snapshot. Inspection of current absence never proves that the old
+command was unaccepted or its response was NOT_WRITTEN.
 
 ### Errors
 

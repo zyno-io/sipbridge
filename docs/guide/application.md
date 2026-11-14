@@ -6,10 +6,10 @@ explains what a controller has to do, in the order you would build it. The
 themselves, and [PROTOCOL.md](../spec/protocol.md) holds the exact rules.
 
 There is no client SDK. A controller is any program that speaks the
-[JSON profile](../protocol/overview.md#json-encoding) over a WebSocket. Field
+[binary protobuf profile](../protocol/overview.md#binary-encoding) over a WebSocket. Field
 names and types are owned by the [schema](../../proto/sipbridge-control.proto)
 in this repository. The pinned local generator produces Go/TypeScript contracts
-and strict JSON validation, with hashes recorded in
+and generated binary codecs, with hashes recorded in
 [`control-schema.json`](../../dependencies/control-schema.json). You can also
 generate types for another language from the same schema.
 
@@ -65,7 +65,7 @@ work can start after admission and use ordinary commands for later responses.
 
 When a notification includes a native-validated flow proposal, return its ordered
 receipt in the same decision while preserving the prior delivery witness used
-for policy. The [direct-decision contract](../spec/protocol.md#direct-request-decision-memory-target)
+for policy. The [direct-decision contract](../spec/protocol.md#direct-request-decision-memory)
 owns exact fields, ownership, deadlines and uncertainty rules.
 
 ### Checkpoint: route and present

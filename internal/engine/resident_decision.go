@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/state"
 )
 
 // residentDecision contains only operation-local validation values. Native
@@ -34,6 +35,9 @@ func (e *ResidentMemory) decideResidentRequest(ctx context.Context, peer *contro
 	cmd := &pb.Command{Context: d.Context, Sequence: d.Sequence, Admission: d.Admission, Action: &pb.Command_Respond{Respond: response}}
 	result, err := e.respondResident(ctx, peer, cmd, operation, deadline, &residentDecision{value: d})
 	if err != nil {
+		if errors.Is(err, state.ErrNotFound) {
+			return &pb.OperationResult{Certainty: pb.OperationResult_UNKNOWN, Error: "historical decision outcome unavailable"}, nil
+		}
 		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: err.Error()}, nil
 	}
 	return result, nil

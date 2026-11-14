@@ -5,11 +5,12 @@
 // source: sipbridge-control.proto
 
 /* eslint-disable */
+import { BinaryReader, BinaryWriter } from '@bufbuild/protobuf/wire';
 
 /**
- * Canonical control contract and source for generated JSON codecs/validation.
- * Wire transport is UTF-8 JSON text only (sipbridge.control.json.v1), with
- * lowerCamelCase keys, symbolic enums, uint64 decimal strings and base64 bytes.
+ * Canonical control contract and source for generated protobuf codecs.
+ * Wire transport is binary protobuf (sipbridge.control.protobuf.v1).
+ * Generated JSON conversions support local persistence and diagnostics.
  * Application families require the explicitly negotiated sip.v1 capability.
  * PROTOCOL.md and ARCHITECTURE.md in sipbridge own
  * behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
@@ -957,7 +958,421 @@ export interface FlowAdoptionResult {
     error: string;
 }
 
+function createBaseEnvelope(): Envelope {
+    return { correlationId: '', sessionId: '', remainingBudgetMs: 0, payload: undefined };
+}
+
 export const Envelope: MessageFns<Envelope> = {
+    encode(message: Envelope, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.correlationId !== '') {
+            writer.uint32(10).string(message.correlationId);
+        }
+        if (message.sessionId !== '') {
+            writer.uint32(18).string(message.sessionId);
+        }
+        if (message.remainingBudgetMs !== 0) {
+            writer.uint32(24).uint32(message.remainingBudgetMs);
+        }
+        switch (message.payload?.$case) {
+            case 'hello':
+                SessionHello.encode(message.payload.hello, writer.uint32(82).fork()).join();
+                break;
+            case 'helloAck':
+                SessionHelloAck.encode(message.payload.helloAck, writer.uint32(90).fork()).join();
+                break;
+            case 'status':
+                SessionStatus.encode(message.payload.status, writer.uint32(98).fork()).join();
+                break;
+            case 'ping':
+                Heartbeat.encode(message.payload.ping, writer.uint32(106).fork()).join();
+                break;
+            case 'pong':
+                Heartbeat.encode(message.payload.pong, writer.uint32(114).fork()).join();
+                break;
+            case 'ingress':
+                IngressReceived.encode(message.payload.ingress, writer.uint32(162).fork()).join();
+                break;
+            case 'routeResult':
+                RouteResult.encode(message.payload.routeResult, writer.uint32(170).fork()).join();
+                break;
+            case 'ingest':
+                OwnerIngest.encode(message.payload.ingest, writer.uint32(178).fork()).join();
+                break;
+            case 'request':
+                RequestPresented.encode(message.payload.request, writer.uint32(186).fork()).join();
+                break;
+            case 'command':
+                Command.encode(message.payload.command, writer.uint32(194).fork()).join();
+                break;
+            case 'result':
+                OperationResult.encode(message.payload.result, writer.uint32(202).fork()).join();
+                break;
+            case 'egress':
+                EgressRequest.encode(message.payload.egress, writer.uint32(210).fork()).join();
+                break;
+            case 'write':
+                FlowWrite.encode(message.payload.write, writer.uint32(218).fork()).join();
+                break;
+            case 'delivery':
+                DeliveryResult.encode(message.payload.delivery, writer.uint32(226).fork()).join();
+                break;
+            case 'flowClosed':
+                FlowClosed.encode(message.payload.flowClosed, writer.uint32(234).fork()).join();
+                break;
+            case 'dialogEvent':
+                DialogEvent.encode(message.payload.dialogEvent, writer.uint32(242).fork()).join();
+                break;
+            case 'inspect':
+                ContextInspect.encode(message.payload.inspect, writer.uint32(250).fork()).join();
+                break;
+            case 'flowAdoption':
+                FlowAdoptionRequest.encode(message.payload.flowAdoption, writer.uint32(258).fork()).join();
+                break;
+            case 'flowAdoptionResult':
+                FlowAdoptionResult.encode(message.payload.flowAdoptionResult, writer.uint32(266).fork()).join();
+                break;
+            case 'sendPermit':
+                SendPermit.encode(message.payload.sendPermit, writer.uint32(274).fork()).join();
+                break;
+            case 'deliverEffect':
+                FlowWrite.encode(message.payload.deliverEffect, writer.uint32(282).fork()).join();
+                break;
+            case 'credentialLookup':
+                CredentialLookup.encode(message.payload.credentialLookup, writer.uint32(290).fork()).join();
+                break;
+            case 'credentialResult':
+                CredentialResult.encode(message.payload.credentialResult, writer.uint32(298).fork()).join();
+                break;
+            case 'inspectEffect':
+                FlowWrite.encode(message.payload.inspectEffect, writer.uint32(306).fork()).join();
+                break;
+            case 'probeApplication':
+                ApplicationProbe.encode(message.payload.probeApplication, writer.uint32(330).fork()).join();
+                break;
+            case 'applicationStatus':
+                ApplicationStatus.encode(message.payload.applicationStatus, writer.uint32(338).fork()).join();
+                break;
+            case 'controllerContexts':
+                ControllerContexts.encode(message.payload.controllerContexts, writer.uint32(370).fork()).join();
+                break;
+            case 'controllerContextsResult':
+                ControllerContextsResult.encode(message.payload.controllerContextsResult, writer.uint32(378).fork()).join();
+                break;
+            case 'requestDecision':
+                RequestDecision.encode(message.payload.requestDecision, writer.uint32(386).fork()).join();
+                break;
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Envelope {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseEnvelope();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.correlationId = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.sessionId = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 24) {
+                            break;
+                        }
+
+                        message.remainingBudgetMs = reader.uint32();
+                        continue;
+                    }
+                    case 10: {
+                        if (tag !== 82) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'hello', hello: SessionHello.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 11: {
+                        if (tag !== 90) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'helloAck', helloAck: SessionHelloAck.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 12: {
+                        if (tag !== 98) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'status', status: SessionStatus.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 13: {
+                        if (tag !== 106) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'ping', ping: Heartbeat.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 14: {
+                        if (tag !== 114) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'pong', pong: Heartbeat.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 20: {
+                        if (tag !== 162) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'ingress', ingress: IngressReceived.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 21: {
+                        if (tag !== 170) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'routeResult', routeResult: RouteResult.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 22: {
+                        if (tag !== 178) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'ingest', ingest: OwnerIngest.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 23: {
+                        if (tag !== 186) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'request', request: RequestPresented.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 24: {
+                        if (tag !== 194) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'command', command: Command.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 25: {
+                        if (tag !== 202) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'result', result: OperationResult.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 26: {
+                        if (tag !== 210) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'egress', egress: EgressRequest.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 27: {
+                        if (tag !== 218) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'write', write: FlowWrite.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 28: {
+                        if (tag !== 226) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'delivery', delivery: DeliveryResult.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 29: {
+                        if (tag !== 234) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'flowClosed', flowClosed: FlowClosed.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 30: {
+                        if (tag !== 242) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'dialogEvent', dialogEvent: DialogEvent.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 31: {
+                        if (tag !== 250) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'inspect', inspect: ContextInspect.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 32: {
+                        if (tag !== 258) {
+                            break;
+                        }
+
+                        message.payload = {
+                            $case: 'flowAdoption',
+                            flowAdoption: FlowAdoptionRequest.decode(reader, reader.uint32())
+                        };
+                        continue;
+                    }
+                    case 33: {
+                        if (tag !== 266) {
+                            break;
+                        }
+
+                        message.payload = {
+                            $case: 'flowAdoptionResult',
+                            flowAdoptionResult: FlowAdoptionResult.decode(reader, reader.uint32())
+                        };
+                        continue;
+                    }
+                    case 34: {
+                        if (tag !== 274) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'sendPermit', sendPermit: SendPermit.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 35: {
+                        if (tag !== 282) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'deliverEffect', deliverEffect: FlowWrite.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 36: {
+                        if (tag !== 290) {
+                            break;
+                        }
+
+                        message.payload = {
+                            $case: 'credentialLookup',
+                            credentialLookup: CredentialLookup.decode(reader, reader.uint32())
+                        };
+                        continue;
+                    }
+                    case 37: {
+                        if (tag !== 298) {
+                            break;
+                        }
+
+                        message.payload = {
+                            $case: 'credentialResult',
+                            credentialResult: CredentialResult.decode(reader, reader.uint32())
+                        };
+                        continue;
+                    }
+                    case 38: {
+                        if (tag !== 306) {
+                            break;
+                        }
+
+                        message.payload = { $case: 'inspectEffect', inspectEffect: FlowWrite.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 41: {
+                        if (tag !== 330) {
+                            break;
+                        }
+
+                        message.payload = {
+                            $case: 'probeApplication',
+                            probeApplication: ApplicationProbe.decode(reader, reader.uint32())
+                        };
+                        continue;
+                    }
+                    case 42: {
+                        if (tag !== 338) {
+                            break;
+                        }
+
+                        message.payload = {
+                            $case: 'applicationStatus',
+                            applicationStatus: ApplicationStatus.decode(reader, reader.uint32())
+                        };
+                        continue;
+                    }
+                    case 46: {
+                        if (tag !== 370) {
+                            break;
+                        }
+
+                        message.payload = {
+                            $case: 'controllerContexts',
+                            controllerContexts: ControllerContexts.decode(reader, reader.uint32())
+                        };
+                        continue;
+                    }
+                    case 47: {
+                        if (tag !== 378) {
+                            break;
+                        }
+
+                        message.payload = {
+                            $case: 'controllerContextsResult',
+                            controllerContextsResult: ControllerContextsResult.decode(reader, reader.uint32())
+                        };
+                        continue;
+                    }
+                    case 48: {
+                        if (tag !== 386) {
+                            break;
+                        }
+
+                        message.payload = {
+                            $case: 'requestDecision',
+                            requestDecision: RequestDecision.decode(reader, reader.uint32())
+                        };
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): Envelope {
         const object = isObject(value) ? value : {};
         return {
@@ -1236,7 +1651,62 @@ export const Envelope: MessageFns<Envelope> = {
     }
 };
 
+function createBaseProcessRef(): ProcessRef {
+    return { instanceId: '', epoch: '' };
+}
+
 export const ProcessRef: MessageFns<ProcessRef> = {
+    encode(message: ProcessRef, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.instanceId !== '') {
+            writer.uint32(10).string(message.instanceId);
+        }
+        if (message.epoch !== '') {
+            writer.uint32(18).string(message.epoch);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ProcessRef {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseProcessRef();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.instanceId = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.epoch = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ProcessRef {
         const object = isObject(value) ? value : {};
         return {
@@ -1261,7 +1731,51 @@ export const ProcessRef: MessageFns<ProcessRef> = {
     }
 };
 
+function createBaseBounds(): Bounds {
+    return { maxEnvelopeBytes: 0 };
+}
+
 export const Bounds: MessageFns<Bounds> = {
+    encode(message: Bounds, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.maxEnvelopeBytes !== 0) {
+            writer.uint32(8).uint32(message.maxEnvelopeBytes);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Bounds {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseBounds();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 8) {
+                            break;
+                        }
+
+                        message.maxEnvelopeBytes = reader.uint32();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): Bounds {
         const object = isObject(value) ? value : {};
         return {
@@ -1282,7 +1796,140 @@ export const Bounds: MessageFns<Bounds> = {
     }
 };
 
+function createBaseSessionHello(): SessionHello {
+    return {
+        controller: undefined,
+        connectionAttempt: 0n,
+        major: 0,
+        minMinor: 0,
+        maxMinor: 0,
+        capabilities: [],
+        bounds: undefined,
+        recovery: undefined
+    };
+}
+
 export const SessionHello: MessageFns<SessionHello> = {
+    encode(message: SessionHello, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.controller !== undefined) {
+            ProcessRef.encode(message.controller, writer.uint32(10).fork()).join();
+        }
+        if (message.connectionAttempt !== 0n) {
+            if (BigInt.asUintN(64, message.connectionAttempt) !== message.connectionAttempt) {
+                throw new globalThis.Error('value provided for field message.connectionAttempt of type uint64 too large');
+            }
+            writer.uint32(16).uint64(message.connectionAttempt);
+        }
+        if (message.major !== 0) {
+            writer.uint32(24).uint32(message.major);
+        }
+        if (message.minMinor !== 0) {
+            writer.uint32(32).uint32(message.minMinor);
+        }
+        if (message.maxMinor !== 0) {
+            writer.uint32(40).uint32(message.maxMinor);
+        }
+        for (const v of message.capabilities) {
+            writer.uint32(50).string(v!);
+        }
+        if (message.bounds !== undefined) {
+            Bounds.encode(message.bounds, writer.uint32(58).fork()).join();
+        }
+        if (message.recovery !== undefined) {
+            ControllerRecovery.encode(message.recovery, writer.uint32(66).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): SessionHello {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseSessionHello();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.controller = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 16) {
+                            break;
+                        }
+
+                        message.connectionAttempt = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 24) {
+                            break;
+                        }
+
+                        message.major = reader.uint32();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 32) {
+                            break;
+                        }
+
+                        message.minMinor = reader.uint32();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 40) {
+                            break;
+                        }
+
+                        message.maxMinor = reader.uint32();
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.capabilities.push(reader.string());
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 58) {
+                            break;
+                        }
+
+                        message.bounds = Bounds.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 8: {
+                        if (tag !== 66) {
+                            break;
+                        }
+
+                        message.recovery = ControllerRecovery.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): SessionHello {
         const object = isObject(value) ? value : {};
         return {
@@ -1331,7 +1978,98 @@ export const SessionHello: MessageFns<SessionHello> = {
     }
 };
 
+function createBaseControllerRecovery(): ControllerRecovery {
+    return { application: undefined, term: '', token: '', attemptId: '', attachmentGeneration: 0n };
+}
+
 export const ControllerRecovery: MessageFns<ControllerRecovery> = {
+    encode(message: ControllerRecovery, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.application !== undefined) {
+            ProcessRef.encode(message.application, writer.uint32(10).fork()).join();
+        }
+        if (message.term !== '') {
+            writer.uint32(18).string(message.term);
+        }
+        if (message.token !== '') {
+            writer.uint32(26).string(message.token);
+        }
+        if (message.attemptId !== '') {
+            writer.uint32(34).string(message.attemptId);
+        }
+        if (message.attachmentGeneration !== 0n) {
+            if (BigInt.asUintN(64, message.attachmentGeneration) !== message.attachmentGeneration) {
+                throw new globalThis.Error('value provided for field message.attachmentGeneration of type uint64 too large');
+            }
+            writer.uint32(40).uint64(message.attachmentGeneration);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ControllerRecovery {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseControllerRecovery();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.application = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.term = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.token = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.attemptId = reader.string();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 40) {
+                            break;
+                        }
+
+                        message.attachmentGeneration = reader.uint64() as bigint;
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ControllerRecovery {
         const object = isObject(value) ? value : {};
         return {
@@ -1372,7 +2110,62 @@ export const ControllerRecovery: MessageFns<ControllerRecovery> = {
     }
 };
 
+function createBaseControllerContexts(): ControllerContexts {
+    return { cursor: '', limit: 0 };
+}
+
 export const ControllerContexts: MessageFns<ControllerContexts> = {
+    encode(message: ControllerContexts, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.cursor !== '') {
+            writer.uint32(10).string(message.cursor);
+        }
+        if (message.limit !== 0) {
+            writer.uint32(16).uint32(message.limit);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ControllerContexts {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseControllerContexts();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.cursor = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 16) {
+                            break;
+                        }
+
+                        message.limit = reader.uint32();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ControllerContexts {
         const object = isObject(value) ? value : {};
         return {
@@ -1393,7 +2186,62 @@ export const ControllerContexts: MessageFns<ControllerContexts> = {
     }
 };
 
+function createBaseControllerContextsResult(): ControllerContextsResult {
+    return { contexts: [], cursor: '' };
+}
+
 export const ControllerContextsResult: MessageFns<ControllerContextsResult> = {
+    encode(message: ControllerContextsResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        for (const v of message.contexts) {
+            ContextRef.encode(v!, writer.uint32(10).fork()).join();
+        }
+        if (message.cursor !== '') {
+            writer.uint32(18).string(message.cursor);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ControllerContextsResult {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseControllerContextsResult();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.contexts.push(ContextRef.decode(reader, reader.uint32()));
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.cursor = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ControllerContextsResult {
         const object = isObject(value) ? value : {};
         return {
@@ -1414,7 +2262,173 @@ export const ControllerContextsResult: MessageFns<ControllerContextsResult> = {
     }
 };
 
+function createBaseSessionHelloAck(): SessionHelloAck {
+    return {
+        sipbridge: undefined,
+        sessionId: '',
+        major: 0,
+        minor: 0,
+        capabilities: [],
+        bounds: undefined,
+        heartbeatIntervalMs: 0,
+        heartbeatTimeoutMs: 0,
+        stateAuthority: undefined,
+        applicationLease: undefined,
+        inboundAuthPolicy: undefined
+    };
+}
+
 export const SessionHelloAck: MessageFns<SessionHelloAck> = {
+    encode(message: SessionHelloAck, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.sipbridge !== undefined) {
+            ProcessRef.encode(message.sipbridge, writer.uint32(10).fork()).join();
+        }
+        if (message.sessionId !== '') {
+            writer.uint32(18).string(message.sessionId);
+        }
+        if (message.major !== 0) {
+            writer.uint32(24).uint32(message.major);
+        }
+        if (message.minor !== 0) {
+            writer.uint32(32).uint32(message.minor);
+        }
+        for (const v of message.capabilities) {
+            writer.uint32(42).string(v!);
+        }
+        if (message.bounds !== undefined) {
+            Bounds.encode(message.bounds, writer.uint32(50).fork()).join();
+        }
+        if (message.heartbeatIntervalMs !== 0) {
+            writer.uint32(56).uint32(message.heartbeatIntervalMs);
+        }
+        if (message.heartbeatTimeoutMs !== 0) {
+            writer.uint32(64).uint32(message.heartbeatTimeoutMs);
+        }
+        if (message.stateAuthority !== undefined) {
+            StateAuthority.encode(message.stateAuthority, writer.uint32(74).fork()).join();
+        }
+        if (message.applicationLease !== undefined) {
+            ApplicationLease.encode(message.applicationLease, writer.uint32(82).fork()).join();
+        }
+        if (message.inboundAuthPolicy !== undefined) {
+            InboundAuthPolicy.encode(message.inboundAuthPolicy, writer.uint32(90).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): SessionHelloAck {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseSessionHelloAck();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.sipbridge = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.sessionId = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 24) {
+                            break;
+                        }
+
+                        message.major = reader.uint32();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 32) {
+                            break;
+                        }
+
+                        message.minor = reader.uint32();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.capabilities.push(reader.string());
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.bounds = Bounds.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 56) {
+                            break;
+                        }
+
+                        message.heartbeatIntervalMs = reader.uint32();
+                        continue;
+                    }
+                    case 8: {
+                        if (tag !== 64) {
+                            break;
+                        }
+
+                        message.heartbeatTimeoutMs = reader.uint32();
+                        continue;
+                    }
+                    case 9: {
+                        if (tag !== 74) {
+                            break;
+                        }
+
+                        message.stateAuthority = StateAuthority.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 10: {
+                        if (tag !== 82) {
+                            break;
+                        }
+
+                        message.applicationLease = ApplicationLease.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 11: {
+                        if (tag !== 90) {
+                            break;
+                        }
+
+                        message.inboundAuthPolicy = InboundAuthPolicy.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): SessionHelloAck {
         const object = isObject(value) ? value : {};
         return {
@@ -1495,7 +2509,185 @@ export const SessionHelloAck: MessageFns<SessionHelloAck> = {
     }
 };
 
+function createBaseApplicationLease(): ApplicationLease {
+    return {
+        application: undefined,
+        authority: undefined,
+        term: '',
+        checkedAtMs: 0n,
+        expiresAtMs: 0n,
+        recoveryToken: '',
+        holder: undefined,
+        attachmentGeneration: 0n,
+        reattachUntilMs: 0n,
+        leaseLifetimeMs: 0,
+        reattachTimeoutMs: 0
+    };
+}
+
 export const ApplicationLease: MessageFns<ApplicationLease> = {
+    encode(message: ApplicationLease, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.application !== undefined) {
+            ProcessRef.encode(message.application, writer.uint32(10).fork()).join();
+        }
+        if (message.authority !== undefined) {
+            StateAuthority.encode(message.authority, writer.uint32(18).fork()).join();
+        }
+        if (message.term !== '') {
+            writer.uint32(26).string(message.term);
+        }
+        if (message.checkedAtMs !== 0n) {
+            if (BigInt.asUintN(64, message.checkedAtMs) !== message.checkedAtMs) {
+                throw new globalThis.Error('value provided for field message.checkedAtMs of type uint64 too large');
+            }
+            writer.uint32(32).uint64(message.checkedAtMs);
+        }
+        if (message.expiresAtMs !== 0n) {
+            if (BigInt.asUintN(64, message.expiresAtMs) !== message.expiresAtMs) {
+                throw new globalThis.Error('value provided for field message.expiresAtMs of type uint64 too large');
+            }
+            writer.uint32(40).uint64(message.expiresAtMs);
+        }
+        if (message.recoveryToken !== '') {
+            writer.uint32(50).string(message.recoveryToken);
+        }
+        if (message.holder !== undefined) {
+            ProcessRef.encode(message.holder, writer.uint32(58).fork()).join();
+        }
+        if (message.attachmentGeneration !== 0n) {
+            if (BigInt.asUintN(64, message.attachmentGeneration) !== message.attachmentGeneration) {
+                throw new globalThis.Error('value provided for field message.attachmentGeneration of type uint64 too large');
+            }
+            writer.uint32(64).uint64(message.attachmentGeneration);
+        }
+        if (message.reattachUntilMs !== 0n) {
+            if (BigInt.asUintN(64, message.reattachUntilMs) !== message.reattachUntilMs) {
+                throw new globalThis.Error('value provided for field message.reattachUntilMs of type uint64 too large');
+            }
+            writer.uint32(72).uint64(message.reattachUntilMs);
+        }
+        if (message.leaseLifetimeMs !== 0) {
+            writer.uint32(80).uint32(message.leaseLifetimeMs);
+        }
+        if (message.reattachTimeoutMs !== 0) {
+            writer.uint32(88).uint32(message.reattachTimeoutMs);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ApplicationLease {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseApplicationLease();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.application = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.authority = StateAuthority.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.term = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 32) {
+                            break;
+                        }
+
+                        message.checkedAtMs = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 40) {
+                            break;
+                        }
+
+                        message.expiresAtMs = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.recoveryToken = reader.string();
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 58) {
+                            break;
+                        }
+
+                        message.holder = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 8: {
+                        if (tag !== 64) {
+                            break;
+                        }
+
+                        message.attachmentGeneration = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 9: {
+                        if (tag !== 72) {
+                            break;
+                        }
+
+                        message.reattachUntilMs = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 10: {
+                        if (tag !== 80) {
+                            break;
+                        }
+
+                        message.leaseLifetimeMs = reader.uint32();
+                        continue;
+                    }
+                    case 11: {
+                        if (tag !== 88) {
+                            break;
+                        }
+
+                        message.reattachTimeoutMs = reader.uint32();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ApplicationLease {
         const object = isObject(value) ? value : {};
         return {
@@ -1580,7 +2772,113 @@ export const ApplicationLease: MessageFns<ApplicationLease> = {
     }
 };
 
+function createBaseSessionStatus(): SessionStatus {
+    return {
+        retainedReady: false,
+        admitCalls: false,
+        admitSubscriptions: false,
+        bindingsReady: false,
+        draining: false,
+        digestChallengePolicy: undefined
+    };
+}
+
 export const SessionStatus: MessageFns<SessionStatus> = {
+    encode(message: SessionStatus, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.retainedReady !== false) {
+            writer.uint32(8).bool(message.retainedReady);
+        }
+        if (message.admitCalls !== false) {
+            writer.uint32(16).bool(message.admitCalls);
+        }
+        if (message.admitSubscriptions !== false) {
+            writer.uint32(24).bool(message.admitSubscriptions);
+        }
+        if (message.bindingsReady !== false) {
+            writer.uint32(32).bool(message.bindingsReady);
+        }
+        if (message.draining !== false) {
+            writer.uint32(40).bool(message.draining);
+        }
+        if (message.digestChallengePolicy !== undefined) {
+            DigestChallengePolicy.encode(message.digestChallengePolicy, writer.uint32(50).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): SessionStatus {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseSessionStatus();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 8) {
+                            break;
+                        }
+
+                        message.retainedReady = reader.bool();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 16) {
+                            break;
+                        }
+
+                        message.admitCalls = reader.bool();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 24) {
+                            break;
+                        }
+
+                        message.admitSubscriptions = reader.bool();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 32) {
+                            break;
+                        }
+
+                        message.bindingsReady = reader.bool();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 40) {
+                            break;
+                        }
+
+                        message.draining = reader.bool();
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.digestChallengePolicy = DigestChallengePolicy.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): SessionStatus {
         const object = isObject(value) ? value : {};
         return {
@@ -1637,7 +2935,73 @@ export const SessionStatus: MessageFns<SessionStatus> = {
     }
 };
 
+function createBaseInboundAuthPolicy(): InboundAuthPolicy {
+    return { requireRegister: false, requireInvite: false, requireSubscribe: false };
+}
+
 export const InboundAuthPolicy: MessageFns<InboundAuthPolicy> = {
+    encode(message: InboundAuthPolicy, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.requireRegister !== false) {
+            writer.uint32(8).bool(message.requireRegister);
+        }
+        if (message.requireInvite !== false) {
+            writer.uint32(16).bool(message.requireInvite);
+        }
+        if (message.requireSubscribe !== false) {
+            writer.uint32(24).bool(message.requireSubscribe);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): InboundAuthPolicy {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseInboundAuthPolicy();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 8) {
+                            break;
+                        }
+
+                        message.requireRegister = reader.bool();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 16) {
+                            break;
+                        }
+
+                        message.requireInvite = reader.bool();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 24) {
+                            break;
+                        }
+
+                        message.requireSubscribe = reader.bool();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): InboundAuthPolicy {
         const object = isObject(value) ? value : {};
         return {
@@ -1674,7 +3038,87 @@ export const InboundAuthPolicy: MessageFns<InboundAuthPolicy> = {
     }
 };
 
+function createBaseDigestChallengePolicy(): DigestChallengePolicy {
+    return { realm: '', authenticationEpoch: '', signingKey: Buffer.alloc(0), expiresAtMs: 0n };
+}
+
 export const DigestChallengePolicy: MessageFns<DigestChallengePolicy> = {
+    encode(message: DigestChallengePolicy, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.realm !== '') {
+            writer.uint32(10).string(message.realm);
+        }
+        if (message.authenticationEpoch !== '') {
+            writer.uint32(18).string(message.authenticationEpoch);
+        }
+        if (message.signingKey.length !== 0) {
+            writer.uint32(26).bytes(message.signingKey);
+        }
+        if (message.expiresAtMs !== 0n) {
+            if (BigInt.asUintN(64, message.expiresAtMs) !== message.expiresAtMs) {
+                throw new globalThis.Error('value provided for field message.expiresAtMs of type uint64 too large');
+            }
+            writer.uint32(32).uint64(message.expiresAtMs);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): DigestChallengePolicy {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseDigestChallengePolicy();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.realm = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.authenticationEpoch = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.signingKey = Buffer.from(reader.bytes());
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 32) {
+                            break;
+                        }
+
+                        message.expiresAtMs = reader.uint64() as bigint;
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): DigestChallengePolicy {
         const object = isObject(value) ? value : {};
         return {
@@ -1715,7 +3159,51 @@ export const DigestChallengePolicy: MessageFns<DigestChallengePolicy> = {
     }
 };
 
+function createBaseHeartbeat(): Heartbeat {
+    return { nonce: '' };
+}
+
 export const Heartbeat: MessageFns<Heartbeat> = {
+    encode(message: Heartbeat, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.nonce !== '') {
+            writer.uint32(10).string(message.nonce);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Heartbeat {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseHeartbeat();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.nonce = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): Heartbeat {
         const object = isObject(value) ? value : {};
         return { nonce: isSet(object.nonce) ? globalThis.String(object.nonce) : '' };
@@ -1730,7 +3218,106 @@ export const Heartbeat: MessageFns<Heartbeat> = {
     }
 };
 
+function createBaseFlowRef(): FlowRef {
+    return { ingress: undefined, connectionId: '', sourceIp: '', sourcePort: 0, listener: '', transport: '' };
+}
+
 export const FlowRef: MessageFns<FlowRef> = {
+    encode(message: FlowRef, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.ingress !== undefined) {
+            ProcessRef.encode(message.ingress, writer.uint32(10).fork()).join();
+        }
+        if (message.connectionId !== '') {
+            writer.uint32(18).string(message.connectionId);
+        }
+        if (message.sourceIp !== '') {
+            writer.uint32(26).string(message.sourceIp);
+        }
+        if (message.sourcePort !== 0) {
+            writer.uint32(32).uint32(message.sourcePort);
+        }
+        if (message.listener !== '') {
+            writer.uint32(42).string(message.listener);
+        }
+        if (message.transport !== '') {
+            writer.uint32(50).string(message.transport);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): FlowRef {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseFlowRef();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.ingress = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.connectionId = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.sourceIp = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 32) {
+                            break;
+                        }
+
+                        message.sourcePort = reader.uint32();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.listener = reader.string();
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.transport = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): FlowRef {
         const object = isObject(value) ? value : {};
         return {
@@ -1779,7 +3366,84 @@ export const FlowRef: MessageFns<FlowRef> = {
     }
 };
 
+function createBaseStateAuthority(): StateAuthority {
+    return { service: '', generation: '', primaryId: '', schemaVersion: 0 };
+}
+
 export const StateAuthority: MessageFns<StateAuthority> = {
+    encode(message: StateAuthority, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.service !== '') {
+            writer.uint32(10).string(message.service);
+        }
+        if (message.generation !== '') {
+            writer.uint32(18).string(message.generation);
+        }
+        if (message.primaryId !== '') {
+            writer.uint32(26).string(message.primaryId);
+        }
+        if (message.schemaVersion !== 0) {
+            writer.uint32(32).uint32(message.schemaVersion);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): StateAuthority {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseStateAuthority();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.service = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.generation = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.primaryId = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 32) {
+                            break;
+                        }
+
+                        message.schemaVersion = reader.uint32();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): StateAuthority {
         const object = isObject(value) ? value : {};
         return {
@@ -1816,7 +3480,95 @@ export const StateAuthority: MessageFns<StateAuthority> = {
     }
 };
 
+function createBaseStateRef(): StateRef {
+    return { authority: undefined, groupId: '', incarnation: '', callId: '', partition: 0 };
+}
+
 export const StateRef: MessageFns<StateRef> = {
+    encode(message: StateRef, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.authority !== undefined) {
+            StateAuthority.encode(message.authority, writer.uint32(10).fork()).join();
+        }
+        if (message.groupId !== '') {
+            writer.uint32(18).string(message.groupId);
+        }
+        if (message.incarnation !== '') {
+            writer.uint32(26).string(message.incarnation);
+        }
+        if (message.callId !== '') {
+            writer.uint32(34).string(message.callId);
+        }
+        if (message.partition !== 0) {
+            writer.uint32(40).uint32(message.partition);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): StateRef {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseStateRef();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.authority = StateAuthority.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.groupId = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.incarnation = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.callId = reader.string();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 40) {
+                            break;
+                        }
+
+                        message.partition = reader.uint32();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): StateRef {
         const object = isObject(value) ? value : {};
         return {
@@ -1849,7 +3601,73 @@ export const StateRef: MessageFns<StateRef> = {
     }
 };
 
+function createBaseContextRef(): ContextRef {
+    return { owner: undefined, id: '', state: undefined };
+}
+
 export const ContextRef: MessageFns<ContextRef> = {
+    encode(message: ContextRef, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.owner !== undefined) {
+            ProcessRef.encode(message.owner, writer.uint32(10).fork()).join();
+        }
+        if (message.id !== '') {
+            writer.uint32(18).string(message.id);
+        }
+        if (message.state !== undefined) {
+            StateRef.encode(message.state, writer.uint32(26).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ContextRef {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseContextRef();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.owner = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.id = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.state = StateRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ContextRef {
         const object = isObject(value) ? value : {};
         return {
@@ -1874,7 +3692,62 @@ export const ContextRef: MessageFns<ContextRef> = {
     }
 };
 
+function createBaseHeader(): Header {
+    return { name: '', value: '' };
+}
+
 export const Header: MessageFns<Header> = {
+    encode(message: Header, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.name !== '') {
+            writer.uint32(10).string(message.name);
+        }
+        if (message.value !== '') {
+            writer.uint32(18).string(message.value);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Header {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseHeader();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.name = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.value = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): Header {
         const object = isObject(value) ? value : {};
         return {
@@ -1895,7 +3768,81 @@ export const Header: MessageFns<Header> = {
     }
 };
 
+function createBaseAddress(): Address {
+    return { name: '', uri: '', params: {} };
+}
+
 export const Address: MessageFns<Address> = {
+    encode(message: Address, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.name !== '') {
+            writer.uint32(10).string(message.name);
+        }
+        if (message.uri !== '') {
+            writer.uint32(18).string(message.uri);
+        }
+        globalThis.Object.entries(message.params).forEach(([key, value]: [string, string]) => {
+            Address_ParamsEntry.encode({ key, value }, writer.uint32(26).fork()).join();
+        });
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Address {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseAddress();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.name = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.uri = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        const entry3 = Address_ParamsEntry.decode(reader, reader.uint32());
+                        if (entry3.value !== undefined) {
+                            globalThis.Object.defineProperty(message.params, entry3.key, {
+                                value: entry3.value,
+                                enumerable: true,
+                                configurable: true,
+                                writable: true
+                            });
+                        }
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): Address {
         const object = isObject(value) ? value : {};
         return {
@@ -1944,7 +3891,62 @@ export const Address: MessageFns<Address> = {
     }
 };
 
+function createBaseAddress_ParamsEntry(): Address_ParamsEntry {
+    return { key: '', value: '' };
+}
+
 export const Address_ParamsEntry: MessageFns<Address_ParamsEntry> = {
+    encode(message: Address_ParamsEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.key !== '') {
+            writer.uint32(10).string(message.key);
+        }
+        if (message.value !== '') {
+            writer.uint32(18).string(message.value);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Address_ParamsEntry {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseAddress_ParamsEntry();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.key = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.value = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): Address_ParamsEntry {
         const object = isObject(value) ? value : {};
         return {
@@ -1965,7 +3967,51 @@ export const Address_ParamsEntry: MessageFns<Address_ParamsEntry> = {
     }
 };
 
+function createBaseAddressList(): AddressList {
+    return { values: [] };
+}
+
 export const AddressList: MessageFns<AddressList> = {
+    encode(message: AddressList, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        for (const v of message.values) {
+            Address.encode(v!, writer.uint32(10).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): AddressList {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseAddressList();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.values.push(Address.decode(reader, reader.uint32()));
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): AddressList {
         const object = isObject(value) ? value : {};
         return {
@@ -1982,7 +4028,92 @@ export const AddressList: MessageFns<AddressList> = {
     }
 };
 
+function createBaseVia(): Via {
+    return { protocol: '', host: '', port: 0, params: {} };
+}
+
 export const Via: MessageFns<Via> = {
+    encode(message: Via, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.protocol !== '') {
+            writer.uint32(10).string(message.protocol);
+        }
+        if (message.host !== '') {
+            writer.uint32(18).string(message.host);
+        }
+        if (message.port !== 0) {
+            writer.uint32(24).uint32(message.port);
+        }
+        globalThis.Object.entries(message.params).forEach(([key, value]: [string, string]) => {
+            Via_ParamsEntry.encode({ key, value }, writer.uint32(34).fork()).join();
+        });
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Via {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseVia();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.protocol = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.host = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 24) {
+                            break;
+                        }
+
+                        message.port = reader.uint32();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        const entry4 = Via_ParamsEntry.decode(reader, reader.uint32());
+                        if (entry4.value !== undefined) {
+                            globalThis.Object.defineProperty(message.params, entry4.key, {
+                                value: entry4.value,
+                                enumerable: true,
+                                configurable: true,
+                                writable: true
+                            });
+                        }
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): Via {
         const object = isObject(value) ? value : {};
         return {
@@ -2035,7 +4166,62 @@ export const Via: MessageFns<Via> = {
     }
 };
 
+function createBaseVia_ParamsEntry(): Via_ParamsEntry {
+    return { key: '', value: '' };
+}
+
 export const Via_ParamsEntry: MessageFns<Via_ParamsEntry> = {
+    encode(message: Via_ParamsEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.key !== '') {
+            writer.uint32(10).string(message.key);
+        }
+        if (message.value !== '') {
+            writer.uint32(18).string(message.value);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Via_ParamsEntry {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseVia_ParamsEntry();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.key = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.value = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): Via_ParamsEntry {
         const object = isObject(value) ? value : {};
         return {
@@ -2056,7 +4242,139 @@ export const Via_ParamsEntry: MessageFns<Via_ParamsEntry> = {
     }
 };
 
+function createBaseDigestCredentials(): DigestCredentials {
+    return { username: '', realm: '', nonce: '', uri: '', response: '', algorithm: '', qop: '', nc: '', cnonce: '' };
+}
+
 export const DigestCredentials: MessageFns<DigestCredentials> = {
+    encode(message: DigestCredentials, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.username !== '') {
+            writer.uint32(10).string(message.username);
+        }
+        if (message.realm !== '') {
+            writer.uint32(18).string(message.realm);
+        }
+        if (message.nonce !== '') {
+            writer.uint32(26).string(message.nonce);
+        }
+        if (message.uri !== '') {
+            writer.uint32(34).string(message.uri);
+        }
+        if (message.response !== '') {
+            writer.uint32(42).string(message.response);
+        }
+        if (message.algorithm !== '') {
+            writer.uint32(50).string(message.algorithm);
+        }
+        if (message.qop !== '') {
+            writer.uint32(58).string(message.qop);
+        }
+        if (message.nc !== '') {
+            writer.uint32(66).string(message.nc);
+        }
+        if (message.cnonce !== '') {
+            writer.uint32(74).string(message.cnonce);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): DigestCredentials {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseDigestCredentials();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.username = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.realm = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.nonce = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.uri = reader.string();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.response = reader.string();
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.algorithm = reader.string();
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 58) {
+                            break;
+                        }
+
+                        message.qop = reader.string();
+                        continue;
+                    }
+                    case 8: {
+                        if (tag !== 66) {
+                            break;
+                        }
+
+                        message.nc = reader.string();
+                        continue;
+                    }
+                    case 9: {
+                        if (tag !== 74) {
+                            break;
+                        }
+
+                        message.cnonce = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): DigestCredentials {
         const object = isObject(value) ? value : {};
         return {
@@ -2105,7 +4423,181 @@ export const DigestCredentials: MessageFns<DigestCredentials> = {
     }
 };
 
+function createBaseSipMessage(): SipMessage {
+    return {
+        wire: Buffer.alloc(0),
+        method: '',
+        uri: '',
+        status: 0,
+        reason: '',
+        body: Buffer.alloc(0),
+        headers: [],
+        addresses: {},
+        vias: [],
+        selectors: [],
+        authorization: undefined
+    };
+}
+
 export const SipMessage: MessageFns<SipMessage> = {
+    encode(message: SipMessage, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.wire.length !== 0) {
+            writer.uint32(10).bytes(message.wire);
+        }
+        if (message.method !== '') {
+            writer.uint32(18).string(message.method);
+        }
+        if (message.uri !== '') {
+            writer.uint32(26).string(message.uri);
+        }
+        if (message.status !== 0) {
+            writer.uint32(32).uint32(message.status);
+        }
+        if (message.reason !== '') {
+            writer.uint32(42).string(message.reason);
+        }
+        if (message.body.length !== 0) {
+            writer.uint32(50).bytes(message.body);
+        }
+        for (const v of message.headers) {
+            Header.encode(v!, writer.uint32(58).fork()).join();
+        }
+        globalThis.Object.entries(message.addresses).forEach(([key, value]: [string, AddressList]) => {
+            SipMessage_AddressesEntry.encode({ key, value }, writer.uint32(66).fork()).join();
+        });
+        for (const v of message.vias) {
+            Via.encode(v!, writer.uint32(74).fork()).join();
+        }
+        for (const v of message.selectors) {
+            writer.uint32(82).string(v!);
+        }
+        if (message.authorization !== undefined) {
+            DigestCredentials.encode(message.authorization, writer.uint32(90).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): SipMessage {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseSipMessage();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.wire = Buffer.from(reader.bytes());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.method = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.uri = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 32) {
+                            break;
+                        }
+
+                        message.status = reader.uint32();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.reason = reader.string();
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.body = Buffer.from(reader.bytes());
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 58) {
+                            break;
+                        }
+
+                        message.headers.push(Header.decode(reader, reader.uint32()));
+                        continue;
+                    }
+                    case 8: {
+                        if (tag !== 66) {
+                            break;
+                        }
+
+                        const entry8 = SipMessage_AddressesEntry.decode(reader, reader.uint32());
+                        if (entry8.value !== undefined) {
+                            globalThis.Object.defineProperty(message.addresses, entry8.key, {
+                                value: entry8.value,
+                                enumerable: true,
+                                configurable: true,
+                                writable: true
+                            });
+                        }
+                        continue;
+                    }
+                    case 9: {
+                        if (tag !== 74) {
+                            break;
+                        }
+
+                        message.vias.push(Via.decode(reader, reader.uint32()));
+                        continue;
+                    }
+                    case 10: {
+                        if (tag !== 82) {
+                            break;
+                        }
+
+                        message.selectors.push(reader.string());
+                        continue;
+                    }
+                    case 11: {
+                        if (tag !== 90) {
+                            break;
+                        }
+
+                        message.authorization = DigestCredentials.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): SipMessage {
         const object = isObject(value) ? value : {};
         return {
@@ -2186,7 +4678,62 @@ export const SipMessage: MessageFns<SipMessage> = {
     }
 };
 
+function createBaseSipMessage_AddressesEntry(): SipMessage_AddressesEntry {
+    return { key: '', value: undefined };
+}
+
 export const SipMessage_AddressesEntry: MessageFns<SipMessage_AddressesEntry> = {
+    encode(message: SipMessage_AddressesEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.key !== '') {
+            writer.uint32(10).string(message.key);
+        }
+        if (message.value !== undefined) {
+            AddressList.encode(message.value, writer.uint32(18).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): SipMessage_AddressesEntry {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseSipMessage_AddressesEntry();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.key = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.value = AddressList.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): SipMessage_AddressesEntry {
         const object = isObject(value) ? value : {};
         return {
@@ -2207,7 +4754,73 @@ export const SipMessage_AddressesEntry: MessageFns<SipMessage_AddressesEntry> = 
     }
 };
 
+function createBaseIngressReceived(): IngressReceived {
+    return { flow: undefined, message: undefined, context: undefined };
+}
+
 export const IngressReceived: MessageFns<IngressReceived> = {
+    encode(message: IngressReceived, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.flow !== undefined) {
+            FlowRef.encode(message.flow, writer.uint32(10).fork()).join();
+        }
+        if (message.message !== undefined) {
+            SipMessage.encode(message.message, writer.uint32(18).fork()).join();
+        }
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(26).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): IngressReceived {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseIngressReceived();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.flow = FlowRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.message = SipMessage.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): IngressReceived {
         const object = isObject(value) ? value : {};
         return {
@@ -2232,7 +4845,73 @@ export const IngressReceived: MessageFns<IngressReceived> = {
     }
 };
 
+function createBaseRouteResult(): RouteResult {
+    return { outcome: 0, controller: undefined, sipStatus: 0 };
+}
+
 export const RouteResult: MessageFns<RouteResult> = {
+    encode(message: RouteResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.outcome !== 0) {
+            writer.uint32(8).int32(message.outcome);
+        }
+        if (message.controller !== undefined) {
+            ProcessRef.encode(message.controller, writer.uint32(18).fork()).join();
+        }
+        if (message.sipStatus !== 0) {
+            writer.uint32(24).uint32(message.sipStatus);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): RouteResult {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseRouteResult();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 8) {
+                            break;
+                        }
+
+                        message.outcome = reader.int32();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.controller = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 24) {
+                            break;
+                        }
+
+                        message.sipStatus = reader.uint32();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): RouteResult {
         const object = isObject(value) ? value : {};
         return {
@@ -2261,7 +4940,137 @@ export const RouteResult: MessageFns<RouteResult> = {
     }
 };
 
+function createBaseOwnerIngest(): OwnerIngest {
+    return {
+        context: undefined,
+        application: undefined,
+        flow: undefined,
+        wire: Buffer.alloc(0),
+        bindingId: '',
+        principalId: '',
+        authenticated: false,
+        admission: 0
+    };
+}
+
 export const OwnerIngest: MessageFns<OwnerIngest> = {
+    encode(message: OwnerIngest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        if (message.application !== undefined) {
+            ProcessRef.encode(message.application, writer.uint32(18).fork()).join();
+        }
+        if (message.flow !== undefined) {
+            FlowRef.encode(message.flow, writer.uint32(26).fork()).join();
+        }
+        if (message.wire.length !== 0) {
+            writer.uint32(34).bytes(message.wire);
+        }
+        if (message.bindingId !== '') {
+            writer.uint32(42).string(message.bindingId);
+        }
+        if (message.principalId !== '') {
+            writer.uint32(50).string(message.principalId);
+        }
+        if (message.authenticated !== false) {
+            writer.uint32(56).bool(message.authenticated);
+        }
+        if (message.admission !== 0) {
+            writer.uint32(64).int32(message.admission);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): OwnerIngest {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseOwnerIngest();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.application = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.flow = FlowRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.wire = Buffer.from(reader.bytes());
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.bindingId = reader.string();
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.principalId = reader.string();
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 56) {
+                            break;
+                        }
+
+                        message.authenticated = reader.bool();
+                        continue;
+                    }
+                    case 8: {
+                        if (tag !== 64) {
+                            break;
+                        }
+
+                        message.admission = reader.int32();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): OwnerIngest {
         const object = isObject(value) ? value : {};
         return {
@@ -2314,7 +5123,362 @@ export const OwnerIngest: MessageFns<OwnerIngest> = {
     }
 };
 
+function createBaseContextSnapshot(): ContextSnapshot {
+    return {
+        context: undefined,
+        application: undefined,
+        bindingId: '',
+        principalId: '',
+        kind: 0,
+        dialogId: '',
+        callId: '',
+        localTag: '',
+        remoteTag: '',
+        localUri: '',
+        remoteUri: '',
+        remoteTarget: '',
+        localSdp: Buffer.alloc(0),
+        remoteSdp: Buffer.alloc(0),
+        answered: false,
+        initialAck: false,
+        ended: false,
+        revision: 0n,
+        commandSequence: 0n,
+        selectors: [],
+        transport: '',
+        delivery: undefined,
+        executor: undefined,
+        directoryEpoch: '',
+        applicationLeaseTerm: '',
+        attachmentGeneration: 0n
+    };
+}
+
 export const ContextSnapshot: MessageFns<ContextSnapshot> = {
+    encode(message: ContextSnapshot, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        if (message.application !== undefined) {
+            ProcessRef.encode(message.application, writer.uint32(18).fork()).join();
+        }
+        if (message.bindingId !== '') {
+            writer.uint32(26).string(message.bindingId);
+        }
+        if (message.principalId !== '') {
+            writer.uint32(34).string(message.principalId);
+        }
+        if (message.kind !== 0) {
+            writer.uint32(40).int32(message.kind);
+        }
+        if (message.dialogId !== '') {
+            writer.uint32(50).string(message.dialogId);
+        }
+        if (message.callId !== '') {
+            writer.uint32(58).string(message.callId);
+        }
+        if (message.localTag !== '') {
+            writer.uint32(66).string(message.localTag);
+        }
+        if (message.remoteTag !== '') {
+            writer.uint32(74).string(message.remoteTag);
+        }
+        if (message.localUri !== '') {
+            writer.uint32(82).string(message.localUri);
+        }
+        if (message.remoteUri !== '') {
+            writer.uint32(90).string(message.remoteUri);
+        }
+        if (message.remoteTarget !== '') {
+            writer.uint32(98).string(message.remoteTarget);
+        }
+        if (message.localSdp.length !== 0) {
+            writer.uint32(106).bytes(message.localSdp);
+        }
+        if (message.remoteSdp.length !== 0) {
+            writer.uint32(114).bytes(message.remoteSdp);
+        }
+        if (message.answered !== false) {
+            writer.uint32(120).bool(message.answered);
+        }
+        if (message.initialAck !== false) {
+            writer.uint32(128).bool(message.initialAck);
+        }
+        if (message.ended !== false) {
+            writer.uint32(136).bool(message.ended);
+        }
+        if (message.revision !== 0n) {
+            if (BigInt.asUintN(64, message.revision) !== message.revision) {
+                throw new globalThis.Error('value provided for field message.revision of type uint64 too large');
+            }
+            writer.uint32(144).uint64(message.revision);
+        }
+        if (message.commandSequence !== 0n) {
+            if (BigInt.asUintN(64, message.commandSequence) !== message.commandSequence) {
+                throw new globalThis.Error('value provided for field message.commandSequence of type uint64 too large');
+            }
+            writer.uint32(152).uint64(message.commandSequence);
+        }
+        for (const v of message.selectors) {
+            writer.uint32(162).string(v!);
+        }
+        if (message.transport !== '') {
+            writer.uint32(170).string(message.transport);
+        }
+        if (message.delivery !== undefined) {
+            ContextDelivery.encode(message.delivery, writer.uint32(178).fork()).join();
+        }
+        if (message.executor !== undefined) {
+            ProcessRef.encode(message.executor, writer.uint32(186).fork()).join();
+        }
+        if (message.directoryEpoch !== '') {
+            writer.uint32(194).string(message.directoryEpoch);
+        }
+        if (message.applicationLeaseTerm !== '') {
+            writer.uint32(202).string(message.applicationLeaseTerm);
+        }
+        if (message.attachmentGeneration !== 0n) {
+            if (BigInt.asUintN(64, message.attachmentGeneration) !== message.attachmentGeneration) {
+                throw new globalThis.Error('value provided for field message.attachmentGeneration of type uint64 too large');
+            }
+            writer.uint32(208).uint64(message.attachmentGeneration);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ContextSnapshot {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseContextSnapshot();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.application = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.bindingId = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.principalId = reader.string();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 40) {
+                            break;
+                        }
+
+                        message.kind = reader.int32();
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.dialogId = reader.string();
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 58) {
+                            break;
+                        }
+
+                        message.callId = reader.string();
+                        continue;
+                    }
+                    case 8: {
+                        if (tag !== 66) {
+                            break;
+                        }
+
+                        message.localTag = reader.string();
+                        continue;
+                    }
+                    case 9: {
+                        if (tag !== 74) {
+                            break;
+                        }
+
+                        message.remoteTag = reader.string();
+                        continue;
+                    }
+                    case 10: {
+                        if (tag !== 82) {
+                            break;
+                        }
+
+                        message.localUri = reader.string();
+                        continue;
+                    }
+                    case 11: {
+                        if (tag !== 90) {
+                            break;
+                        }
+
+                        message.remoteUri = reader.string();
+                        continue;
+                    }
+                    case 12: {
+                        if (tag !== 98) {
+                            break;
+                        }
+
+                        message.remoteTarget = reader.string();
+                        continue;
+                    }
+                    case 13: {
+                        if (tag !== 106) {
+                            break;
+                        }
+
+                        message.localSdp = Buffer.from(reader.bytes());
+                        continue;
+                    }
+                    case 14: {
+                        if (tag !== 114) {
+                            break;
+                        }
+
+                        message.remoteSdp = Buffer.from(reader.bytes());
+                        continue;
+                    }
+                    case 15: {
+                        if (tag !== 120) {
+                            break;
+                        }
+
+                        message.answered = reader.bool();
+                        continue;
+                    }
+                    case 16: {
+                        if (tag !== 128) {
+                            break;
+                        }
+
+                        message.initialAck = reader.bool();
+                        continue;
+                    }
+                    case 17: {
+                        if (tag !== 136) {
+                            break;
+                        }
+
+                        message.ended = reader.bool();
+                        continue;
+                    }
+                    case 18: {
+                        if (tag !== 144) {
+                            break;
+                        }
+
+                        message.revision = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 19: {
+                        if (tag !== 152) {
+                            break;
+                        }
+
+                        message.commandSequence = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 20: {
+                        if (tag !== 162) {
+                            break;
+                        }
+
+                        message.selectors.push(reader.string());
+                        continue;
+                    }
+                    case 21: {
+                        if (tag !== 170) {
+                            break;
+                        }
+
+                        message.transport = reader.string();
+                        continue;
+                    }
+                    case 22: {
+                        if (tag !== 178) {
+                            break;
+                        }
+
+                        message.delivery = ContextDelivery.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 23: {
+                        if (tag !== 186) {
+                            break;
+                        }
+
+                        message.executor = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 24: {
+                        if (tag !== 194) {
+                            break;
+                        }
+
+                        message.directoryEpoch = reader.string();
+                        continue;
+                    }
+                    case 25: {
+                        if (tag !== 202) {
+                            break;
+                        }
+
+                        message.applicationLeaseTerm = reader.string();
+                        continue;
+                    }
+                    case 26: {
+                        if (tag !== 208) {
+                            break;
+                        }
+
+                        message.attachmentGeneration = reader.uint64() as bigint;
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ContextSnapshot {
         const object = isObject(value) ? value : {};
         return {
@@ -2491,7 +5655,95 @@ export const ContextSnapshot: MessageFns<ContextSnapshot> = {
     }
 };
 
+function createBaseRequestPresented(): RequestPresented {
+    return { snapshot: undefined, requestId: '', message: undefined, flow: undefined, flowAdoption: undefined };
+}
+
 export const RequestPresented: MessageFns<RequestPresented> = {
+    encode(message: RequestPresented, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.snapshot !== undefined) {
+            ContextSnapshot.encode(message.snapshot, writer.uint32(10).fork()).join();
+        }
+        if (message.requestId !== '') {
+            writer.uint32(18).string(message.requestId);
+        }
+        if (message.message !== undefined) {
+            SipMessage.encode(message.message, writer.uint32(26).fork()).join();
+        }
+        if (message.flow !== undefined) {
+            FlowRef.encode(message.flow, writer.uint32(34).fork()).join();
+        }
+        if (message.flowAdoption !== undefined) {
+            FlowAdoptionRequest.encode(message.flowAdoption, writer.uint32(42).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): RequestPresented {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseRequestPresented();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.snapshot = ContextSnapshot.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.requestId = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.message = SipMessage.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.flow = FlowRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.flowAdoption = FlowAdoptionRequest.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): RequestPresented {
         const object = isObject(value) ? value : {};
         return {
@@ -2532,7 +5784,188 @@ export const RequestPresented: MessageFns<RequestPresented> = {
     }
 };
 
+function createBaseRequestDecision(): RequestDecision {
+    return {
+        context: undefined,
+        requestId: '',
+        sequence: 0n,
+        admission: undefined,
+        basis: 0,
+        principalId: '',
+        bindingId: '',
+        delivery: undefined,
+        status: 0,
+        headers: [],
+        body: Buffer.alloc(0),
+        notify: undefined
+    };
+}
+
 export const RequestDecision: MessageFns<RequestDecision> = {
+    encode(message: RequestDecision, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        if (message.requestId !== '') {
+            writer.uint32(18).string(message.requestId);
+        }
+        if (message.sequence !== 0n) {
+            if (BigInt.asUintN(64, message.sequence) !== message.sequence) {
+                throw new globalThis.Error('value provided for field message.sequence of type uint64 too large');
+            }
+            writer.uint32(24).uint64(message.sequence);
+        }
+        if (message.admission !== undefined) {
+            CommandAdmission.encode(message.admission, writer.uint32(34).fork()).join();
+        }
+        if (message.basis !== 0) {
+            writer.uint32(40).int32(message.basis);
+        }
+        if (message.principalId !== '') {
+            writer.uint32(50).string(message.principalId);
+        }
+        if (message.bindingId !== '') {
+            writer.uint32(58).string(message.bindingId);
+        }
+        if (message.delivery !== undefined) {
+            ContextDelivery.encode(message.delivery, writer.uint32(66).fork()).join();
+        }
+        if (message.status !== 0) {
+            writer.uint32(72).uint32(message.status);
+        }
+        for (const v of message.headers) {
+            Header.encode(v!, writer.uint32(82).fork()).join();
+        }
+        if (message.body.length !== 0) {
+            writer.uint32(90).bytes(message.body);
+        }
+        if (message.notify !== undefined) {
+            DialogRequest.encode(message.notify, writer.uint32(98).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): RequestDecision {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseRequestDecision();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.requestId = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 24) {
+                            break;
+                        }
+
+                        message.sequence = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.admission = CommandAdmission.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 40) {
+                            break;
+                        }
+
+                        message.basis = reader.int32();
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.principalId = reader.string();
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 58) {
+                            break;
+                        }
+
+                        message.bindingId = reader.string();
+                        continue;
+                    }
+                    case 8: {
+                        if (tag !== 66) {
+                            break;
+                        }
+
+                        message.delivery = ContextDelivery.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 9: {
+                        if (tag !== 72) {
+                            break;
+                        }
+
+                        message.status = reader.uint32();
+                        continue;
+                    }
+                    case 10: {
+                        if (tag !== 82) {
+                            break;
+                        }
+
+                        message.headers.push(Header.decode(reader, reader.uint32()));
+                        continue;
+                    }
+                    case 11: {
+                        if (tag !== 90) {
+                            break;
+                        }
+
+                        message.body = Buffer.from(reader.bytes());
+                        continue;
+                    }
+                    case 12: {
+                        if (tag !== 98) {
+                            break;
+                        }
+
+                        message.notify = DialogRequest.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): RequestDecision {
         const object = isObject(value) ? value : {};
         return {
@@ -2605,7 +6038,62 @@ export const RequestDecision: MessageFns<RequestDecision> = {
     }
 };
 
+function createBaseResponseAuthority(): ResponseAuthority {
+    return { directoryEpoch: '', completionScope: '' };
+}
+
 export const ResponseAuthority: MessageFns<ResponseAuthority> = {
+    encode(message: ResponseAuthority, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.directoryEpoch !== '') {
+            writer.uint32(10).string(message.directoryEpoch);
+        }
+        if (message.completionScope !== '') {
+            writer.uint32(18).string(message.completionScope);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ResponseAuthority {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseResponseAuthority();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.directoryEpoch = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.completionScope = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ResponseAuthority {
         const object = isObject(value) ? value : {};
         return {
@@ -2634,7 +6122,125 @@ export const ResponseAuthority: MessageFns<ResponseAuthority> = {
     }
 };
 
+function createBaseRespond(): Respond {
+    return {
+        requestId: '',
+        status: 0,
+        headers: [],
+        body: Buffer.alloc(0),
+        principalId: '',
+        bindingId: '',
+        authority: undefined
+    };
+}
+
 export const Respond: MessageFns<Respond> = {
+    encode(message: Respond, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.requestId !== '') {
+            writer.uint32(10).string(message.requestId);
+        }
+        if (message.status !== 0) {
+            writer.uint32(16).uint32(message.status);
+        }
+        for (const v of message.headers) {
+            Header.encode(v!, writer.uint32(26).fork()).join();
+        }
+        if (message.body.length !== 0) {
+            writer.uint32(34).bytes(message.body);
+        }
+        if (message.principalId !== '') {
+            writer.uint32(42).string(message.principalId);
+        }
+        if (message.bindingId !== '') {
+            writer.uint32(50).string(message.bindingId);
+        }
+        if (message.authority !== undefined) {
+            ResponseAuthority.encode(message.authority, writer.uint32(58).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Respond {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseRespond();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.requestId = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 16) {
+                            break;
+                        }
+
+                        message.status = reader.uint32();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.headers.push(Header.decode(reader, reader.uint32()));
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.body = Buffer.from(reader.bytes());
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.principalId = reader.string();
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.bindingId = reader.string();
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 58) {
+                            break;
+                        }
+
+                        message.authority = ResponseAuthority.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): Respond {
         const object = isObject(value) ? value : {};
         return {
@@ -2687,7 +6293,62 @@ export const Respond: MessageFns<Respond> = {
     }
 };
 
+function createBaseCredentialRef(): CredentialRef {
+    return { id: '', version: '' };
+}
+
 export const CredentialRef: MessageFns<CredentialRef> = {
+    encode(message: CredentialRef, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.id !== '') {
+            writer.uint32(10).string(message.id);
+        }
+        if (message.version !== '') {
+            writer.uint32(18).string(message.version);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): CredentialRef {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseCredentialRef();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.id = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.version = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): CredentialRef {
         const object = isObject(value) ? value : {};
         return {
@@ -2708,7 +6369,62 @@ export const CredentialRef: MessageFns<CredentialRef> = {
     }
 };
 
+function createBaseCredentialLookup(): CredentialLookup {
+    return { context: undefined, credential: undefined };
+}
+
 export const CredentialLookup: MessageFns<CredentialLookup> = {
+    encode(message: CredentialLookup, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        if (message.credential !== undefined) {
+            CredentialRef.encode(message.credential, writer.uint32(18).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): CredentialLookup {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseCredentialLookup();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.credential = CredentialRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): CredentialLookup {
         const object = isObject(value) ? value : {};
         return {
@@ -2729,7 +6445,84 @@ export const CredentialLookup: MessageFns<CredentialLookup> = {
     }
 };
 
+function createBaseCredentialResult(): CredentialResult {
+    return { username: '', password: '', version: '', error: '' };
+}
+
 export const CredentialResult: MessageFns<CredentialResult> = {
+    encode(message: CredentialResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.username !== '') {
+            writer.uint32(10).string(message.username);
+        }
+        if (message.password !== '') {
+            writer.uint32(18).string(message.password);
+        }
+        if (message.version !== '') {
+            writer.uint32(26).string(message.version);
+        }
+        if (message.error !== '') {
+            writer.uint32(34).string(message.error);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): CredentialResult {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseCredentialResult();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.username = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.password = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.version = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.error = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): CredentialResult {
         const object = isObject(value) ? value : {};
         return {
@@ -2758,7 +6551,73 @@ export const CredentialResult: MessageFns<CredentialResult> = {
     }
 };
 
+function createBaseNetworkTarget(): NetworkTarget {
+    return { proxy: '', transport: '', credential: undefined };
+}
+
 export const NetworkTarget: MessageFns<NetworkTarget> = {
+    encode(message: NetworkTarget, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.proxy !== '') {
+            writer.uint32(10).string(message.proxy);
+        }
+        if (message.transport !== '') {
+            writer.uint32(18).string(message.transport);
+        }
+        if (message.credential !== undefined) {
+            CredentialRef.encode(message.credential, writer.uint32(42).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): NetworkTarget {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseNetworkTarget();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.proxy = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.transport = reader.string();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.credential = CredentialRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): NetworkTarget {
         const object = isObject(value) ? value : {};
         return {
@@ -2783,7 +6642,137 @@ export const NetworkTarget: MessageFns<NetworkTarget> = {
     }
 };
 
+function createBaseOpenUac(): OpenUac {
+    return {
+        uri: '',
+        body: Buffer.alloc(0),
+        headers: [],
+        bindingId: '',
+        principalId: '',
+        network: undefined,
+        transport: '',
+        method: ''
+    };
+}
+
 export const OpenUac: MessageFns<OpenUac> = {
+    encode(message: OpenUac, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.uri !== '') {
+            writer.uint32(10).string(message.uri);
+        }
+        if (message.body.length !== 0) {
+            writer.uint32(18).bytes(message.body);
+        }
+        for (const v of message.headers) {
+            Header.encode(v!, writer.uint32(26).fork()).join();
+        }
+        if (message.bindingId !== '') {
+            writer.uint32(34).string(message.bindingId);
+        }
+        if (message.principalId !== '') {
+            writer.uint32(42).string(message.principalId);
+        }
+        if (message.network !== undefined) {
+            NetworkTarget.encode(message.network, writer.uint32(50).fork()).join();
+        }
+        if (message.transport !== '') {
+            writer.uint32(58).string(message.transport);
+        }
+        if (message.method !== '') {
+            writer.uint32(66).string(message.method);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): OpenUac {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseOpenUac();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.uri = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.body = Buffer.from(reader.bytes());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.headers.push(Header.decode(reader, reader.uint32()));
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.bindingId = reader.string();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.principalId = reader.string();
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.network = NetworkTarget.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 58) {
+                            break;
+                        }
+
+                        message.transport = reader.string();
+                        continue;
+                    }
+                    case 8: {
+                        if (tag !== 66) {
+                            break;
+                        }
+
+                        message.method = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): OpenUac {
         const object = isObject(value) ? value : {};
         return {
@@ -2836,7 +6825,73 @@ export const OpenUac: MessageFns<OpenUac> = {
     }
 };
 
+function createBaseDialogRequest(): DialogRequest {
+    return { method: '', body: Buffer.alloc(0), headers: [] };
+}
+
 export const DialogRequest: MessageFns<DialogRequest> = {
+    encode(message: DialogRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.method !== '') {
+            writer.uint32(10).string(message.method);
+        }
+        if (message.body.length !== 0) {
+            writer.uint32(18).bytes(message.body);
+        }
+        for (const v of message.headers) {
+            Header.encode(v!, writer.uint32(26).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): DialogRequest {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseDialogRequest();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.method = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.body = Buffer.from(reader.bytes());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.headers.push(Header.decode(reader, reader.uint32()));
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): DialogRequest {
         const object = isObject(value) ? value : {};
         return {
@@ -2861,7 +6916,40 @@ export const DialogRequest: MessageFns<DialogRequest> = {
     }
 };
 
+function createBaseCancel(): Cancel {
+    return {};
+}
+
 export const Cancel: MessageFns<Cancel> = {
+    encode(_: Cancel, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Cancel {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseCancel();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(_: unknown): Cancel {
         return {};
     },
@@ -2872,7 +6960,87 @@ export const Cancel: MessageFns<Cancel> = {
     }
 };
 
+function createBaseCommandAdmission(): CommandAdmission {
+    return { directoryEpoch: '', expiresAtMs: 0n, selectedFlow: undefined, expectedDelivery: undefined };
+}
+
 export const CommandAdmission: MessageFns<CommandAdmission> = {
+    encode(message: CommandAdmission, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.directoryEpoch !== '') {
+            writer.uint32(10).string(message.directoryEpoch);
+        }
+        if (message.expiresAtMs !== 0n) {
+            if (BigInt.asUintN(64, message.expiresAtMs) !== message.expiresAtMs) {
+                throw new globalThis.Error('value provided for field message.expiresAtMs of type uint64 too large');
+            }
+            writer.uint32(16).uint64(message.expiresAtMs);
+        }
+        if (message.selectedFlow !== undefined) {
+            FlowRef.encode(message.selectedFlow, writer.uint32(26).fork()).join();
+        }
+        if (message.expectedDelivery !== undefined) {
+            ContextDelivery.encode(message.expectedDelivery, writer.uint32(34).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): CommandAdmission {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseCommandAdmission();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.directoryEpoch = reader.string();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 16) {
+                            break;
+                        }
+
+                        message.expiresAtMs = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.selectedFlow = FlowRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.expectedDelivery = ContextDelivery.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): CommandAdmission {
         const object = isObject(value) ? value : {};
         return {
@@ -2917,7 +7085,122 @@ export const CommandAdmission: MessageFns<CommandAdmission> = {
     }
 };
 
+function createBaseCommand(): Command {
+    return { context: undefined, sequence: 0n, admission: undefined, action: undefined };
+}
+
 export const Command: MessageFns<Command> = {
+    encode(message: Command, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        if (message.sequence !== 0n) {
+            if (BigInt.asUintN(64, message.sequence) !== message.sequence) {
+                throw new globalThis.Error('value provided for field message.sequence of type uint64 too large');
+            }
+            writer.uint32(16).uint64(message.sequence);
+        }
+        if (message.admission !== undefined) {
+            CommandAdmission.encode(message.admission, writer.uint32(26).fork()).join();
+        }
+        switch (message.action?.$case) {
+            case 'respond':
+                Respond.encode(message.action.respond, writer.uint32(82).fork()).join();
+                break;
+            case 'openUac':
+                OpenUac.encode(message.action.openUac, writer.uint32(90).fork()).join();
+                break;
+            case 'dialogRequest':
+                DialogRequest.encode(message.action.dialogRequest, writer.uint32(98).fork()).join();
+                break;
+            case 'cancel':
+                Cancel.encode(message.action.cancel, writer.uint32(106).fork()).join();
+                break;
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): Command {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseCommand();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 16) {
+                            break;
+                        }
+
+                        message.sequence = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.admission = CommandAdmission.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 10: {
+                        if (tag !== 82) {
+                            break;
+                        }
+
+                        message.action = { $case: 'respond', respond: Respond.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 11: {
+                        if (tag !== 90) {
+                            break;
+                        }
+
+                        message.action = { $case: 'openUac', openUac: OpenUac.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 12: {
+                        if (tag !== 98) {
+                            break;
+                        }
+
+                        message.action = { $case: 'dialogRequest', dialogRequest: DialogRequest.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                    case 13: {
+                        if (tag !== 106) {
+                            break;
+                        }
+
+                        message.action = { $case: 'cancel', cancel: Cancel.decode(reader, reader.uint32()) };
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): Command {
         const object = isObject(value) ? value : {};
         return {
@@ -2964,7 +7247,125 @@ export const Command: MessageFns<Command> = {
     }
 };
 
+function createBaseOperationResult(): OperationResult {
+    return {
+        certainty: 0,
+        error: '',
+        sipStatus: 0,
+        snapshot: undefined,
+        request: undefined,
+        response: undefined,
+        retirementProof: undefined
+    };
+}
+
 export const OperationResult: MessageFns<OperationResult> = {
+    encode(message: OperationResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.certainty !== 0) {
+            writer.uint32(8).int32(message.certainty);
+        }
+        if (message.error !== '') {
+            writer.uint32(18).string(message.error);
+        }
+        if (message.sipStatus !== 0) {
+            writer.uint32(24).uint32(message.sipStatus);
+        }
+        if (message.snapshot !== undefined) {
+            ContextSnapshot.encode(message.snapshot, writer.uint32(34).fork()).join();
+        }
+        if (message.request !== undefined) {
+            SipMessage.encode(message.request, writer.uint32(42).fork()).join();
+        }
+        if (message.response !== undefined) {
+            SipMessage.encode(message.response, writer.uint32(50).fork()).join();
+        }
+        if (message.retirementProof !== undefined) {
+            ContextRetirementProof.encode(message.retirementProof, writer.uint32(58).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): OperationResult {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseOperationResult();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 8) {
+                            break;
+                        }
+
+                        message.certainty = reader.int32();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.error = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 24) {
+                            break;
+                        }
+
+                        message.sipStatus = reader.uint32();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.snapshot = ContextSnapshot.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.request = SipMessage.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.response = SipMessage.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 58) {
+                            break;
+                        }
+
+                        message.retirementProof = ContextRetirementProof.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): OperationResult {
         const object = isObject(value) ? value : {};
         return {
@@ -3013,7 +7414,73 @@ export const OperationResult: MessageFns<OperationResult> = {
     }
 };
 
+function createBaseContextRetirementProof(): ContextRetirementProof {
+    return { context: undefined, authority: undefined, reason: 0 };
+}
+
 export const ContextRetirementProof: MessageFns<ContextRetirementProof> = {
+    encode(message: ContextRetirementProof, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        if (message.authority !== undefined) {
+            StateAuthority.encode(message.authority, writer.uint32(18).fork()).join();
+        }
+        if (message.reason !== 0) {
+            writer.uint32(24).int32(message.reason);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ContextRetirementProof {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseContextRetirementProof();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.authority = StateAuthority.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 24) {
+                            break;
+                        }
+
+                        message.reason = reader.int32();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ContextRetirementProof {
         const object = isObject(value) ? value : {};
         return {
@@ -3038,7 +7505,73 @@ export const ContextRetirementProof: MessageFns<ContextRetirementProof> = {
     }
 };
 
+function createBaseStateEffectRef(): StateEffectRef {
+    return { context: undefined, id: '', attemptId: '' };
+}
+
 export const StateEffectRef: MessageFns<StateEffectRef> = {
+    encode(message: StateEffectRef, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        if (message.id !== '') {
+            writer.uint32(18).string(message.id);
+        }
+        if (message.attemptId !== '') {
+            writer.uint32(26).string(message.attemptId);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): StateEffectRef {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseStateEffectRef();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.id = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.attemptId = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): StateEffectRef {
         const object = isObject(value) ? value : {};
         return {
@@ -3067,7 +7600,116 @@ export const StateEffectRef: MessageFns<StateEffectRef> = {
     }
 };
 
+function createBaseEffectAuthorization(): EffectAuthorization {
+    return {
+        effect: undefined,
+        authorityClass: 0,
+        completionScope: '',
+        fingerprint: '',
+        deadlineMs: 0n,
+        applicationLeaseTerm: ''
+    };
+}
+
 export const EffectAuthorization: MessageFns<EffectAuthorization> = {
+    encode(message: EffectAuthorization, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.effect !== undefined) {
+            StateEffectRef.encode(message.effect, writer.uint32(10).fork()).join();
+        }
+        if (message.authorityClass !== 0) {
+            writer.uint32(16).int32(message.authorityClass);
+        }
+        if (message.completionScope !== '') {
+            writer.uint32(26).string(message.completionScope);
+        }
+        if (message.fingerprint !== '') {
+            writer.uint32(34).string(message.fingerprint);
+        }
+        if (message.deadlineMs !== 0n) {
+            if (BigInt.asUintN(64, message.deadlineMs) !== message.deadlineMs) {
+                throw new globalThis.Error('value provided for field message.deadlineMs of type uint64 too large');
+            }
+            writer.uint32(40).uint64(message.deadlineMs);
+        }
+        if (message.applicationLeaseTerm !== '') {
+            writer.uint32(50).string(message.applicationLeaseTerm);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): EffectAuthorization {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseEffectAuthorization();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.effect = StateEffectRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 16) {
+                            break;
+                        }
+
+                        message.authorityClass = reader.int32();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.completionScope = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.fingerprint = reader.string();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 40) {
+                            break;
+                        }
+
+                        message.deadlineMs = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.applicationLeaseTerm = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): EffectAuthorization {
         const object = isObject(value) ? value : {};
         return {
@@ -3120,7 +7762,95 @@ export const EffectAuthorization: MessageFns<EffectAuthorization> = {
     }
 };
 
+function createBaseSendPermit(): SendPermit {
+    return { authorization: undefined, flow: undefined, directoryEpoch: '', orderingProof: '', completionScope: '' };
+}
+
 export const SendPermit: MessageFns<SendPermit> = {
+    encode(message: SendPermit, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.authorization !== undefined) {
+            EffectAuthorization.encode(message.authorization, writer.uint32(10).fork()).join();
+        }
+        if (message.flow !== undefined) {
+            FlowRef.encode(message.flow, writer.uint32(18).fork()).join();
+        }
+        if (message.directoryEpoch !== '') {
+            writer.uint32(26).string(message.directoryEpoch);
+        }
+        if (message.orderingProof !== '') {
+            writer.uint32(34).string(message.orderingProof);
+        }
+        if (message.completionScope !== '') {
+            writer.uint32(42).string(message.completionScope);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): SendPermit {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseSendPermit();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.authorization = EffectAuthorization.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.flow = FlowRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.directoryEpoch = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.orderingProof = reader.string();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.completionScope = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): SendPermit {
         const object = isObject(value) ? value : {};
         return {
@@ -3165,7 +7895,84 @@ export const SendPermit: MessageFns<SendPermit> = {
     }
 };
 
+function createBaseEgressRequest(): EgressRequest {
+    return { snapshot: undefined, message: undefined, returnFlow: undefined, authorization: undefined };
+}
+
 export const EgressRequest: MessageFns<EgressRequest> = {
+    encode(message: EgressRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.snapshot !== undefined) {
+            ContextSnapshot.encode(message.snapshot, writer.uint32(10).fork()).join();
+        }
+        if (message.message !== undefined) {
+            SipMessage.encode(message.message, writer.uint32(18).fork()).join();
+        }
+        if (message.returnFlow !== undefined) {
+            FlowRef.encode(message.returnFlow, writer.uint32(26).fork()).join();
+        }
+        if (message.authorization !== undefined) {
+            EffectAuthorization.encode(message.authorization, writer.uint32(34).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): EgressRequest {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseEgressRequest();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.snapshot = ContextSnapshot.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.message = SipMessage.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.returnFlow = FlowRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.authorization = EffectAuthorization.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): EgressRequest {
         const object = isObject(value) ? value : {};
         return {
@@ -3198,7 +8005,73 @@ export const EgressRequest: MessageFns<EgressRequest> = {
     }
 };
 
+function createBaseFlowWrite(): FlowWrite {
+    return { flow: undefined, effect: undefined, permit: undefined };
+}
+
 export const FlowWrite: MessageFns<FlowWrite> = {
+    encode(message: FlowWrite, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.flow !== undefined) {
+            FlowRef.encode(message.flow, writer.uint32(10).fork()).join();
+        }
+        if (message.effect !== undefined) {
+            StateEffectRef.encode(message.effect, writer.uint32(42).fork()).join();
+        }
+        if (message.permit !== undefined) {
+            SendPermit.encode(message.permit, writer.uint32(50).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): FlowWrite {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseFlowWrite();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.flow = FlowRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.effect = StateEffectRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 50) {
+                            break;
+                        }
+
+                        message.permit = SendPermit.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): FlowWrite {
         const object = isObject(value) ? value : {};
         return {
@@ -3223,7 +8096,84 @@ export const FlowWrite: MessageFns<FlowWrite> = {
     }
 };
 
+function createBaseDeliveryResult(): DeliveryResult {
+    return { outcome: 0, error: '', effect: undefined, recorded: false };
+}
+
 export const DeliveryResult: MessageFns<DeliveryResult> = {
+    encode(message: DeliveryResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.outcome !== 0) {
+            writer.uint32(8).int32(message.outcome);
+        }
+        if (message.error !== '') {
+            writer.uint32(18).string(message.error);
+        }
+        if (message.effect !== undefined) {
+            StateEffectRef.encode(message.effect, writer.uint32(26).fork()).join();
+        }
+        if (message.recorded !== false) {
+            writer.uint32(32).bool(message.recorded);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): DeliveryResult {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseDeliveryResult();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 8) {
+                            break;
+                        }
+
+                        message.outcome = reader.int32();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.error = reader.string();
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.effect = StateEffectRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 32) {
+                            break;
+                        }
+
+                        message.recorded = reader.bool();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): DeliveryResult {
         const object = isObject(value) ? value : {};
         return {
@@ -3252,7 +8202,62 @@ export const DeliveryResult: MessageFns<DeliveryResult> = {
     }
 };
 
+function createBaseApplicationProbe(): ApplicationProbe {
+    return { context: undefined, application: undefined };
+}
+
 export const ApplicationProbe: MessageFns<ApplicationProbe> = {
+    encode(message: ApplicationProbe, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        if (message.application !== undefined) {
+            ProcessRef.encode(message.application, writer.uint32(18).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ApplicationProbe {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseApplicationProbe();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.application = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ApplicationProbe {
         const object = isObject(value) ? value : {};
         return {
@@ -3273,7 +8278,98 @@ export const ApplicationProbe: MessageFns<ApplicationProbe> = {
     }
 };
 
+function createBaseApplicationStatus(): ApplicationStatus {
+    return { context: undefined, application: undefined, directoryEpoch: '', live: false, checkedAtMs: 0n };
+}
+
 export const ApplicationStatus: MessageFns<ApplicationStatus> = {
+    encode(message: ApplicationStatus, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        if (message.application !== undefined) {
+            ProcessRef.encode(message.application, writer.uint32(18).fork()).join();
+        }
+        if (message.directoryEpoch !== '') {
+            writer.uint32(26).string(message.directoryEpoch);
+        }
+        if (message.live !== false) {
+            writer.uint32(32).bool(message.live);
+        }
+        if (message.checkedAtMs !== 0n) {
+            if (BigInt.asUintN(64, message.checkedAtMs) !== message.checkedAtMs) {
+                throw new globalThis.Error('value provided for field message.checkedAtMs of type uint64 too large');
+            }
+            writer.uint32(40).uint64(message.checkedAtMs);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ApplicationStatus {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseApplicationStatus();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.application = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.directoryEpoch = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 32) {
+                            break;
+                        }
+
+                        message.live = reader.bool();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 40) {
+                            break;
+                        }
+
+                        message.checkedAtMs = reader.uint64() as bigint;
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ApplicationStatus {
         const object = isObject(value) ? value : {};
         return {
@@ -3314,7 +8410,51 @@ export const ApplicationStatus: MessageFns<ApplicationStatus> = {
     }
 };
 
+function createBaseFlowClosed(): FlowClosed {
+    return { flow: undefined };
+}
+
 export const FlowClosed: MessageFns<FlowClosed> = {
+    encode(message: FlowClosed, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.flow !== undefined) {
+            FlowRef.encode(message.flow, writer.uint32(10).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): FlowClosed {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseFlowClosed();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.flow = FlowRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): FlowClosed {
         const object = isObject(value) ? value : {};
         return { flow: isSet(object.flow) ? FlowRef.fromJSON(object.flow) : undefined };
@@ -3329,7 +8469,95 @@ export const FlowClosed: MessageFns<FlowClosed> = {
     }
 };
 
+function createBaseDialogEvent(): DialogEvent {
+    return { kind: 0, snapshot: undefined, message: undefined, operationId: '', error: '' };
+}
+
 export const DialogEvent: MessageFns<DialogEvent> = {
+    encode(message: DialogEvent, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.kind !== 0) {
+            writer.uint32(8).int32(message.kind);
+        }
+        if (message.snapshot !== undefined) {
+            ContextSnapshot.encode(message.snapshot, writer.uint32(18).fork()).join();
+        }
+        if (message.message !== undefined) {
+            SipMessage.encode(message.message, writer.uint32(26).fork()).join();
+        }
+        if (message.operationId !== '') {
+            writer.uint32(34).string(message.operationId);
+        }
+        if (message.error !== '') {
+            writer.uint32(42).string(message.error);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): DialogEvent {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseDialogEvent();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 8) {
+                            break;
+                        }
+
+                        message.kind = reader.int32();
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.snapshot = ContextSnapshot.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.message = SipMessage.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.operationId = reader.string();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.error = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): DialogEvent {
         const object = isObject(value) ? value : {};
         return {
@@ -3366,7 +8594,51 @@ export const DialogEvent: MessageFns<DialogEvent> = {
     }
 };
 
+function createBaseContextInspect(): ContextInspect {
+    return { context: undefined };
+}
+
 export const ContextInspect: MessageFns<ContextInspect> = {
+    encode(message: ContextInspect, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ContextInspect {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseContextInspect();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ContextInspect {
         const object = isObject(value) ? value : {};
         return { context: isSet(object.context) ? ContextRef.fromJSON(object.context) : undefined };
@@ -3381,7 +8653,87 @@ export const ContextInspect: MessageFns<ContextInspect> = {
     }
 };
 
+function createBaseContextDelivery(): ContextDelivery {
+    return { flow: undefined, nativeRevision: 0n, directoryEpoch: '', registrationTicket: '' };
+}
+
 export const ContextDelivery: MessageFns<ContextDelivery> = {
+    encode(message: ContextDelivery, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.flow !== undefined) {
+            FlowRef.encode(message.flow, writer.uint32(10).fork()).join();
+        }
+        if (message.nativeRevision !== 0n) {
+            if (BigInt.asUintN(64, message.nativeRevision) !== message.nativeRevision) {
+                throw new globalThis.Error('value provided for field message.nativeRevision of type uint64 too large');
+            }
+            writer.uint32(16).uint64(message.nativeRevision);
+        }
+        if (message.directoryEpoch !== '') {
+            writer.uint32(26).string(message.directoryEpoch);
+        }
+        if (message.registrationTicket !== '') {
+            writer.uint32(34).string(message.registrationTicket);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): ContextDelivery {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseContextDelivery();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.flow = FlowRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 16) {
+                            break;
+                        }
+
+                        message.nativeRevision = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.directoryEpoch = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.registrationTicket = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): ContextDelivery {
         const object = isObject(value) ? value : {};
         return {
@@ -3422,7 +8774,128 @@ export const ContextDelivery: MessageFns<ContextDelivery> = {
     }
 };
 
+function createBaseFlowAdoptionRequest(): FlowAdoptionRequest {
+    return {
+        context: undefined,
+        application: undefined,
+        principalId: '',
+        bindingId: '',
+        flow: undefined,
+        nativeRevision: 0n,
+        subscription: false
+    };
+}
+
 export const FlowAdoptionRequest: MessageFns<FlowAdoptionRequest> = {
+    encode(message: FlowAdoptionRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.context !== undefined) {
+            ContextRef.encode(message.context, writer.uint32(10).fork()).join();
+        }
+        if (message.application !== undefined) {
+            ProcessRef.encode(message.application, writer.uint32(18).fork()).join();
+        }
+        if (message.principalId !== '') {
+            writer.uint32(26).string(message.principalId);
+        }
+        if (message.bindingId !== '') {
+            writer.uint32(34).string(message.bindingId);
+        }
+        if (message.flow !== undefined) {
+            FlowRef.encode(message.flow, writer.uint32(42).fork()).join();
+        }
+        if (message.nativeRevision !== 0n) {
+            if (BigInt.asUintN(64, message.nativeRevision) !== message.nativeRevision) {
+                throw new globalThis.Error('value provided for field message.nativeRevision of type uint64 too large');
+            }
+            writer.uint32(48).uint64(message.nativeRevision);
+        }
+        if (message.subscription !== false) {
+            writer.uint32(56).bool(message.subscription);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): FlowAdoptionRequest {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseFlowAdoptionRequest();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.context = ContextRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.application = ProcessRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 3: {
+                        if (tag !== 26) {
+                            break;
+                        }
+
+                        message.principalId = reader.string();
+                        continue;
+                    }
+                    case 4: {
+                        if (tag !== 34) {
+                            break;
+                        }
+
+                        message.bindingId = reader.string();
+                        continue;
+                    }
+                    case 5: {
+                        if (tag !== 42) {
+                            break;
+                        }
+
+                        message.flow = FlowRef.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 6: {
+                        if (tag !== 48) {
+                            break;
+                        }
+
+                        message.nativeRevision = reader.uint64() as bigint;
+                        continue;
+                    }
+                    case 7: {
+                        if (tag !== 56) {
+                            break;
+                        }
+
+                        message.subscription = reader.bool();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): FlowAdoptionRequest {
         const object = isObject(value) ? value : {};
         return {
@@ -3475,7 +8948,62 @@ export const FlowAdoptionRequest: MessageFns<FlowAdoptionRequest> = {
     }
 };
 
+function createBaseFlowAdoptionResult(): FlowAdoptionResult {
+    return { receipt: undefined, error: '' };
+}
+
 export const FlowAdoptionResult: MessageFns<FlowAdoptionResult> = {
+    encode(message: FlowAdoptionResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+        if (message.receipt !== undefined) {
+            ContextDelivery.encode(message.receipt, writer.uint32(10).fork()).join();
+        }
+        if (message.error !== '') {
+            writer.uint32(18).string(message.error);
+        }
+        return writer;
+    },
+
+    decode(input: BinaryReader | Uint8Array, length?: number): FlowAdoptionResult {
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+        const previousRecursionDepth = (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth ?? 0;
+        if (previousRecursionDepth >= 32) {
+            throw new globalThis.Error('protobuf decode recursion limit exceeded');
+        }
+        (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+        try {
+            const end = length === undefined ? reader.len : reader.pos + length;
+            const message = createBaseFlowAdoptionResult();
+            while (reader.pos < end) {
+                const tag = reader.uint32();
+                switch (tag >>> 3) {
+                    case 1: {
+                        if (tag !== 10) {
+                            break;
+                        }
+
+                        message.receipt = ContextDelivery.decode(reader, reader.uint32());
+                        continue;
+                    }
+                    case 2: {
+                        if (tag !== 18) {
+                            break;
+                        }
+
+                        message.error = reader.string();
+                        continue;
+                    }
+                }
+                if ((tag & 7) === 4 || tag === 0) {
+                    break;
+                }
+                reader.skip(tag & 7);
+            }
+            return message;
+        } finally {
+            (reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth = previousRecursionDepth;
+        }
+    },
+
     fromJSON(value: unknown): FlowAdoptionResult {
         const object = isObject(value) ? value : {};
         return {
@@ -3513,6 +9041,8 @@ function isSet(value: unknown): boolean {
 }
 
 interface MessageFns<T> {
+    encode(message: T, writer?: BinaryWriter): BinaryWriter;
+    decode(input: BinaryReader | Uint8Array, length?: number): T;
     fromJSON(object: unknown): T;
     toJSON(message: T): unknown;
 }

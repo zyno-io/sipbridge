@@ -13,18 +13,14 @@ pin = json.loads((root / 'dependencies/control-schema.json').read_text())
 if (pin['repository'] != 'https://github.com/zyno-io/sipbridge'
         or pin['source'] != 'proto/sipbridge-control.proto'
         or pin['protocol_major'] != 1
-        or pin['subprotocol'] != 'sipbridge.control.json.v1'):
+        or pin['subprotocol'] != 'sipbridge.control.protobuf.v1'
+        or pin['wire_encoding'] != 'protobuf'):
     raise SystemExit('unexpected public control contract provenance')
 checks = [
     ('proto/sipbridge-control.proto', 'schema_sha256'),
     ('dependencies/sipbridge-control.proto', 'schema_sha256'),
     ('internal/controlpb/sipbridge-control.pb.go', 'generated_go_sha256'),
     ('generated/typescript/sipbridge-control.ts', 'generated_ts_sha256'),
-    ('generated/typescript/sipbridge-json.ts', 'generated_json_validation_sha256'),
-    ('tools/protocol/json-validation.ts', 'typescript_validator_sha256'),
-    ('generated/typescript/json-validation.ts', 'typescript_validator_sha256'),
-    ('proto/sipbridge-control-json-cases.json', 'json_cases_sha256'),
-    ('internal/control/testdata/json-cases.json', 'json_cases_sha256'),
     ('proto/sipbridge-digest-challenge-case.json', 'digest_challenge_case_sha256'),
     ('internal/engine/testdata/digest-challenge-case.json', 'digest_challenge_case_sha256')
 ]

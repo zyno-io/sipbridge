@@ -10,7 +10,6 @@ import (
 	"github.com/coder/websocket"
 	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/state"
@@ -114,7 +113,7 @@ func TestStatePendingFailedEventRecoversAfterPredecessorBudgetAndPreservesOrder(
 				return
 			}
 			request := new(pb.Envelope)
-			if err := protojson.Unmarshal(wire, request); err != nil {
+			if err := proto.Unmarshal(wire, request); err != nil {
 				controllerErrors <- err
 				return
 			}
@@ -134,9 +133,9 @@ func TestStatePendingFailedEventRecoversAfterPredecessorBudgetAndPreservesOrder(
 				}
 				reply.Payload = &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: certainty}}
 			}
-			encoded, err := protojson.Marshal(reply)
+			encoded, err := proto.Marshal(reply)
 			if err == nil {
-				err = connection.Write(engine.ctx, websocket.MessageText, encoded)
+				err = connection.Write(engine.ctx, websocket.MessageBinary, encoded)
 			}
 			if err != nil {
 				controllerErrors <- err
@@ -217,7 +216,7 @@ func TestStateEventRPCCannotOutliveOriginalRecoveryWindow(t *testing.T) {
 					return
 				}
 				request := new(pb.Envelope)
-				if protojson.Unmarshal(wire, request) == nil {
+				if proto.Unmarshal(wire, request) == nil {
 					observed <- request
 				}
 				// Withhold the receipt to exercise the actual RPC's context bound.

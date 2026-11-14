@@ -44,11 +44,13 @@ func (e *ResidentMemory) retireResidentTransactionLocked(c *residentContext, tx 
 	tx.native = portable.Transaction{Key: tx.native.Key}
 	tx.policy, tx.application, tx.credential = nil, nil, nil
 	tx.retired = true
-	tx.retireAt = time.Now().Add(2 * time.Minute)
-	e.mu.Lock()
-	e.deadlines.set(residentDeadlineKey{kind: residentTransactionRetirementDeadline, contextID: c.snapshot.Context.Id, record: tx.native.Key}, uint64(tx.retireAt.UnixMilli()), tx.retireAt)
-	e.mu.Unlock()
-	e.wakeDeadline()
+	if !tx.reliableRegisterWritten {
+		tx.retireAt = time.Now().Add(2 * time.Minute)
+		e.mu.Lock()
+		e.deadlines.set(residentDeadlineKey{kind: residentTransactionRetirementDeadline, contextID: c.snapshot.Context.Id, record: tx.native.Key}, uint64(tx.retireAt.UnixMilli()), tx.retireAt)
+		e.mu.Unlock()
+		e.wakeDeadline()
+	}
 	// No native continuation can use this procedure's reservation now.
 	// Retained exact output proofs carry their own charged bytes.
 	shared := c.subscription != nil && tx.budget == c.subscriptionBudget
@@ -176,6 +178,10 @@ func (e *ResidentMemory) afterResidentOutputReleaseLocked(c *residentContext) {
 				delete(e.owners, c.ownerKey)
 			}
 		}
+		c.ownerKey = ""
+		incarnation := c.snapshot.Context.GetState().GetIncarnation()
+		e.deadlines.remove(residentDeadlineKey{kind: residentOwnerCleanupDeadline, contextID: c.snapshot.Context.Id, record: incarnation})
+		e.deadlines.remove(residentDeadlineKey{kind: residentContextRetirementDeadline, contextID: c.snapshot.Context.Id, record: incarnation})
 		delete(e.contexts, c.snapshot.Context.Id)
 		e.bytes -= c.bytes
 		e.reserved -= c.reserved

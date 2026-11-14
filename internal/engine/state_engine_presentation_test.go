@@ -9,7 +9,6 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/emiago/sipgo/sip"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/execution"
@@ -73,7 +72,7 @@ func TestPresentationCallsControllerOnceWithoutResultCommit(t *testing.T) {
 			return
 		}
 		var req pb.Envelope
-		if err = protojson.Unmarshal(wire, &req); err != nil {
+		if err = proto.Unmarshal(wire, &req); err != nil {
 			done <- err
 			return
 		}
@@ -82,9 +81,9 @@ func TestPresentationCallsControllerOnceWithoutResultCommit(t *testing.T) {
 			return
 		}
 		reply := &pb.Envelope{SessionId: req.SessionId, CorrelationId: req.CorrelationId, Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}}}
-		data, err := protojson.Marshal(reply)
+		data, err := proto.Marshal(reply)
 		if err == nil {
-			err = conn.Write(ctx, websocket.MessageText, data)
+			err = conn.Write(ctx, websocket.MessageBinary, data)
 		}
 		done <- err
 	}()
@@ -222,14 +221,14 @@ func TestPresentationRejectedReplyProducesGuarded503(t *testing.T) {
 			return
 		}
 		var req pb.Envelope
-		if err = protojson.Unmarshal(wire, &req); err != nil {
+		if err = proto.Unmarshal(wire, &req); err != nil {
 			done <- err
 			return
 		}
 		reply := &pb.Envelope{SessionId: req.SessionId, CorrelationId: req.CorrelationId, Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED, Error: "refused"}}}
-		data, err := protojson.Marshal(reply)
+		data, err := proto.Marshal(reply)
 		if err == nil {
-			err = conn.Write(ctx, websocket.MessageText, data)
+			err = conn.Write(ctx, websocket.MessageBinary, data)
 		}
 		done <- err
 	}()

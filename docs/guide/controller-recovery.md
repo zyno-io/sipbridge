@@ -1,11 +1,15 @@
 # Controller Recovery
 
+JSON examples on this page are readable projections of generated protobuf
+messages. Send binary envelopes using the [wire profile](../protocol/overview.md#binary-encoding), never JSON text frames.
+
 A controller can restart without immediately giving up its established SIP calls.
 To use this, negotiate `sip.controller-reattach.v1`, save the recovery handle from
 `helloAck`, and restore your own application state before the timeout. sipbridge
 keeps the protocol state; it cannot rebuild your application's call logic.
 
-This is optional. Controllers that do not offer the capability keep the ordinary
+The current resident Memory service does not offer this capability; it is an
+option for Redis checkpoint execution. Controllers that do not offer the capability keep the ordinary
 process-bound lease and cleanup behavior. The complete wire rules are in
 [Controller recovery and authentication](../controller-recovery.md).
 
@@ -40,7 +44,7 @@ A successful recoverable hello returns these `applicationLease` fields:
 | `application` | The original logical owner lineage. Keep it unchanged across holder processes. |
 | `term` | The exact owner term. |
 | `recoveryToken` | Secret proof that this application owns the retained calls. |
-| `attachmentGeneration` | Which attachment the proof belongs to. Encode it as a uint64 string in JSON. |
+| `attachmentGeneration` | Which attachment the proof belongs to. Use the generated uint64 representation (`bigint` in TypeScript). JSON below is a readable projection. |
 | `holder` | The actual current controller process, including its current epoch. |
 | `leaseLifetimeMs`, `reattachTimeoutMs` | The negotiated timing, currently 5,000 and 10,000. |
 

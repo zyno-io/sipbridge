@@ -2,7 +2,8 @@
 
 Status: experimental implemented service contract. Qualification requirements are
 identified below. The current service uses UDP/TCP/TLS listeners,
-authenticated JSON control, schema 1 / reducer 1 / timers 1 CAS and autonomous native
+authenticated binary protobuf control, typed resident Memory execution or
+schema 1 / reducer 1 / timers 1 Redis checkpoint execution, and autonomous native
 completion. [Verification](docs/verification.md) lists the current test coverage
 and its limits; full platform conformance is not yet qualified. The session-only
 and stdio programs are separate [fixtures](docs/fixtures.md).
@@ -26,8 +27,8 @@ legacy behavior need their own backend acceptance evidence.
 
 The canonical `proto/sipbridge-control.proto` in this repository defines the
 session and application messages, field numbers and catalogs. Its distribution
-copy is `dependencies/sipbridge-control.proto`. Generated Go/TypeScript JSON
-types and validators use those declarations, with recorded hashes in
+copy is `dependencies/sipbridge-control.proto`. Generated Go/TypeScript binary
+codecs use those declarations, with recorded hashes in
 `dependencies`. Neither peer maintains a handwritten contract. This document
 owns field behavior; other SIP server protocols are separate APIs.
 
@@ -43,8 +44,9 @@ owns field behavior; other SIP server protocols are separate APIs.
 identify the replying physical worker, not another protocol authority. The selected
 SIP-state adapter contains the only retained authoritative protocol values; the
 engine has no second FSM. Memory authorities are process-local and change on
-restart. One CAS read/reduce/commit records effects before I/O. No computation
-stripe/snapshot spans controller RPC, socket I/O or response wait. Physical reservation
+restart. Memory stages and publishes touched typed records; Redis checkpoint execution
+uses read/reduce/CAS. Both commit effects before I/O. No mutable protocol
+aggregate spans controller RPC, socket I/O or response wait. Physical reservation
 fetches exact committed bytes and never accepts caller-selected replacement wire.
 
 The current service negotiates the following behavior. Negotiation precedes session
@@ -55,7 +57,7 @@ claim admission so an incompatible controller cannot fence a compatible one.
 | `sip.v1` | Typed SIP application/control family, separate from session-only transport. |
 | `sip.state.v1` | Logical contexts, owner leases and CAS execution in the selected state adapter. Memory authority is process-local. |
 | `sip.native-completion.v1` | Retained native completion, physical settlement and retirement without a surviving controller. |
-| `sip.controller-reattach.v1` | Optional token/principal-bound recovery of a stable owner by a new holder, with generation fencing and bounded owner-scoped context listing. |
+| `sip.controller-reattach.v1` | Redis checkpoint only: optional token/principal-bound recovery of a stable owner by a new holder, with generation fencing and bounded owner-scoped context listing. |
 | `sip.command-admission.v1` | Command-time policy/delivery admission for Respond, OpenUac and DialogRequest. |
 | `sip.command-budget.v1` | Commands may carry the 40-second budget; ordinary RPC/write limits remain separate. |
 | `sip.dialog-continuity.v1` | Explicit native validation of same-transport replacement-flow attempts. |
@@ -154,7 +156,9 @@ verifiable ACKs for those challenges. An authenticated retry's new CSeq routes
 normally. The bounded proof only identifies a rejected local transaction; it
 cannot authorize a SIP dialog or account, and does not create a resident FSM.
 
-The controller opens `/v1/control` and negotiates `sipbridge.control.json.v1`.
+### Binary WebSocket framing
+
+The controller opens `/v1/control` and negotiates `sipbridge.control.protobuf.v1`.
 TLS transport uses `wss:` and validates the server chain and endpoint DNS SAN.
 Default mTLS authentication also validates the client chain and exact allowed
 URI SAN; a trusted CA alone, common name or source address is insufficient.
@@ -165,46 +169,41 @@ unauthenticated mode or automatic fallback. Origin and frame metadata never
 substitute for the configured authenticator. Public SIP TLS continuity still
 uses actual observed SIP transport, independently of control transport.
 
-Each UTF-8 text WebSocket message contains one JSON `Envelope`. JSON is the only
-wire encoding; binary messages are rejected. The repository
-[protocol schema](proto/sipbridge-control.proto) defines Go/TypeScript
-messages and JSON field
-validation metadata. Its JSON mapping uses lowerCamelCase keys and symbolic enum
-names. Oneof variants appear as named fields, such as `hello` or `command`, with
-exactly one variant present. This is a strict profile of the
-[ProtoJSON mapping](https://protobuf.dev/programming-guides/json/), not a binary
-protobuf transport or a second independently maintained JSON contract.
+Each binary WebSocket message contains one generated protobuf `Envelope` from
+[the canonical schema](proto/sipbridge-control.proto). Text messages are rejected.
+Compression is disabled. There is no JSON wire fallback or legacy subprotocol
+negotiation. Bound the complete message while assembling fragments and before
+decoding; outbound messages obey the same negotiated byte bound.
 
-Unsigned 64-bit fields are canonical decimal strings in the range
-`0`–`18446744073709551615`; numeric tokens, signs, leading zeroes and exponents are
-rejected. TypeScript retains bigint internally. Byte fields use padded standard
-base64, preserving arbitrary SIP bodies. Unsigned 32-bit fields are JSON integers,
-booleans are JSON booleans, and known fields cannot be null or use a different
-type. Missing fields retain their schema defaults; semantic presence/admission
-checks still apply. Only canonical JSON field names are accepted. Duplicate object
-keys (including escaped equivalents), invalid UTF-8, nesting deeper than 32
-containers, multiple oneof variants and unknown enum values are protocol errors.
-Unknown optional fields are ignored for additive version compatibility; an unknown
-operation cannot substitute for a recognized payload/action.
+Use standard generated protobuf codecs and their scalar/default, unknown-field
+and oneof semantics. Unknown optional fields are discarded. Standard singular
+field merging and oneof selection apply; after decoding, require a recognized
+envelope payload and, for commands, a recognized action. Retain direction,
+semantic enum/presence, identity, authority, reference, deadline and sequence
+checks before admitting effects. Unknown numeric enum values cannot grant
+operation or completion authority. Decoder field merging never authorizes more
+than one application operation per envelope.
 
-Inbound bytes undergo token-level and schema validation before decoding. Outbound
-messages validate the typed protobuf value against the same schema profile;
-ProtoJSON supplies canonical scalar encodings and rejects invalid strings. The
-producer checks enum membership, required oneof selection, container depth and
-the final encoded byte bound without reparsing its own JSON or constructing a
-second message graph. This does not change the accepted wire profile.
+The native decoder sets `RecursionLimit: 32` for known message recursion.
+Skipped unknown groups use the standard protobuf decoder's handling; this is
+not a custom global limit of 32 containers or a second binary parser. Encoded
+byte bounds apply independently. Session write buffers remain owned through
+physical write completion under the write gate; unusually large buffers are
+not retained for reuse.
 
-Empty envelopes, missing payload, wrong direction and excessive sizes are protocol
-errors. Enforce the negotiated byte bound on the complete UTF-8 JSON message while
-assembling fragments and before decoding; base64 and JSON overhead count toward
-that bound. Disable WebSocket compression in this profile.
+The generated TypeScript binary methods use `bigint` for 64-bit counters and
+byte arrays for bytes. Do not convert counters to JavaScript floating-point
+numbers. Generated `fromJSON`/`toJSON` conversions remain available for
+application persistence, diagnostics and HTTP fixture projections; they do not
+define a control wire format. JSON examples in this documentation are readable
+projections of protobuf messages, never text frames to send.
 
-For example, the initial session message is ordinary JSON; its attempt counter
-remains lossless beyond JavaScript's safe integer range:
-
-```json
-{"correlationId":"hello-1","hello":{"controller":{"instanceId":"controller-a","epoch":"boot-a"},"connectionAttempt":"9007199254740993","major":1,"bounds":{"maxEnvelopeBytes":262144}}}
-```
+The canonical schema, generated codecs, distribution copy and full receipt
+change together with every controller and fixture. Major 1 alone does not prove
+compatibility. This control framing change keeps retained storage field numbers
+unchanged; it does not imply a storage format migration or automatic Redis reset.
+Workers must still agree on the explicit public/private schema and authority
+compatibility profile described in [Runtime](docs/runtime.md#configuration-identity-and-loss).
 
 An envelope contains a bounded correlation ID, a remaining deadline budget where
 applicable, and exactly one typed payload. Replies echo the request ID. A session
@@ -218,7 +217,7 @@ The session subset restricts reference/correlation strings to
 `[A-Za-z0-9_.:@+-]{1,96}`. Numeric source addresses and workload URI SANs are
 different fields/credentials and are not validated as opaque session references.
 
-Readable JSON does not authorize logging message contents. SIP bodies, digest
+Readable diagnostic projections do not authorize logging message contents. SIP bodies, digest
 credentials, authorization headers, private keys and opaque
 authorization material MUST NOT appear in routine protocol logs.
 
@@ -303,7 +302,7 @@ mechanics, never service client-source fields or advertised headers.
 ## 5. Owner lookup, redirects and native ingress
 
 The routing/ingest handshake in this section describes the checkpoint runtime.
-The Memory [direct decision](#direct-request-decision-memory-target)
+The Memory [direct decision](#direct-request-decision-memory)
 replaces those exchanges; the native matching, account-policy and transport trust
 rules still apply. A bounded pending native request handle does not establish a
 business owner claim or accepted registration/subscription.
@@ -555,11 +554,10 @@ Forwarding through A cannot advertise a virtual loopback address, localhost,
 control address or internal flow key. The owner applies configured public
 Contact/Via identity consistently on fresh and reused connections.
 
-### Direct request decision (Memory target)
+### Direct request decision (Memory)
 
-This is the direct-decision contract locked with architecture revision two and
-approved by Astra before implementation. It is not a qualification claim. It
-requires `sip.request-decision.v1` in addition to the
+This implemented direct-decision contract was independently reviewed and locked
+before implementation. It is not a qualification claim. It requires `sip.request-decision.v1` in addition to the
 existing native state/admission capabilities. Memory uses only this request path;
 the checkpoint Redis runtime retains its existing families during Memory
 qualification. There is no Memory fallback or new compatibility engine.
@@ -598,7 +596,7 @@ Recipient-dependent outputs and automatic 100 are held until binding. Bounded
 native timeout refusal and exact paired CANCEL completion still terminate an
 unowned setup under native authority without manufacturing a controller claim.
 
-The new canonical `RequestDecision` contains these fields; generated types, field
+The canonical `RequestDecision` contains these fields; generated types, field
 numbers and the receipt remain owned by `proto/sipbridge-control.proto`:
 
 | Fields | Meaning |
@@ -790,7 +788,12 @@ Control reconnect reconciles current snapshots and outstanding native requests;
 it does not replay a general event history. Preserve a bounded terminal outcome
 tombstone after context removal within the original replay cutoff. Tombstone
 expiry/capacity and unknown outcomes are explicit; a missing marker is not proof that a terminal
-operation never occurred. Pending native request material survives only for its
+operation never occurred. The Memory
+[completed reliable REGISTER rule](docs/memory-core.md#completed-reliable-register-lifetime)
+is the explicit exception: it drops that completed procedure and its receipt
+without a historical tombstone. An old decision/command retry for an absent
+context returns UNKNOWN without a snapshot. A current context-absence proof
+does not establish prior non-acceptance or NOT_WRITTEN. Pending native request material survives only for its
 actual transaction lifetime. controller must reuse its known policy result when
 completing that request, rather than rerunning policy merely because an event or
 response was lost. There is no recovery of every transient provisional event.
@@ -888,10 +891,11 @@ references on all error and shutdown paths.
 ## 11. Compatibility, reload and drain
 
 The initial control contract is major `1`, minor `0`. Session negotiation selects
-that version and the capabilities both peers support. Unknown optional JSON fields
-are tolerated; unknown operations and required enum values are refused. Optional
-behavior requires its negotiated capability. JSON field names and enum names are
-part of the wire contract, as are protobuf declarations and field numbers.
+that version and the capabilities both peers support. Standard protobuf decoding
+discards unknown optional fields; semantic checks refuse unknown operations and
+required enum values. Optional behavior requires its negotiated capability.
+Protobuf declarations, field numbers, generated codecs and the schema receipt
+define wire compatibility; the framing rules in section 3 have no JSON fallback.
 
 An ineligible peer receives a precise diagnostic and cannot claim a session.
 Established sessions retain their negotiated contract for their lifetime. An

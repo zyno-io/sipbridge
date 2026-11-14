@@ -11,7 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/emiago/sipgo/sip/portable"
-	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 )
@@ -75,19 +75,19 @@ func newUDPOrderFixture(t *testing.T, options ...func(*Ingress)) *udpOrderFixtur
 			if err != nil {
 				return
 			}
-			if kind != websocket.MessageText {
+			if kind != websocket.MessageBinary {
 				continue
 			}
 			envelope := new(pb.Envelope)
-			if err := protojson.Unmarshal(wire, envelope); err != nil {
+			if err := proto.Unmarshal(wire, envelope); err != nil {
 				f.errors <- err
 				return
 			}
 			if ping := envelope.GetPing(); ping != nil {
-				pong, err := protojson.Marshal(&pb.Envelope{SessionId: session, CorrelationId: envelope.CorrelationId,
+				pong, err := proto.Marshal(&pb.Envelope{SessionId: session, CorrelationId: envelope.CorrelationId,
 					Payload: &pb.Envelope_Pong{Pong: ping}})
 				if err == nil {
-					err = controller.Write(controlCtx, websocket.MessageText, pong)
+					err = controller.Write(controlCtx, websocket.MessageBinary, pong)
 				}
 				if err != nil {
 					f.errors <- err

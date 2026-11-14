@@ -14,7 +14,7 @@ your application or running a SIP proxy and scripting it. sipbridge splits the
 work differently:
 
 - **Your application stays free of SIP mechanics.** The controller sees a
-  request, decides, and sends a short JSON command such as "respond 200 with
+  request, decides, and sends a typed command such as "respond 200 with
   this SDP". sipbridge builds the message, fills in Via, Contact, CSeq and tags,
   retransmits when SIP requires it, and handles ACK and CANCEL.
 - **Client connections do not depend on your application's uptime.** Phones keep
@@ -93,7 +93,7 @@ controller chooses without depending on a particular media implementation.
 
 A few design choices shape what your application has to do.
 
-**You write the controller.** There is no client SDK. The protocol is JSON over
+**You write the controller.** There is no client SDK. The protocol is binary protobuf over
 a WebSocket, with a schema in the repository, so any language works, but the
 controller is real work: it must route, authenticate and answer.
 [Building a Controller](./application.md) lists the duties.
@@ -109,8 +109,9 @@ processes, and there is no built-in drain. Plan sipbridge restarts as
 maintenance and keep routine changes (controller releases, certificate renewal)
 from restarting it. See [Deployment](./deployment.md#replacing-a-process).
 
-**The default state is in memory.** It is lost on restart and, with default
-settings, holds state for 16 Call-IDs at a time. Raise the limits or select Redis as
+**The default state is in memory.** Typed resident records are lost on restart.
+Admission bounds resident contexts, retained bytes and completion headroom; size
+them for your workload or explicitly select Redis as
 described in [State Backends](./state-backends.md).
 
 **Some outcomes are unknown, and stay unknown.** When a send or a command might

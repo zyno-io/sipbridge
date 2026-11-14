@@ -67,8 +67,10 @@ checkpoint image and Drachtio do not expose these gauges; absence is explicit,
 never interpreted as zero. The production Drachtio image has no equivalent
 cumulative allocator counter: its allocation rate is explicitly
 unavailable, not zero. Capture and extra SIP tracing are disabled. Existing server
-loggers are unchanged. The manifest records native JSON/mTLS WebSocket control
-and Drachtio's srf admin TCP separately from the matched SIP/TLS workload.
+loggers are unchanged. The current runner uses native binary protobuf/mTLS WebSocket control and
+records that transport separately from Drachtio's srf admin TCP and the matched
+SIP/TLS workload. Older JSON-control evidence remains evidence for its recorded
+build only; do not relabel historical manifests.
 
 History zero starts fresh. History two creates and terminates two prior generations
 of both subscriptions per phone before keeping the same live population. Each
@@ -90,6 +92,9 @@ An ARM host running these amd64 images uses emulation on both sides. Local smoke
 or emulated measurements are preliminary evidence; the final gate requires matched
 17- and 130-registration traffic on staging amd64, adequate steady windows,
 successful protocol behavior, and review of controller cost and retained history.
+Current qualification status, including the failed 130-registration result
+and private binary feasibility limits, is recorded in
+[Verification](../../docs/verification.md#memory-cpu-qualification-status).
 The fixture does not qualify established calls, production authentication, or
 Redis continuity. The locked acceptance contract is [Memory core](../../docs/memory-core.md).
 

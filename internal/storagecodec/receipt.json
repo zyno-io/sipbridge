@@ -70,7 +70,7 @@
     "internal/storagecodec/receipt.go": "dab34b88e2d867248a28dd9b307b656b40546ea0a7057e734e2ec7c5cc8fc1ea",
     "internal/storagecodec/validated_frame.go": "dd859f6c5897301cb765345f0441d54a64835fa11c609ac47b390568b37b1ec4",
     "internal/storagepb/sipbridge-storage.pb.go": "ce34f1d5a1a8d9b756c7883af0e8649a35eaadfa2e4ba52c4d6d373d900a66c9",
-    "proto/sipbridge-control.proto": "cf48454294dda7578a2172f0fc012aad829a7747e357bfeaa23a0688816bc09d",
+    "proto/sipbridge-control.proto": "2863d4cc3ac13a547ec6bbbd319a1f40cf14e39b880cc158445daec4e5824a6f",
     "proto/sipbridge-storage.fields.json": "f1c5f0080944b8ff9d3dc844cf8895808af630fb7178b9d030995f8b11a8ee7a",
     "proto/sipbridge-storage.proto": "9e1c2e5b7bd62f37b62d2f135c6bb8e6c04d9109844d67c2f4674bd7ebc26d64",
     "scripts/gen-state-storage.py": "01d3f550f73197959bbff68cc5031d5eee8a6d8605852d5c499bf4537a5b39be",

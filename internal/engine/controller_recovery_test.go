@@ -17,7 +17,6 @@ import (
 	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
@@ -116,13 +115,13 @@ func (f recoveryControlFixture) connect(t *testing.T, process *pb.ProcessRef, at
 
 func recoverySend(t *testing.T, connection *websocket.Conn, envelope *pb.Envelope) {
 	t.Helper()
-	data, err := protojson.Marshal(envelope)
+	data, err := proto.Marshal(envelope)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := connection.Write(ctx, websocket.MessageText, data); err != nil {
+	if err := connection.Write(ctx, websocket.MessageBinary, data); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -135,19 +134,19 @@ func recoveryRead(connection *websocket.Conn, sessionID, correlation string) (*p
 		if err != nil {
 			return nil, err
 		}
-		if kind != websocket.MessageText {
+		if kind != websocket.MessageBinary {
 			return nil, fmt.Errorf("non-text control reply")
 		}
 		envelope := new(pb.Envelope)
-		if err := protojson.Unmarshal(data, envelope); err != nil {
+		if err := proto.Unmarshal(data, envelope); err != nil {
 			return nil, err
 		}
 		if ping := envelope.GetPing(); ping != nil {
-			response, err := protojson.Marshal(&pb.Envelope{SessionId: sessionID, CorrelationId: envelope.CorrelationId, Payload: &pb.Envelope_Pong{Pong: ping}})
+			response, err := proto.Marshal(&pb.Envelope{SessionId: sessionID, CorrelationId: envelope.CorrelationId, Payload: &pb.Envelope_Pong{Pong: ping}})
 			if err != nil {
 				return nil, err
 			}
-			if err := connection.Write(ctx, websocket.MessageText, response); err != nil {
+			if err := connection.Write(ctx, websocket.MessageBinary, response); err != nil {
 				return nil, err
 			}
 			continue

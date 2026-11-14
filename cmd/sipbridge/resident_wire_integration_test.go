@@ -17,7 +17,7 @@ import (
 	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
-	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 )
 
@@ -34,13 +34,13 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 	var mu sync.Mutex
 	send := func(frame *pb.Envelope) error {
 		frame.SessionId = hello.SessionId
-		wire, err := protojson.Marshal(frame)
+		wire, err := proto.Marshal(frame)
 		if err != nil {
 			return err
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		return controller.Write(ctx, websocket.MessageText, wire)
+		return controller.Write(ctx, websocket.MessageBinary, wire)
 	}
 	present := make(chan uint32, 8)
 	acknowledged := make(chan struct{}, 1)
@@ -72,7 +72,7 @@ func runResidentTLSCall(t *testing.T, controller *websocket.Conn, hello *pb.Sess
 				return
 			}
 			frame := &pb.Envelope{}
-			if err = protojson.Unmarshal(wire, frame); err != nil {
+			if err = proto.Unmarshal(wire, frame); err != nil {
 				fail(err)
 				return
 			}

@@ -4,7 +4,10 @@ This chapter maps SIP traffic to native procedures, control messages and retaine
 state. [Execution](execution.md) expands each read/reduce/CAS, callback and physical
 write box. [Lifecycle](lifecycle.md) covers scheduling, failure and process drain.
 The [runtime](../runtime.md) and [protocol](../../PROTOCOL.md) remain the owners of
-exact admission, deadline and completion guarantees.
+exact admission, deadline and completion guarantees. The routing/CAS diagrams
+below describe Redis checkpoint execution. Memory uses the
+[direct request-decision flow](../memory-core.md#timers-io-and-required-behavior)
+and touched typed records, with the same native SIP reducers.
 
 The controller in these diagrams is an external application. Account policy,
 registration publication, subscription content, media allocation and deciding an
@@ -17,7 +20,7 @@ opposite call leg are outside sipbridge.
 | TCP/TLS accept, framing, CRLF and malformed traffic | [Ingress](#ingress-and-local-decisions) | Socket/framing work is local; it is not a Redis transaction per received byte. |
 | Disabled REGISTER/SUBSCRIBE | [Local decisions](#ingress-and-local-decisions) | Local 405; no native lookup or controller RPC. |
 | Required initial digest challenge and its ACK | [Local decisions](#ingress-and-local-decisions) | Stateless bounded challenge proof; credential verification remains external. |
-| REGISTER, OPTIONS and other initial non-INVITE requests | [Non-INVITE server](#initial-non-invite-server-requests) | Controller presentation and Respond; final-response/request proofs outlive the reliable transaction. |
+| REGISTER, OPTIONS and other initial non-INVITE requests | [Non-INVITE server](#initial-non-invite-server-requests) | Checkpoint presentation or Memory direct decision; Memory reliable REGISTER has a narrow completed-procedure retirement rule. |
 | Initial, refreshed and expiry-zero SUBSCRIBE | [Subscription](#subscribe-initial-refresh-and-unsubscribe) | Accepted Event/Contact/flow, independent remote/local sequences, optional publication callback. |
 | Subscription NOTIFY | [NOTIFY](#outgoing-subscription-notify) | Retained local sequence; final/481 subscription behavior; narrow successful-client retirement. |
 | Incoming initial INVITE | [UAS](#incoming-invite-and-answer) | Provisional/final selection, dialog creation and ACK procedure. |
@@ -76,6 +79,11 @@ although resulting lifecycle effects may still notify the live controller.
 (`TryNativeCompletion`).
 
 ## Initial non-INVITE server requests
+
+Memory TCP/TLS REGISTER completion follows the
+[owning retirement rule](../memory-core.md#completed-reliable-register-lifetime).
+Its registration policy remains controller-owned. UDP and other native SIP
+obligations are unchanged. The diagram below is the checkpoint path.
 
 This is the healthy initial REGISTER/OPTIONS pattern after local decisions. An
 exact retained replay takes the replay branch instead of creating another context.

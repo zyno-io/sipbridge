@@ -114,9 +114,9 @@ func residentControlFixture(t *testing.T, direct ...bool) (*ResidentMemory, *con
 	return e, peer, connection, ctx, ack.SessionId, writes, count
 }
 
-func TestResidentControlRegistrationDirectResponseAndExactReplay(t *testing.T) {
+func TestResidentControlNonRegisterResponseAndExactReplay(t *testing.T) {
 	e, peer, connection, ctx, session, writes, count := residentControlFixture(t)
-	message := stateTestRequest("REGISTER", 1, "", "resident-register")
+	message := stateTestRequest("OPTIONS", 1, "", "resident-options")
 	route, err := e.LocateRoute(ctx, message)
 	if err != nil {
 		t.Fatal(err)
@@ -129,8 +129,8 @@ func TestResidentControlRegistrationDirectResponseAndExactReplay(t *testing.T) {
 	}()
 	presented := readControllerEnvelope(t, ctx, connection)
 	request := presented.GetRequest()
-	if request == nil || request.Message.Method != "REGISTER" {
-		t.Fatal("fresh REGISTER was not presented directly")
+	if request == nil || request.Message.Method != "OPTIONS" {
+		t.Fatal("fresh non-REGISTER request was not presented directly")
 	}
 	if count.Load() != 0 {
 		t.Fatal("response preceded controller decision")
@@ -141,7 +141,7 @@ func TestResidentControlRegistrationDirectResponseAndExactReplay(t *testing.T) {
 	writeControllerEnvelope(t, ctx, connection, envelope)
 	result := readControllerEnvelope(t, ctx, connection).GetResult()
 	if result == nil || result.Certainty != pb.OperationResult_COMPLETED || result.SipStatus != 200 || result.GetSnapshot().GetCommandSequence() != 1 {
-		t.Fatal("REGISTER response did not settle its exact command", result)
+		t.Fatal("non-REGISTER response did not settle its exact command", result)
 	}
 	select {
 	case wire := <-writes:

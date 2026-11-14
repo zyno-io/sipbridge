@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 )
 
@@ -100,11 +101,12 @@ func newPeerWriteLifetimeFixture(t *testing.T, writeTimeout time.Duration) *peer
 			if err != nil {
 				return
 			}
-			if kind != websocket.MessageText {
+			if kind != websocket.MessageBinary {
 				fixture.remoteErrors <- errors.New("client sent a non-text control frame")
 				return
 			}
-			envelope, err := decodeJSONEnvelope(data)
+			envelope := &pb.Envelope{}
+			err = proto.Unmarshal(data, envelope)
 			if err != nil {
 				fixture.remoteErrors <- err
 				return
@@ -115,13 +117,13 @@ func newPeerWriteLifetimeFixture(t *testing.T, writeTimeout time.Duration) *peer
 				SessionId:     envelope.SessionId,
 				Payload:       &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}},
 			}
-			encoded, err := encodeJSONEnvelope(response)
+			encoded, err := proto.Marshal(response)
 			if err != nil {
 				fixture.remoteErrors <- err
 				return
 			}
 			writeCtx, cancelWrite := context.WithTimeout(context.Background(), time.Second)
-			err = conn.Write(writeCtx, websocket.MessageText, encoded)
+			err = conn.Write(writeCtx, websocket.MessageBinary, encoded)
 			cancelWrite()
 			if err != nil {
 				fixture.remoteErrors <- err

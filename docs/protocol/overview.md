@@ -1,7 +1,7 @@
 # Protocol Overview
 
 The control protocol connects your application to sipbridge. The controller
-opens a WebSocket to sipbridge, and from then on the two exchange JSON
+opens a WebSocket to sipbridge, and from then on the two exchange binary protobuf
 messages: sipbridge reports SIP requests and events, and the controller sends
 back routing decisions and commands.
 
@@ -17,11 +17,11 @@ and command outcomes. The complete rules for every field are in
 | Item | Value |
 | --- | --- |
 | URL | `wss://<sipbridge control endpoint>/v1/control` |
-| Subprotocol | `sipbridge.control.json.v1` |
+| Subprotocol | `sipbridge.control.protobuf.v1` |
 | Authentication | mTLS by default, or explicit bearer mode; see [Identities and TLS](../guide/security.md#control-connection) |
 | `Origin` header | Must be absent |
 | Compression | Disabled |
-| Frames | Text only; a binary frame closes the session |
+| Frames | Binary only; text messages are rejected |
 | Who connects | Always the controller |
 
 [Identities and TLS](../guide/security.md#control-connection) explains the
@@ -30,16 +30,17 @@ small Go program that connects.
 
 ## Envelope
 
-Every WebSocket message is one JSON object, called an envelope. It has a few
-common fields and exactly one payload field, whose name says what kind of
-message it is:
+Every binary WebSocket message contains one generated protobuf `Envelope`. It
+has common fields and one recognized payload selected by its protobuf oneof:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `correlationId` | string | An ID chosen by the sender of a request and repeated in the reply, so the two can be matched. Pattern `[A-Za-z0-9_.:@+-]{1,96}`. Make it unique within one run of your process. It is only a label and grants nothing. |
 | `sessionId` | string | Issued by sipbridge in `helloAck`. Leave it out of `hello`; include it, exactly, in every later message. |
 | `remainingBudgetMs` | uint32 | How many milliseconds the sender is still willing to wait for this operation. Leave it out of `hello`, `status`, `ping` and `pong`. At most 2,000, or 40,000 for a `command` when `sip.command-budget.v1` was negotiated. |
-| one payload field | object | Exactly one of `hello`, `helloAck`, `status`, `ping`, `pong`, `ingress`, `routeResult`, `ingest`, `request`, `command`, `result`, … |
+| one payload field | message | Exactly one of `hello`, `helloAck`, `status`, `ping`, `pong`, `ingress`, `routeResult`, `ingest`, `request`, `command`, `result`, … |
+
+The following JSON is a readable projection, not a text frame:
 
 ```json
 {"correlationId":"op-17","sessionId":"6f0d6a4e-1c1b-4f4e-9b52-3f8f2f6c2a10","remainingBudgetMs":1800,"inspect":{"context":{"id":"ctx-1"}}}
@@ -48,50 +49,38 @@ message it is:
 This example shows the shape of an envelope. A real `inspect` carries the whole
 `ContextRef` you received earlier, not just an ID.
 
-## JSON encoding
+## Binary encoding
 
-The JSON follows protobuf's standard
-[ProtoJSON mapping](https://protobuf.dev/programming-guides/json/), applied
-strictly. If you generate code from the schema with a protobuf JSON codec you
-get most of this for free; if you write JSON by hand, these are the forms to
-use:
+Use the generated Go or TypeScript protobuf codec from the exact schema receipt
+used by the service. A received message is bounded before decoding. Standard
+protobuf defaults, unknown-field handling and oneof selection apply; sipbridge
+then checks the recognized payload/action, required semantic enum values,
+direction and authority. Unknown optional fields are discarded.
 
-| Schema type | JSON form | Example |
-| --- | --- | --- |
-| field names | lowerCamelCase only; `snake_case` names are rejected | `connectionAttempt` |
-| `uint64` | Decimal **string** `0`–`18446744073709551615`; no sign, leading zero or exponent | `"9007199254740993"` |
-| `uint32` | JSON integer | `1048576` |
-| `bool` | JSON boolean | `true` |
-| `bytes` | Padded standard base64 string | `"AP+AQQ=="` |
-| enum | Symbolic name | `"ACCEPTED"` |
-| oneof | The selected variant as a named field; exactly one present | `"cancel":{}` |
+TypeScript codecs represent 64-bit counters as `bigint` and bytes as byte arrays.
+Go uses the generated integer and byte types. Generated JSON conversions remain
+useful for application storage and readable examples; never send those projections
+as text control messages. There is no JSON fallback or legacy subprotocol.
 
-sipbridge is deliberately strict about what it accepts, and a malformed message
-closes the session. It rejects invalid UTF-8, duplicate object keys, nesting
-deeper than 32 levels, `null` or a value of the wrong type in a known field,
-more or fewer than one payload, unknown enum names, and anything after the
-closing brace. Unknown *fields* are ignored, so that fields can be added later
-without breaking older software. A field holding its default value (`0`, `""`,
-`false`) may be left out, and sipbridge leaves such fields out of what it sends.
-
-Take care with `uint64` in JavaScript. These values are sent as strings because
-a JavaScript `Number` cannot hold them exactly; parse them with `BigInt` or a
-generated codec.
-
-The repository's [shared JSON cases](../../internal/control/testdata/json-cases.json)
-list accepted and rejected examples. They are handy as test input for your own
-codec.
+The exact decoder rules, including the known-message recursion bound and standard
+handling of skipped unknown groups, belong to
+[PROTOCOL.md section 3](../spec/protocol.md#binary-websocket-framing).
 
 ## Size limits
 
-A whole message, as UTF-8 text, must fit the envelope limit agreed in the
+The complete encoded protobuf message must fit the envelope limit agreed in the
 handshake: at most 1 MiB and at least 512 bytes. A SIP message carried inside
 an envelope can be up to 64 KiB.
 
 ## Message flow
 
-A session begins with a handshake and then carries SIP work. This is an
-incoming request being routed, accepted and answered:
+A session begins with `hello`, `helloAck` and readiness `status`, then carries
+heartbeats and SIP work. The default Memory runtime sends a `request` notification; the controller
+submits `requestDecision` and receives the committed `result`. A committed
+decision permits controller publication; physical SIP delivery has its own
+outcome. The [direct-decision contract](../spec/protocol.md#direct-request-decision-memory)
+owns the flow and exact admission/replay rules. Redis checkpoint execution retains this
+routing/presentation exchange:
 
 ```text
 Controller                                   sipbridge

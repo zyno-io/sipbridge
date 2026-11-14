@@ -8,7 +8,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/emiago/sipgo/sip/portable"
-	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/execution"
 	executionfixture "sipbridge/internal/execution/fixture"
@@ -198,7 +198,7 @@ func TestNativeReceiverDispatcherStartsOnlyLegacyAndRecordsAcceptance(t *testing
 					return
 				}
 				var request pb.Envelope
-				if err = protojson.Unmarshal(wire, &request); err != nil {
+				if err = proto.Unmarshal(wire, &request); err != nil {
 					replyErrors <- err
 					return
 				}
@@ -238,9 +238,9 @@ func TestNativeReceiverDispatcherStartsOnlyLegacyAndRecordsAcceptance(t *testing
 				}
 				reply := &pb.Envelope{SessionId: request.SessionId, CorrelationId: request.CorrelationId,
 					Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_ACCEPTED}}}
-				encoded, err := protojson.Marshal(reply)
+				encoded, err := proto.Marshal(reply)
 				if err == nil {
-					err = conn.Write(ctx, websocket.MessageText, encoded)
+					err = conn.Write(ctx, websocket.MessageBinary, encoded)
 				}
 				replyErrors <- err
 			}()

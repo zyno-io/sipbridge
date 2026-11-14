@@ -9,7 +9,6 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/emiago/sipgo/sip"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/state"
@@ -96,7 +95,7 @@ func TestStateRPCRefusalWaitsForDurableRecoveryThenProgresses(t *testing.T) {
 						return
 					}
 					request := new(pb.Envelope)
-					if err := protojson.Unmarshal(wire, request); err != nil {
+					if err := proto.Unmarshal(wire, request); err != nil {
 						controllerErrors <- err
 						return
 					}
@@ -118,9 +117,9 @@ func TestStateRPCRefusalWaitsForDurableRecoveryThenProgresses(t *testing.T) {
 							return
 						}
 					}
-					encoded, err := protojson.Marshal(reply)
+					encoded, err := proto.Marshal(reply)
 					if err == nil {
-						err = connection.Write(engine.ctx, websocket.MessageText, encoded)
+						err = connection.Write(engine.ctx, websocket.MessageBinary, encoded)
 					}
 					if err != nil {
 						controllerErrors <- err

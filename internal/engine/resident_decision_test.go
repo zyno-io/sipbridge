@@ -123,12 +123,12 @@ func TestResidentRequestDecisionThreeFramesAndSelectedOwner(t *testing.T) {
 		t.Fatal("expected exactly one selected SIP response", string(wire))
 	}
 	replayed := residentSendDecision(t, ctx, selectedConn, selectedSession, "selected-decision", decision)
-	if replayed.Certainty != pb.OperationResult_ACCEPTED || count.Load() != 1 {
-		t.Fatal("exact decision replay changed commit certainty or repeated its output", replayed)
+	if replayed.Certainty != pb.OperationResult_UNKNOWN || replayed.Snapshot != nil || count.Load() != 1 {
+		t.Fatal("forgotten REGISTER decision claimed an outcome or repeated its output", replayed)
 	}
 	late := proto.Clone(decision).(*pb.RequestDecision)
 	late.Sequence = 2
-	if result := residentSendDecision(t, ctx, conn, session, "late-recipient", late); result.Certainty != pb.OperationResult_NOT_ACCEPTED || count.Load() != 1 {
+	if result := residentSendDecision(t, ctx, conn, session, "late-recipient", late); result.Certainty != pb.OperationResult_UNKNOWN || result.Snapshot != nil || count.Load() != 1 {
 		t.Fatal("late notification recipient claimed an already accepted request", result)
 	}
 }
@@ -394,7 +394,11 @@ func TestResidentRequestDecisionDeadlineAndNativeCancel(t *testing.T) {
 			}
 			writesBefore := count.Load()
 			decision := residentDirectDecision(request, 1, 200)
-			if result := residentSendDecision(t, ctx, conn, session, "late-decision", decision); result.Certainty != pb.OperationResult_NOT_ACCEPTED || count.Load() != writesBefore {
+			expected := pb.OperationResult_UNKNOWN
+			if cancel {
+				expected = pb.OperationResult_NOT_ACCEPTED
+			}
+			if result := residentSendDecision(t, ctx, conn, session, "late-decision", decision); result.Certainty != expected || count.Load() != writesBefore {
 				t.Fatal("expired or cancelled request was resurrected", result)
 			}
 		})

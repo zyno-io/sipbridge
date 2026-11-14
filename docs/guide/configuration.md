@@ -109,8 +109,8 @@ Setting either variable with `SIPBRIDGE_STATE_BACKEND=redis` fails startup.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SIPBRIDGE_MEMORY_MAX_GROUPS` | `128` | Maximum number of Call-IDs with state held at once, 1 to 1,048,576. |
-| `SIPBRIDGE_MEMORY_MAX_BYTES` | `1073741824` (1 GiB) | Total state capacity in bytes. Each Call-ID reserves 64 MiB, so the default allows 16 at once and values below `67108864` fail startup. See [Capacity](./state-backends.md#capacity). |
+| `SIPBRIDGE_MEMORY_MAX_GROUPS` | `128` | Maximum resident contexts held at once, 1 to 1,048,576. |
+| `SIPBRIDGE_MEMORY_MAX_BYTES` | `1073741824` (1 GiB) | Accounted resident bytes plus admitted completion headroom. No fixed per-Call-ID reservation; Go runtime/transient memory adds overhead. See [Capacity](./state-backends.md#capacity). |
 
 ### Redis only
 

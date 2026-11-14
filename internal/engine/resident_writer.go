@@ -437,7 +437,32 @@ func (e *ResidentMemory) acknowledgeResidentOutput(write *pb.FlowWrite) {
 		return
 	}
 	if e.releaseResidentOutputLocked(c, output) == nil {
+		e.acknowledgeResidentRegisterLocked(c, output)
 		e.afterResidentOutputReleaseLocked(c)
+	}
+}
+
+// A reliable REGISTER needs no historical transaction once its exact final is
+// written, settled and acknowledged. Active receipts and other outputs still
+// fence context removal in afterResidentOutputReleaseLocked.
+func (e *ResidentMemory) acknowledgeResidentRegisterLocked(c *residentContext, output *residentOutput) {
+	if output.state != residentOutputWritten || output.method != "REGISTER" || output.status < 200 || c.subscription != nil || len(c.dialogs) != 0 {
+		return
+	}
+	if transport := output.write.Flow.Transport; transport != "tcp" && transport != "tls" {
+		return
+	}
+	tx := c.transactions[output.transaction]
+	if tx == nil {
+		return
+	}
+	tx.reliableRegisterWritten = true
+	c.retireReady = true
+	if tx.retired {
+		tx.retireAt = time.Time{}
+		e.mu.Lock()
+		e.deadlines.remove(residentDeadlineKey{kind: residentTransactionRetirementDeadline, contextID: c.snapshot.Context.Id, record: tx.native.Key})
+		e.mu.Unlock()
 	}
 }
 

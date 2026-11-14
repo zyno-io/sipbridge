@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 )
 
@@ -23,14 +24,15 @@ func TestControlEnvelopeCarriesSupportedLargeSipPairAndDescriptions(t *testing.T
 		selectors[i] = "ctx:" + strings.Repeat("a", 64)
 	}
 	envelope := &pb.Envelope{CorrelationId: "large-native-result", Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, Request: message, Response: message, Snapshot: &pb.ContextSnapshot{LocalSdp: body, RemoteSdp: body, Selectors: selectors}}}}
-	encoded, err := encodeJSONEnvelope(envelope)
+	encoded, err := proto.Marshal(envelope)
 	if err != nil || len(encoded) > MaxEnvelope {
 		t.Fatalf("supported SIP pair exceeds control framing: %d %v", len(encoded), err)
 	}
-	if len(encoded) <= 512*1024 {
+	if len(encoded) <= 256*1024 {
 		t.Fatal("fixture does not cover parsed metadata expansion")
 	}
-	decoded, err := decodeJSONEnvelope(encoded)
+	decoded := &pb.Envelope{}
+	err = proto.Unmarshal(encoded, decoded)
 	if err != nil || !bytes.Equal(decoded.GetResult().GetSnapshot().GetRemoteSdp(), body) {
 		t.Fatalf("large native result did not round trip: %v", err)
 	}

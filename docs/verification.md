@@ -14,7 +14,7 @@ its tests use separate namespaces. Do not point failure-injection tests at produ
 | --- | --- | --- |
 | Native dependency pin | `python3 scripts/verify_dependency.py` | Exact consolidated source/tree checksums and provenance; no edit to pinned snapshot. |
 | Standalone protocol contract | `python3 scripts/verify_control_schema.py` | Schema and generated-binding hashes recorded in this repository. |
-| Reproducible protocol generation | `npm ci --prefix tools/protocol`, `python3 scripts/verify_control_schema.py --regenerate`, `npm test --prefix tools/protocol`; pinned compiler tools | Locally owned schema, Go/TypeScript output and shared strict JSON fixtures, without an external checkout. |
+| Reproducible protocol generation | `npm ci --prefix tools/protocol`, `python3 scripts/verify_control_schema.py --regenerate`, `npm test --prefix tools/protocol`; pinned compiler tools | Locally owned schema, generated Go/TypeScript binary codecs and application JSON projection checks, without an external checkout. |
 | Private retained codec | `python3 scripts/verify_storage_schema.py`; `PROTOC=/path/to/protoc-3.21.12 python3 scripts/gen-state-storage.py --check` with protoc-gen-go 1.36.12 | Separate storage-only schema, stable field numbers and generated typed adapters; clean temporary-copy reproduction. |
 | Formatting / vet | `test -z "$(gofmt -l cmd internal)"` and `go vet ./...` | This module's formatting/static checks; separate from upstream baseline warnings. |
 | Service, state, control, capture and fixture tests | `SIPBRIDGE_STATE_TEST_REDIS=127.0.0.1:6379 go test -race ./...` | Includes real-client Redis integration, native CAS/lease/command admission, service subprocess/socket tests and explicitly historical reducer fixtures. |
@@ -59,6 +59,24 @@ Synthetic controllers cannot qualify account mutation, trusted-directory
 policy, media/CDR, handset/carrier behavior, full version skew, shared load or SIP-core
 drain. Redis/Sentinel
 fault tests make no exactly-once or rollback-survival guarantee.
+
+## Memory CPU qualification status
+
+The typed Memory runtime, immutable SIP messages, binary control and completed
+reliable REGISTER retirement are implemented. The official combined build has
+not completed matched CPU qualification and has not been deployed by these
+changes. The [Memory acceptance contract](memory-core.md#delivery-order-and-acceptance)
+remains the gate for promotion and the later Redis runtime replacement.
+
+The current 130-registration JSON-control qualification observation was
+**23.671 millicores** for sipbridge against **11.561 millicores** for Drachtio;
+the **14.451 millicore** threshold was missed. A private disposable binary-control
+feasibility experiment measured **17.478 millicores** under that comparison,
+which also exceeds the threshold. It does not qualify the implemented binary
+control plus REGISTER-lifetime build. Neither a codec fixture nor isolated
+framing evidence establishes that combined result. Repeat the specified matched
+17- and 130-registration measurements with successful protocol traffic, retained
+history and allocation evidence before changing the qualification status.
 
 ## Binary codec fixture evidence (2026-11-11)
 

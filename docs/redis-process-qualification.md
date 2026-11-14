@@ -38,7 +38,7 @@ integration Redis endpoint.
 
 ## SIP processes and physical writes
 
-The engine suite uses real OS subprocesses, JSON/mTLS control and public SIP/TLS
+The engine suite uses real OS subprocesses, binary protobuf/mTLS control and public SIP/TLS
 sockets over shared isolated Redis namespaces. Current native tests exercise
 owner loss, retained SIP completion, socket reconnect, timers, directional dialog
 and CSeq checks, and refusal of stale commands. Explicitly historical 1/7 fixtures

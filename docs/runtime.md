@@ -88,7 +88,8 @@ The immutable compatibility profile includes this encoding separately from the
 schema/reducer/timer contract; changing the encoding changes native authority.
 Old JSON records are not decoded, migrated or rewritten by a binary worker.
 A format cutover drains and stops old workers before a fresh namespace is used.
-The public controller schema and JSON control transport are independent.
+The public controller schema and binary control framing are independently
+versioned surfaces; changing control framing alone does not mandate a namespace reset.
 
 The payload contains raw protocol-state and effect bytes; the engine owns their
 typed binary codecs. No JSON/base64/hex wrapper belongs around those large values.
@@ -96,7 +97,8 @@ Encoding sizes each immutable generated graph once and reuses that size only
 within the same marshal call; it does not retain a graph or size cache between
 operations. Small Lua-inspected input/receipt/lease envelopes retain their bounded existing
 representation. Record data, revision, scheduling and lease projections still
-commit atomically. Memory uses the same codec and independent snapshot ownership.
+commit atomically. The encoded MemoryStore fixture uses the same codec and independent snapshot
+ownership; the resident Memory service uses typed records directly.
 Before generated decoding allocates, records are capped at 64 MiB, recursion at
 32 levels, each repeated/map field at 4,096 entries and the total field count at
 262,144. The `SIPB`, encoding-byte 1 and record-kind header are mandatory.
@@ -1126,7 +1128,7 @@ generated typed protobuf adapters behind a private `SIPB` frame with encoding an
 root-kind bytes. Wire/SDP data are raw protobuf bytes, never hex or base64 wrappers.
 The private field registry preserves field numbers. Exact physical worker targets,
 including the wildcard controller-executor hint, roundtrip with each retained effect.
-Control messages remain canonical JSON. Lua-inspected receipts, pending-input
+Control messages use the [binary protobuf wire profile](../PROTOCOL.md#binary-websocket-framing). Lua-inspected receipts, pending-input
 envelopes, application guards and bounded dispatch-target/worker projections retain
 their existing small JSON/scalar representation and atomic accounting.
 

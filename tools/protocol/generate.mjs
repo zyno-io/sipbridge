@@ -1,5 +1,3 @@
-import { fromBinary } from '@bufbuild/protobuf';
-import { FileDescriptorSetSchema } from '@bufbuild/protobuf/wkt';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -46,17 +44,24 @@ try {
             `--proto_path=${join(root, 'proto')}`,
             `--plugin=protoc-gen-ts_proto=${join(dirname(tsPackage), 'protoc-gen-ts_proto')}`,
             `--ts_proto_out=${temporary}`,
-            '--ts_proto_opt=oneof=unions,useOptionals=messages,forceLong=bigint,outputEncodeMethods=false,outputJsonMethods=true,outputPartialMethods=false,outputClientImpl=false,exportCommonSymbols=false,env=node',
-            `--descriptor_set_out=${join(temporary, 'schema.bin')}`,
+            '--ts_proto_opt=oneof=unions,useOptionals=messages,forceLong=bigint,outputEncodeMethods=true,outputJsonMethods=true,outputPartialMethods=false,outputClientImpl=false,exportCommonSymbols=false,env=node',
             schema
         ],
         { cwd: root }
     );
     const tsGenerated = join(temporary, 'sipbridge-control.ts');
-    // JSON conversion follows validation at the public codec boundary. Replace
-    // the pinned generator's permissive parameter with an explicit JSON record.
+    // Persistence JSON conversions retain explicit types; binary decoding
+    // preserves map keys and applies the same bounded message nesting.
     const generated = readFileSync(tsGenerated, 'utf8');
     const safeJson = generated
+        .replaceAll('(reader as any).__tsProtoDecodeDepth', '(reader as BinaryReader & { __tsProtoDecodeDepth?: number }).__tsProtoDecodeDepth')
+        .replaceAll('previousRecursionDepth >= 100', 'previousRecursionDepth >= 32')
+        .replaceAll('key: key as any', 'key')
+        .replaceAll(' as any', '')
+        .replaceAll(
+            /message\.(\w+)\[(entry\d+)\.key\] = \2\.value;/g,
+            'globalThis.Object.defineProperty(message.$1, $2.key, { value: $2.value, enumerable: true, configurable: true, writable: true });'
+        )
         .replaceAll(/fromJSON\(object: any\): (\w+) \{/g, 'fromJSON(value: unknown): $1 {\nconst object = isObject(value) ? value : {};')
         .replaceAll('const obj: any = {};', 'const obj: Record<string, unknown> = {};')
         .replaceAll(': any', ': unknown')
@@ -70,69 +75,11 @@ try {
             /obj\.(\w+)\[k\] = ([^;]+);/g,
             'globalThis.Object.defineProperty(obj.$1 as Record<string, unknown>, k, { value: $2, enumerable: true, configurable: true, writable: true });'
         );
-    if (/\bany\b/.test(safeJson)) throw new Error('review untyped JSON generator output');
+    if (/\bany\b/.test(safeJson)) throw new Error(`review untyped JSON generator output: ${safeJson.match(/^.*\bany\b.*$/m)?.[0]}`);
     writeFileSync(tsGenerated, safeJson);
     format(tsGenerated);
     const tsHash = install(tsGenerated, tsTarget);
-    const descriptor = fromBinary(FileDescriptorSetSchema, readFileSync(join(temporary, 'schema.bin'))).file[0];
-    const messages = new Map();
-    const enums = new Map();
-    function collect(scope, parent) {
-        for (const item of scope.enumType)
-            enums.set(
-                `${parent}.${item.name}`,
-                item.value.map(value => value.name)
-            );
-        for (const item of scope.messageType ?? scope.nestedType) {
-            const name = `${parent}.${item.name}`;
-            messages.set(name, item);
-            collect(item, name);
-        }
-    }
-    collect(descriptor, `.${descriptor.package}`);
-    function fieldType(field) {
-        const scalar = { 4: 'uint64', 8: 'boolean', 9: 'string', 12: 'bytes', 13: 'uint32' }[field.type];
-        if (scalar) return { kind: scalar };
-        if (field.type === 14) return { kind: 'enum', values: enums.get(field.typeName) };
-        if (field.type !== 11) throw new Error(`unsupported JSON field type: ${field.type}`);
-        const message = messages.get(field.typeName);
-        if (message.options?.mapEntry) {
-            if (message.field[0].type !== 9) throw new Error('JSON map keys must be strings');
-            return { ...fieldType(message.field[1]), map: true };
-        }
-        return { kind: 'message', message: field.typeName };
-    }
-    const definitions = Object.fromEntries(
-        [...messages]
-            .filter(([, message]) => !message.options?.mapEntry)
-            .map(([name, message]) => [
-                name,
-                {
-                    fields: Object.fromEntries(
-                        message.field.map(field => [
-                            field.jsonName,
-                            {
-                                ...fieldType(field),
-                                ...(field.label === 3 && !messages.get(field.typeName)?.options?.mapEntry ? { repeated: true } : {}),
-                                ...(Object.hasOwn(field, 'oneofIndex') ? { oneof: message.oneofDecl[field.oneofIndex].name } : {}),
-                                ...(field.name !== field.jsonName ? { alias: field.name } : {})
-                            }
-                        ])
-                    ),
-                    oneofs: message.oneofDecl.map(oneof => oneof.name)
-                }
-            ])
-    );
-    const validationGenerated = join(temporary, 'sipbridge-json.ts');
-    writeFileSync(
-        validationGenerated,
-        `// Generated from proto/sipbridge-control.proto. Do not edit.\n\nexport interface JsonField {\n kind: 'uint64' | 'uint32' | 'boolean' | 'string' | 'bytes' | 'enum' | 'message';\n values?: readonly string[];\n message?: string;\n repeated?: boolean;\n map?: boolean;\n oneof?: string;\n alias?: string;\n}\nexport interface JsonMessage { fields: Record<string, JsonField>; oneofs: readonly string[]; }\nexport const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = ${JSON.stringify(definitions, null, 4)};\n`
-    );
-    format(validationGenerated);
-    const validationHash = install(validationGenerated, join(root, 'generated/typescript/sipbridge-json.ts'));
-    const validatorHash = install(join(toolRoot, 'json-validation.ts'), join(root, 'generated/typescript/json-validation.ts'));
     const schemaHash = install(schema, join(root, 'dependencies/sipbridge-control.proto'));
-    const casesHash = install(join(root, 'proto/sipbridge-control-json-cases.json'), join(root, 'internal/control/testdata/json-cases.json'));
     const challengeCaseHash = install(join(root, 'proto/sipbridge-digest-challenge-case.json'), join(root, 'internal/engine/testdata/digest-challenge-case.json'));
     execFileSync(protoc, [
         `--proto_path=${join(root, 'proto')}`,
@@ -151,19 +98,16 @@ try {
         ts_proto: tsVersion,
         generated_go_sha256: goHash,
         generated_ts_sha256: tsHash,
-        generated_json_validation_sha256: validationHash,
-        typescript_validator_sha256: validatorHash,
-        json_cases_sha256: casesHash,
         digest_challenge_case_sha256: challengeCaseHash,
-        wire_encoding: 'json',
-        subprotocol: 'sipbridge.control.json.v1',
+        wire_encoding: 'protobuf',
+        subprotocol: 'sipbridge.control.protobuf.v1',
         protocol_major: 1
     }, null, 2) + '\n');
     const pinTarget = join(root, 'dependencies/control-schema.json');
     if (checking) {
         if (!pin.equals(readFileSync(pinTarget))) throw new Error('control schema provenance drift');
     } else writeFileSync(pinTarget, pin);
-    console.log(`sipbridge standalone JSON v1 contract ${checking ? 'checked' : 'generated'}`);
+    console.log(`sipbridge standalone protobuf v1 contract ${checking ? 'checked' : 'generated'}`);
 } finally {
     rmSync(temporary, { recursive: true, force: true });
 }

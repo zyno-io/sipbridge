@@ -94,31 +94,32 @@ type residentAdmission struct {
 }
 
 type residentTransaction struct {
-	direct               bool
-	decisionPending      bool
-	decisionProposal     *pb.FlowAdoptionRequest
-	requestDialog        string
-	emissions            uint16
-	provisionalEmissions uint16
-	policy               *pb.CommandAdmission
-	budget               *residentBudget
-	borrowed             int64
-	retireAt             time.Time
-	selectors            []string
-	charged              int64
-	retired              bool
-	wireHash             [32]byte
-	command              *residentCommand
-	cleanup              bool
-	credential           *pb.CredentialRef
-	digestAttempts       uint32
-	digestHandled        bool
-	deadline             time.Time
-	native               portable.Transaction
-	flow                 *pb.FlowRef
-	requestID            string
-	application          *pb.ProcessRef
-	presentDeadline      time.Time
+	direct                  bool
+	decisionPending         bool
+	decisionProposal        *pb.FlowAdoptionRequest
+	requestDialog           string
+	emissions               uint16
+	provisionalEmissions    uint16
+	policy                  *pb.CommandAdmission
+	budget                  *residentBudget
+	borrowed                int64
+	retireAt                time.Time
+	selectors               []string
+	charged                 int64
+	retired                 bool
+	reliableRegisterWritten bool
+	wireHash                [32]byte
+	command                 *residentCommand
+	cleanup                 bool
+	credential              *pb.CredentialRef
+	digestAttempts          uint32
+	digestHandled           bool
+	deadline                time.Time
+	native                  portable.Transaction
+	flow                    *pb.FlowRef
+	requestID               string
+	application             *pb.ProcessRef
+	presentDeadline         time.Time
 }
 
 type residentDialog struct {

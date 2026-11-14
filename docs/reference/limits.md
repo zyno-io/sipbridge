@@ -43,7 +43,8 @@ and [Runtime: service bounds](../runtime.md#service-bounds-and-encoding).
 
 ## Native state
 
-These limits apply to the SIP state sipbridge keeps. A *group* is all the state
+The group/encoded limits below describe checkpoint state. Resident Memory uses
+[typed record accounting](../memory-core.md#what-lives-in-memory). A *group* is all the state
 for one Call-ID; a *context* is one call leg, subscription or standalone
 transaction within it.
 
@@ -58,11 +59,15 @@ transaction within it.
 | Store input and operation outcome | 1 MiB each |
 | Arbitration proofs per server transaction | 22 |
 | Retired-context markers | 128 |
-| Terminal context / transaction retention floor | 2 minutes |
+| Checkpoint terminal context / transaction retention floor | 2 minutes |
 | Terminal subscription delivery window | 5 seconds |
 | Default partitions | 64 (`SIPBRIDGE_STATE_PARTITIONS`, 1–4096) |
-| Memory groups | 128 (`SIPBRIDGE_MEMORY_MAX_GROUPS`) |
-| Memory reserved bytes | 1 GiB (`SIPBRIDGE_MEMORY_MAX_BYTES`), so 16 groups by default |
+| Resident Memory contexts | 128 (`SIPBRIDGE_MEMORY_MAX_GROUPS`) |
+| Resident Memory accounted bytes and completion headroom | 1 GiB (`SIPBRIDGE_MEMORY_MAX_BYTES`) |
+
+Memory completed reliable REGISTER procedures have the narrow
+[lifetime exception](../memory-core.md#completed-reliable-register-lifetime); do
+not apply the checkpoint floor or a per-group encoded reservation to them.
 
 ## Leases and recovery
 

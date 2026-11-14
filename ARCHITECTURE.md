@@ -22,11 +22,11 @@ Go/TypeScript codecs, distribution copy and schema receipt ship together.
 Consumers pin the full receipt and an immutable image; major `1` alone does not
 establish compatibility. Native retained storage has its own schema identity.
 
-The replacement Memory runtime follows [Resident Memory core](docs/memory-core.md).
-Its message representation revision is independently reviewed and locked before
-implementation; SIP reducers remain the sole semantic authority. The deployed
-checkpoint runtime below remains the serving implementation until the replacement
-passes its protocol and CPU gates. Redis implementation follows that Memory gate.
+The default resident Memory runtime follows [Resident Memory core](docs/memory-core.md).
+It owns typed process-local protocol records and immutable message facts. Explicit
+Redis selection uses the checkpoint runtime in [Runtime](docs/runtime.md).
+The matched Memory CPU gate remains unmet; current source and qualification trials
+do not establish production acceptance or authorize the later Redis replacement.
 
 ## Components and authority
 
@@ -65,7 +65,7 @@ identity, transport, sequence and flow checks. It does not transfer timer owners
 or authenticate a fresh call. Responses use the admitted request's flow;
 publication of a route for later output is a separate ordered decision.
 
-Optional controller reattachment additionally requires the controller's durable
+Redis checkpoint controller reattachment additionally requires the controller's durable
 recovery handle and application checkpoint. It is defined only in
 [controller recovery](docs/controller-recovery.md). Physical reconnection and
 shared native state do not imply that this capability is enabled.
@@ -86,7 +86,7 @@ facts rather than retaining a parsed request as a quiet dialog's source of truth
 Classification and selector lookup reuse one transient parse at each received
 boundary. Construct rich SIP control DTOs only when delivering them publicly;
 receipt storage accepts immutable wire directly without building a DTO first.
-The Memory target further requires owned immutable native message facts through
+Memory uses owned immutable native message facts through
 matching, reducers, construction, output and retirement, as defined in its
 [parse-once contract](docs/memory-core.md#parse-once-and-retain-only-required-message-data).
 Exact replay policy and cutoffs belong to [runtime](docs/runtime.md); terminating
@@ -116,6 +116,10 @@ commit. Deferred publication/proof completion can return that same one-shot DTO
 under the original deadline. It is not a durable job or a replayable callback.
 Losing initial setup in this window can fail that request. Retained lifecycle
 events and established protocol obligations have independent recovery rules.
+
+Memory uses one request notification and one controller decision as defined in
+[the direct-decision contract](PROTOCOL.md#direct-request-decision-memory). The
+diagram above describes checkpoint routing and presentation.
 
 The controller selects application responses and prepares subscription content.
 Accepted SUBSCRIBE requires its immediate/refresh NOTIFY even when content is
@@ -173,7 +177,8 @@ credential reference; clear credentials are ephemeral lookup results only.
 
 ## Recovery and process lifecycle
 
-Each worker executes deadlines for its own groups. One coordinator handles
+Memory executes process-local indexed deadlines without shared scheduling. In
+Redis checkpoint execution, each worker executes deadlines for its own groups. One coordinator handles
 unowned work and expired-worker transfer. Presence, leases and queue heads are
 metadata, not SIP authority. Workers remember only wake cursors and conservative
 local deadlines; they do not poll dialog records. Followers wait for observed

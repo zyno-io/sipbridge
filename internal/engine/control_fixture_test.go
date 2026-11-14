@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 )
@@ -177,11 +177,11 @@ func publicationControllerPair(t *testing.T, process, first, second *pb.ProcessR
 
 func writeControllerEnvelope(t *testing.T, ctx context.Context, connection *websocket.Conn, message *pb.Envelope) {
 	t.Helper()
-	encoded, err := protojson.Marshal(message)
+	encoded, err := proto.Marshal(message)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := connection.Write(ctx, websocket.MessageText, encoded); err != nil {
+	if err := connection.Write(ctx, websocket.MessageBinary, encoded); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -192,11 +192,11 @@ func readControllerEnvelope(t *testing.T, ctx context.Context, connection *webso
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kind != websocket.MessageText {
+	if kind != websocket.MessageBinary {
 		t.Fatal("control returned non-text envelope")
 	}
 	message := new(pb.Envelope)
-	if err := protojson.Unmarshal(wire, message); err != nil {
+	if err := proto.Unmarshal(wire, message); err != nil {
 		t.Fatal(err)
 	}
 	return message

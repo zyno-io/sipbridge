@@ -1,0 +1,10 @@
+{
+    "secret": "test-secret-that-is-long-enough",
+    "epoch": "redis-one",
+    "realm": "example.test",
+    "scope": "example.test\n",
+    "timestamp": 1793866800,
+    "wire": "REGISTER sip:service@example.test SIP/2.0\r\nVia: SIP/2.0/UDP 192.0.2.1:5060;branch=z9hG4bK-policy;rport\r\nFrom: <sip:phone@example.test>;tag=phone\r\nTo: <sip:service@example.test>\r\nCall-ID: policy-call\r\nCSeq: 1 REGISTER\r\nExpires: 0\r\nContent-Length: 0\r\n\r\n",
+    "signingKey": "b1FVOcZIlmOv_9M01eG2qPtHi_2lJELt4PW5tFZ7i0w",
+    "nonce": "bDEuMTc5Mzg2NjgwMC45MjJiZjExZWNkMzMwNWEyYWQzM2Q5MWU3MmU0NTNhZS5vdU5YOGNpRno2b3pkQVlkc21VVUg0MFRNT0NtMzRWSTNKMU16Wk5Kdy1B"
+}

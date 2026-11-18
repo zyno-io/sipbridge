@@ -1,0 +1,8 @@
+{
+  "name": "sipbridge-performance-app",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "drachtio-srf": "5.0.27"
+  }
+}

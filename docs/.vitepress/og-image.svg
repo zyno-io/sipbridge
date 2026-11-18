@@ -1,0 +1,46 @@
+<!-- Source for docs/public/og-image.png. Regenerate: rsvg-convert -w 1200 -h 630 docs/.vitepress/og-image.svg -o docs/public/og-image.png (needs SF Pro Display/Text and Menlo). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <radialGradient id="glow" cx="0.85" cy="0.05" r="0.9">
+      <stop offset="0" stop-color="#5b63e8" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#5b63e8" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity="0.04" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" fill="#131316"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <g transform="translate(80 84)">
+    <rect width="88" height="88" rx="20" fill="#5b63e8"/>
+    <path transform="scale(1.375)" d="M8 40H56M21 15V49M43 15V49M9 34L21 17Q32 38 43 17L55 34" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="116" y="70" font-family="SF Pro Display" font-weight="700" font-size="84" fill="#f5f5f7" letter-spacing="-2">sipbridge</text>
+  </g>
+
+  <text x="80" y="268" font-family="SF Pro Display" font-weight="600" font-size="50" fill="#f5f5f7" letter-spacing="-0.5">SIP signaling that your application controls</text>
+  <text x="80" y="322" font-family="SF Pro Text" font-size="27" fill="#a1a1aa">sipbridge runs SIP transactions, dialogs and timers.</text>
+  <text x="80" y="358" font-family="SF Pro Text" font-size="27" fill="#a1a1aa">Your controller decides each call over a WebSocket.</text>
+
+  <g font-family="SF Pro Text" font-size="22" text-anchor="middle">
+    <rect x="80" y="430" width="250" height="84" rx="14" fill="#1d1d22" stroke="#3f3f46" stroke-width="2"/>
+    <text x="205" y="480" fill="#e4e4e7" font-weight="600">Phones &amp; trunks</text>
+
+    <line x1="342" y1="472" x2="463" y2="472" stroke="#71717a" stroke-width="2" stroke-dasharray="6 6"/>
+    <text x="402" y="456" fill="#a1a1aa" font-family="Menlo" font-size="16">SIP</text>
+    <text x="402" y="500" fill="#71717a" font-family="Menlo" font-size="14">UDP·TCP·TLS</text>
+
+    <rect x="475" y="430" width="250" height="84" rx="14" fill="#5b63e8" fill-opacity="0.18" stroke="#5b63e8" stroke-width="2"/>
+    <text x="600" y="480" fill="#c7cbff" font-weight="700">sipbridge</text>
+
+    <line x1="737" y1="472" x2="858" y2="472" stroke="#71717a" stroke-width="2" stroke-dasharray="6 6"/>
+    <text x="797" y="456" fill="#a1a1aa" font-family="Menlo" font-size="16">WebSocket</text>
+    <text x="797" y="500" fill="#71717a" font-family="Menlo" font-size="14">JSON</text>
+
+    <rect x="870" y="430" width="250" height="84" rx="14" fill="#1d1d22" stroke="#3f3f46" stroke-width="2"/>
+    <text x="995" y="480" fill="#e4e4e7" font-weight="600">Your controller</text>
+  </g>
+
+  <text x="80" y="576" font-family="Menlo" font-size="20" fill="#71717a">zyno-io.github.io/sipbridge</text>
+</svg>

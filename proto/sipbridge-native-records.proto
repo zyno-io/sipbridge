@@ -1,0 +1,112 @@
+syntax = "proto3";
+package sipbridge.native.v1;
+option go_package = "sipbridge/internal/nativepb";
+import "sipbridge-control.proto";
+import "sipbridge-storage.proto";
+
+// Independently addressable records. Message references name selected fields
+// in the same context hash; exact wire is held only in selected-message records.
+message Context {
+  .sipbridge.control.v1.ContextRef context = 1;
+  .sipbridge.control.v1.ProcessRef application = 2;
+  string application_lease_term = 3;
+  string principal_id = 4; string binding_id = 5;
+  string directory_epoch = 6;
+  .sipbridge.control.v1.ContextDelivery delivery = 7;
+  .sipbridge.control.v1.FlowRef flow = 8;
+  uint64 command_sequence = 9; uint64 revision = 10;
+  string transport = 11; bool ended = 12;
+  .sipbridge.control.v1.ContextSnapshot.Kind kind = 13;
+  string call_id = 14; string local_tag = 15; string remote_tag = 16;
+  string local_uri = 17; string remote_uri = 18; string remote_target = 19;
+  bytes local_sdp = 20; bytes remote_sdp = 21;
+  bool answered = 22; bool initial_ack = 23;
+  uint64 attachment_generation = 24;
+  .sipbridge.control.v1.ProcessRef executor = 25;
+  repeated string selectors = 26;
+  int64 call_retire_at_ms = 27;
+  repeated string initial_procedures = 28;
+  repeated string dialogs = 29;
+  repeated string noninitial_procedures = 30;
+}
+message Procedure {
+  .sipbridge.storage.v1.PortableTransaction native = 1;
+  string origin = 2; string last_response = 3; string ack = 4;
+  .sipbridge.control.v1.FlowRef flow = 5;
+  .sipbridge.control.v1.ProcessRef application = 6;
+  .sipbridge.control.v1.CommandAdmission policy = 7;
+  string request_id = 8; int64 present_deadline_ms = 9;
+  bool direct = 10; bool decision_pending = 11;
+  .sipbridge.control.v1.FlowAdoptionRequest proposal = 12;
+  string request_dialog = 13; int64 deadline_ms = 14;
+  int64 retire_at_ms = 15; bool final_response_written_acknowledged = 16;
+  uint32 emissions = 17; uint32 provisional_emissions = 18; bool cleanup = 19;
+  .sipbridge.control.v1.CredentialRef credential = 20;
+  uint32 digest_attempts = 21; bool digest_handled = 22; bytes wire_hash = 23;
+  string command_result = 24;
+  uint64 credit_contribution = 25;
+  bool output_consumed = 27;
+  repeated string outputs = 28;
+  repeated string events = 29;
+  string root = 30;
+  uint32 ack_emissions = 31;
+  SuccessfulAck successful_ack = 32;
+}
+message SuccessfulAck {
+  string final_response = 1; string ack = 2;
+  .sipbridge.control.v1.FlowRef flow = 3; uint32 emissions = 4;
+  string ack_result = 5;
+}
+message InviteRefs { string request = 1; string final_response = 2; string ack = 3; }
+message Dialog {
+  .sipbridge.storage.v1.PortableDialog native = 1;
+  InviteRefs local_invite = 2; InviteRefs remote_invite = 3; string local_bye = 4;
+  .sipbridge.control.v1.FlowRef completion_flow = 5;
+  bool ack_written = 6; string transaction = 7; string local_transaction = 8;
+  repeated string outputs = 9;
+  uint32 ack_emissions = 10;
+  string ack_result = 11;
+}
+message Subscription {
+  .sipbridge.storage.v1.EngineStateSubscription native = 1;
+  uint64 base_credit = 2;
+}
+message Result {
+  .sipbridge.control.v1.OperationResult.Certainty certainty = 1;
+  string error = 2; uint32 sip_status = 3;
+  reserved 4;
+  string request = 5; string response = 6;
+  .sipbridge.control.v1.ContextRetirementProof retirement_proof = 7;
+  int64 cutoff_ms = 8;
+  uint64 sequence = 9; string operation_id = 10; bytes fingerprint = 11;
+  string deciding_lease_term = 12;
+  string server_request_id = 13;
+  // Pending command results expose UNKNOWN after the original deadline until
+  // native completion supplies a definite result.
+  bool pending = 14;
+  string output = 15;
+  reserved 16, 17;
+}
+message Lifecycle {
+  .sipbridge.control.v1.DialogEvent.Kind kind = 1;
+  .sipbridge.control.v1.ContextSnapshot snapshot = 2;
+  string operation_id = 3; string error = 4; string message = 5;
+  repeated string selectors = 6; int64 deadline_ms = 7;
+  int64 next_ms = 8; int64 backoff_ms = 9;
+  repeated string owners = 10;
+  string root = 11;
+}
+
+// Physical write authority and native completion metadata. Exact SIP bytes
+// are stored once in the separately pinned selected-message record.
+message DrainObservation {
+  bytes transaction = 1; bytes ack = 2; uint32 status = 3;
+  bool request = 4; bool invite = 5; bool is_ack = 6; bool cancel = 7; bool initial = 8;
+}
+message Output {
+  .sipbridge.control.v1.FlowWrite write = 1;
+  string procedure = 2; string result = 3; string dialog = 4;
+  bool replay = 5; bool cleanup_after_ack = 6; uint32 ack_sequence = 7;
+  string operation = 8; string method = 9; uint32 status = 10;
+  DrainObservation drain = 11;
+}

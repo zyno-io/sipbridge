@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/zyno-io/sipbridge",
+  "source": "proto/sipbridge-control.proto",
+  "schema_sha256": "5f6b0feca665cbaaaa2c8d8573c7bae60d5ab1c234f17ae06494abee65dd3154",
+  "protoc": "3.21.12",
+  "protoc_gen_go": "1.36.12",
+  "ts_proto": "2.18.3",
+  "generated_go_sha256": "baa54264fec637b6969c9f78eb172ebfdc00898e1247174e5b12adde3aff7c81",
+  "generated_ts_sha256": "2cb2525f279d40ebf270933639a7da7ad0ed7a528e3349c442cd66217e459e80",
+  "generated_json_validation_sha256": "42da9bcb9a23b535938e62ff6bc630783f9a4e2f48f8b19cd4adef7aa32282ec",
+  "typescript_validator_sha256": "c0c2c1671e87252b08904f2f82d08d24f979cd5d22bf5f942e81f8e1e1ff7888",
+  "json_cases_sha256": "2e1f5e094cf9eec60f74e35e5e0d42705f8f05283d6d8640337775ed759e8cc7",
+  "digest_challenge_case_sha256": "01647794997aa864eab906cccfdacb010673b25d1c2ea6922a3a733878c26004",
+  "wire_encoding": "json",
+  "subprotocol": "sipbridge.control.json.v1",
+  "protocol_major": 1
+}

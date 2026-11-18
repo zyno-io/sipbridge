@@ -1,0 +1,3 @@
+
+# Preserve exact upstream diff provenance, including context-line indentation.
+dependencies/sipgo.patch -whitespace

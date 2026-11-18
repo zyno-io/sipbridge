@@ -1,0 +1,592 @@
+package engine
+
+import (
+	"context"
+	"errors"
+	"slices"
+	"sort"
+	"time"
+
+	"github.com/emiago/sipgo/sip"
+	"github.com/emiago/sipgo/sip/portable"
+	"google.golang.org/protobuf/proto"
+	"sipbridge/internal/control"
+	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/state"
+)
+
+// command selects an application response under the context lock. Physical
+// completion settles the particular command receipt, independently of later commands.
+func (e *ResidentMemory) command(ctx context.Context, peer *control.Peer, cmd *pb.Command, operation string, deadline time.Time) (*pb.OperationResult, error) {
+	if cmd == nil || cmd.Context == nil {
+		return nil, errors.New("command context required")
+	}
+	if cmd.GetRespond() == nil {
+		return e.commandResidentClient(ctx, peer, cmd, operation, deadline)
+	}
+	return e.respondResident(ctx, peer, cmd, operation, deadline, nil)
+}
+
+func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer, cmd *pb.Command, operation string, deadline time.Time, direct *residentDecision) (*pb.OperationResult, error) {
+	var capability *control.ApplicationCapability
+	if e.phoneDomain {
+		capability = peer.ApplicationCapability(e.control)
+	}
+	application, applicationTerm := peer.Application(), peer.ApplicationLease().GetTerm()
+	if direct != nil {
+		direct.capability = capability
+	}
+	c, err := e.findContext(cmd.Context)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	if !e.residentContextCurrentLocked(c, cmd.Context) {
+		c.mu.Unlock()
+		return nil, state.ErrNotFound
+	}
+	if tx := c.transactions[c.requests[cmd.GetRespond().GetRequestId()]]; tx != nil && tx.decisionPending {
+		if direct == nil {
+			c.mu.Unlock()
+			return nil, errors.New("pending request requires a direct decision")
+		}
+		deadline = minTime(deadline, tx.presentDeadline)
+	}
+	var receipt *residentCommand
+	var policy *pb.CommandAdmission
+	var replay bool
+	if direct != nil {
+		receipt, policy, replay, err = e.admitResidentCommandLocked(c, peer, capability, cmd, operation, deadline, direct)
+	} else {
+		receipt, policy, replay, err = e.admitResidentCommandLocked(c, peer, capability, cmd, operation, deadline)
+	}
+	if err != nil {
+		c.mu.Unlock()
+		return nil, err
+	}
+	if replay {
+		c.mu.Unlock()
+		return awaitResidentReplay(ctx, c, receipt)
+	}
+	var expiredOwnerKey string
+	var requiredNotify *residentBudget
+	var notifyTx *residentTransaction
+	var notifyEffects []portable.Effect
+	var directScopeGrowth residentClientGrowth
+	var directSnapshot *pb.ContextSnapshot
+	var directFlow *pb.FlowRef
+	refuse := func(err error) (*pb.OperationResult, error) {
+		e.rollbackResidentClientGrowth(c, directScopeGrowth)
+		if notifyTx != nil && notifyTx.charged > 0 {
+			_ = e.refundResidentBudgetLocked(c, notifyTx.budget, notifyTx.charged, notifyTx.borrowed)
+			notifyTx.charged = 0
+		}
+		if requiredNotify != nil {
+			e.closeResidentBudgetLocked(c, requiredNotify)
+			requiredNotify = nil
+		}
+		finishResidentCommandLocked(c, receipt, &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: err.Error()})
+		result := residentCommandResultLocked(c, receipt)
+		if receipt.originalPending && receipt.registered {
+			c.receiptPins--
+		}
+		receipt.originalPending = false
+		releaseResidentCommandWireLocked(c, receipt)
+		releaseResidentCommandLocked(c, receipt)
+		if c.retireReady {
+			e.afterResidentOutputReleaseLocked(c)
+		}
+		c.mu.Unlock()
+		return result, nil
+	}
+	response := cmd.GetRespond()
+	if response == nil {
+		return refuse(errors.New("unsupported resident command"))
+	}
+	tx := c.transactions[c.requests[response.RequestId]]
+	if tx != nil {
+		receipt.budget = tx.budget
+	}
+	if tx == nil || tx.native.Phase == portable.Terminated || tx.native.Phase == portable.Completed || tx.native.Phase == portable.Confirmed {
+		return refuse(errors.New("server transaction cannot select response"))
+	}
+	original, err := tx.native.Origin.Facts()
+	if err != nil {
+		return refuse(err)
+	}
+	method := original.CSeqMethod
+	if response.PrincipalId != "" && c.snapshot.PrincipalId != "" && c.snapshot.PrincipalId != response.PrincipalId {
+		return refuse(errors.New("principal mismatch"))
+	}
+	var receivedDialog *residentDialog
+	var receivedEffects []portable.Effect
+	if direct != nil {
+		receivedDialog, receivedEffects, err = e.receiveDecisionDialogLocked(c, tx, direct.request)
+		if err != nil {
+			return refuse(err)
+		}
+		if response.Status == 0 {
+			return e.commitResidentDeferredLocked(ctx, c, tx, receipt, direct, receivedDialog, receivedEffects, deadline)
+		}
+	}
+	var message portable.Message
+	var registerCandidate nativeServerResponseCandidate
+	var hasRegisterCandidate bool
+	var subscription *stateSubscription
+	var snapshot *pb.ContextSnapshot
+	if method == sip.SUBSCRIBE && response.Status >= 200 && response.Status < 300 {
+		needsAdoption := c.subscription != nil || c.snapshot.Delivery != nil || !proto.Equal(c.flow, tx.flow) || !sameProcess(c.snapshot.Application, tx.application)
+		var delivery *pb.ContextDelivery
+		if direct != nil {
+			if direct.value.Delivery != nil {
+				delivery = proto.Clone(direct.value.Delivery).(*pb.ContextDelivery)
+			}
+		} else if needsAdoption {
+			revision := c.revision
+			proposal := proto.Clone(c.snapshot).(*pb.ContextSnapshot)
+			if response.PrincipalId != "" {
+				proposal.PrincipalId = response.PrincipalId
+				proposal.BindingId = response.BindingId
+			}
+			flow := proto.Clone(tx.flow).(*pb.FlowRef)
+			application := proto.Clone(tx.application).(*pb.ProcessRef)
+			c.mu.Unlock()
+			delivery, err = e.adoptResidentFlow(ctx, proposal, flow, application, true)
+			c.mu.Lock()
+			if err != nil {
+				return refuse(err)
+			}
+			e.mu.Lock()
+			lease := e.leases[residentControllerKey(application)]
+			live := e.phoneDomain || lease != nil && lease.term == applicationTerm && time.Now().Before(lease.expires)
+			e.mu.Unlock()
+			if !live || c.revision != revision || c.transactions[tx.native.Key] != tx || c.command != receipt || !time.Now().Before(deadline) || time.Now().UnixMilli() >= int64(policy.ExpiresAtMs) || !proto.Equal(c.snapshot.Delivery, policy.ExpectedDelivery) {
+				return refuse(errors.New("subscription authority changed during flow adoption"))
+			}
+		}
+		subscription, snapshot, message, err = e.prepareResidentSubscription(c, tx, response, time.Now())
+		if err == nil && delivery != nil {
+			snapshot.Delivery = delivery
+			snapshot.ApplicationLeaseTerm = peer.ApplicationLease().Term
+		}
+	} else {
+		var contact string
+		contact, _, err = advertisement(e.cfg, tx.native.Origin.Transport())
+		if err == nil && method == sip.REFER && response.Status >= 200 && response.Status < 300 {
+			if !original.IsRequest {
+				err = errors.New("REFER identity unavailable")
+			} else if original.ToTag != "" {
+				dialog := c.dialogs[original.ToTag+"/"+original.FromTag]
+				if dialog == nil || !portable.MatchDialogRequest(dialog.native, tx.native.Origin) || dialog.native.Contact == "" {
+					err = errors.New("successful in-dialog REFER requires retained native Contact")
+				} else {
+					contact = dialog.native.Contact
+				}
+			}
+		}
+		if err == nil {
+			if method == sip.REGISTER {
+				registerCandidate, err = nativeServerBuildResponse(tx.native, int(response.Status), reason(response.Status), response.Body, c.snapshot.LocalTag, contact, stateHeaders(response.Headers), time.Now().UnixMilli())
+				message, hasRegisterCandidate = registerCandidate.Message, err == nil
+			} else {
+				message, err = portable.BuildResponseWithHeaders(tx.native.Origin, int(response.Status), reason(response.Status), response.Body, c.snapshot.LocalTag, contact, stateHeaders(response.Headers))
+			}
+		}
+	}
+	if err != nil {
+		return refuse(err)
+	}
+	if subscription != nil {
+		if c.requiredNotifyBudget != nil {
+			return refuse(errors.New("required subscription NOTIFY is pending"))
+		}
+		requiredNotify, err = e.openResidentBudgetLocked(c, residentSmallBudget)
+		if err != nil {
+			return refuse(err)
+		}
+	}
+	if direct != nil && subscription != nil {
+		bindResidentDecisionSnapshot(snapshot, direct)
+		view := &residentContext{snapshot: snapshot, subscription: subscription, flow: c.flow}
+		view.snapshot.PrincipalId, view.snapshot.BindingId = direct.value.PrincipalId, direct.value.BindingId
+		if direct.value.Delivery != nil {
+			view.flow = tx.flow
+			view.snapshot.Application = proto.Clone(tx.application).(*pb.ProcessRef)
+		}
+		subscription, notifyTx, notifyEffects, err = e.prepareResidentNotify(view, direct.value.Notify, operation, time.Now())
+		if err != nil {
+			return refuse(err)
+		}
+		notifyTx.budget = requiredNotify
+		notifyBytes := residentTransactionBytes(notifyTx)
+		notifyTx.borrowed, err = e.chargeResidentBudgetLocked(c, requiredNotify, notifyBytes)
+		if err != nil {
+			return refuse(err)
+		}
+		notifyTx.charged = notifyBytes
+		selectors, parseErr := nativeMessageSelectors(notifyTx.native.Origin, true)
+		if parseErr != nil {
+			return refuse(parseErr)
+		}
+		notifyTx.selectors = selectors
+		extra := residentTransactionBytes(notifyTx) - notifyTx.charged
+		if extra > 0 {
+			extraBorrowed, chargeErr := e.chargeResidentBudgetLocked(c, requiredNotify, extra)
+			if chargeErr != nil {
+				return refuse(chargeErr)
+			}
+			notifyTx.charged += extra
+			notifyTx.borrowed += extraBorrowed
+		}
+	}
+	var dialog *residentDialog
+	var dialogEffects []portable.Effect
+	var dialogKey string
+	var inviteSnapshot *pb.ContextSnapshot
+	if receivedDialog != nil {
+		dialog = receivedDialog
+		dialogKey = tx.requestDialog
+		dialogEffects = receivedEffects
+		inviteSnapshot = proto.Clone(c.snapshot).(*pb.ContextSnapshot)
+	}
+	if method == sip.INVITE && response.Status >= 200 {
+		var candidate portable.Dialog
+		var dialogErr error
+		if c.selectedDialog != "" {
+			previous := c.dialogs[c.selectedDialog]
+			if previous == nil {
+				return refuse(errors.New("re-INVITE dialog unavailable"))
+			}
+			candidate = previous.native
+			if receivedDialog != nil {
+				candidate = receivedDialog.native
+			}
+			dialogKey = c.selectedDialog
+		} else if response.Status < 300 {
+			candidate, dialogErr = portable.NewDialog(portable.UAS, tx.native.Origin, message, portable.DefaultTimers())
+			if dialogErr != nil {
+				return refuse(dialogErr)
+			}
+			_, candidate.SentBy, dialogErr = advertisement(e.cfg, tx.native.Origin.Transport())
+			if dialogErr != nil {
+				return refuse(dialogErr)
+			}
+			dialogKey = candidate.LocalTag + "/" + candidate.RemoteTag
+		}
+		if dialogKey != "" {
+			candidate, dialogEffects, dialogErr = portable.StepDialog(candidate, portable.DialogInput{Kind: portable.DialogSendResponse, Now: time.Now().UnixMilli(), Message: message, Answer: len(response.Body) > 0})
+			if dialogErr != nil {
+				return refuse(dialogErr)
+			}
+			dialog = &residentDialog{native: candidate, transaction: tx.native.Key, budget: tx.budget}
+			if previous := c.dialogs[dialogKey]; previous != nil {
+				copy := *previous
+				copy.native = candidate
+				if response.Status < 300 {
+					copy.transaction = tx.native.Key
+				}
+				dialog = &copy
+			}
+			inviteSnapshot = proto.Clone(c.snapshot).(*pb.ContextSnapshot)
+			if response.Status < 300 {
+				inviteSnapshot.Answered = true
+				inviteSnapshot.LocalSdp = append([]byte(nil), response.Body...)
+				inviteSnapshot.RemoteSdp, err = tx.native.Origin.Body()
+				if err != nil {
+					return refuse(err)
+				}
+				inviteSnapshot.DialogId = sip.DialogIDMake(candidate.CallID, candidate.LocalTag, candidate.RemoteTag)
+				inviteSnapshot.LocalTag, inviteSnapshot.RemoteTag, inviteSnapshot.RemoteTarget = candidate.LocalTag, candidate.RemoteTag, candidate.Target
+			}
+		}
+	}
+	if direct != nil && inviteSnapshot != nil && response.Status < 300 {
+		inviteSnapshot.PrincipalId, inviteSnapshot.BindingId = direct.value.PrincipalId, direct.value.BindingId
+		if direct.value.Delivery != nil {
+			inviteSnapshot.Delivery = proto.Clone(direct.value.Delivery).(*pb.ContextDelivery)
+		}
+	}
+	if direct != nil && inviteSnapshot != nil {
+		bindResidentDecisionSnapshot(inviteSnapshot, direct)
+	}
+	var dialogSelector string
+	if dialog != nil || subscription != nil {
+		if facts, factsErr := message.Facts(); factsErr == nil && facts.FromTag != "" && facts.ToTag != "" {
+			tags := []string{facts.FromTag, facts.ToTag}
+			sort.Strings(tags)
+			dialogSelector = opaque("dlg:", facts.CallID, tags[0], tags[1])
+		}
+	}
+	if dialogSelector != "" {
+		projection := snapshot
+		if dialog != nil {
+			projection = inviteSnapshot
+		}
+		if projection != nil && !slices.Contains(projection.Selectors, dialogSelector) {
+			projection.Selectors = append(projection.Selectors, dialogSelector)
+		}
+	}
+	var next portable.Transaction
+	var effects []portable.Effect
+	if hasRegisterCandidate {
+		next, effects = registerCandidate.Transaction, registerCandidate.Effects
+	} else {
+		next, effects, err = nativeServerSelectResponse(tx.native, message, time.Now().UnixMilli())
+		if err != nil {
+			return refuse(err)
+		}
+	}
+	txDelta, txBorrowed, err := e.stageResidentTransactionBytesLocked(c, tx, next)
+	if err != nil {
+		return refuse(err)
+	}
+	var subscriptionDelta, subscriptionBorrowed int64
+	if subscription != nil {
+		oldView := &residentContext{snapshot: c.snapshot, flow: c.flow}
+		newFlow := c.flow
+		if snapshot.Delivery != nil {
+			newFlow = tx.flow
+		}
+		newView := &residentContext{snapshot: snapshot, flow: newFlow}
+		subscriptionDelta = residentContextBytes(newView) - residentContextBytes(oldView) + residentSubscriptionBytes(subscription) - residentSubscriptionBytes(c.subscription)
+		if subscriptionDelta > 0 {
+			subscriptionBorrowed, err = e.chargeResidentBudgetLocked(c, c.subscriptionBudget, subscriptionDelta)
+		}
+		if err != nil {
+			e.abortResidentTransactionBytesLocked(c, tx, txDelta, txBorrowed)
+			return refuse(err)
+		}
+	}
+	var dialogDelta, dialogBorrowed int64
+	if dialog != nil {
+		dialogDelta = residentDialogBytes(dialog.native) + int64(len(dialog.transaction)+len(dialog.localTransaction)) + residentContextBytes(&residentContext{snapshot: inviteSnapshot, flow: c.flow}) - residentContextBytes(&residentContext{snapshot: c.snapshot, flow: c.flow})
+		if previous := c.dialogs[dialogKey]; previous != nil {
+			dialogDelta -= residentDialogBytes(previous.native) + int64(len(previous.transaction)+len(previous.localTransaction))
+		}
+		if dialogDelta > 0 {
+			dialogBorrowed, err = e.chargeResidentBudgetLocked(c, dialog.budget, dialogDelta)
+		}
+		if err != nil {
+			if subscriptionDelta > 0 {
+				_ = e.refundResidentBudgetLocked(c, c.subscriptionBudget, subscriptionDelta, subscriptionBorrowed)
+			}
+			e.abortResidentTransactionBytesLocked(c, tx, txDelta, txBorrowed)
+			return refuse(err)
+		}
+	}
+	if direct != nil {
+		directSnapshot = snapshot
+		if directSnapshot == nil {
+			directSnapshot = inviteSnapshot
+		}
+		if directSnapshot == nil {
+			directSnapshot = proto.Clone(c.snapshot).(*pb.ContextSnapshot)
+		}
+		bindResidentDecisionSnapshot(directSnapshot, direct)
+		directFlow = c.flow
+		if response.Status < 300 {
+			directSnapshot.PrincipalId, directSnapshot.BindingId = direct.value.PrincipalId, direct.value.BindingId
+		}
+		if direct.value.Delivery != nil {
+			// Subscription/dialog preparation already owns the ordered receipt.
+			directFlow = tx.flow
+		}
+		delta := int64(0)
+		if subscription == nil {
+			delta = residentContextBytes(&residentContext{snapshot: directSnapshot, flow: directFlow}) - residentContextBytes(c)
+			if dialog != nil {
+				delta -= residentContextBytes(&residentContext{snapshot: inviteSnapshot, flow: c.flow}) - residentContextBytes(c)
+			}
+		}
+		directScopeGrowth, err = e.prepareResidentClientGrowth(c, c.budget, delta)
+		if err != nil {
+			if dialogDelta > 0 {
+				_ = e.refundResidentBudgetLocked(c, dialog.budget, dialogDelta, dialogBorrowed)
+			}
+			if subscriptionDelta > 0 {
+				_ = e.refundResidentBudgetLocked(c, c.subscriptionBudget, subscriptionDelta, subscriptionBorrowed)
+			}
+			e.abortResidentTransactionBytesLocked(c, tx, txDelta, txBorrowed)
+			return refuse(err)
+		}
+	}
+	previous := tx.command
+	if direct == nil {
+		tx.command = receipt
+	}
+	oldSnapshot, oldFlow := c.snapshot, c.flow
+	if direct != nil {
+		c.snapshot, c.flow = directSnapshot, directFlow
+	}
+	groups := []residentOutputGroup{{tx: tx, effects: effects, policy: policy, capability: capability, application: application, term: applicationTerm}}
+	if notifyTx != nil {
+		groups = append(groups, residentOutputGroup{tx: notifyTx, effects: notifyEffects, policy: policy, nativeCompletion: true})
+	}
+	var writes []*pb.FlowWrite
+	if direct != nil {
+		writes, err = e.stageResidentOutputGroupsLocked(c, groups, operation, deadline, func() error {
+			return e.publishResidentDecisionAuthorityLocked(c, direct, minTime(deadline, tx.presentDeadline))
+		})
+	} else {
+		writes, err = e.stageResidentOutputGroupsLocked(c, groups, operation, deadline)
+	}
+	c.snapshot, c.flow = oldSnapshot, oldFlow
+	if err != nil {
+		tx.command = previous
+		e.abortResidentTransactionBytesLocked(c, tx, txDelta, txBorrowed)
+		if subscriptionDelta > 0 {
+			_ = e.refundResidentBudgetLocked(c, c.subscriptionBudget, subscriptionDelta, subscriptionBorrowed)
+		}
+		if dialogDelta > 0 {
+			_ = e.refundResidentBudgetLocked(c, dialog.budget, dialogDelta, dialogBorrowed)
+		}
+		return refuse(err)
+	}
+	if len(writes) == 0 {
+		tx.command = previous
+		e.abortResidentTransactionBytesLocked(c, tx, txDelta, txBorrowed)
+		if subscriptionDelta > 0 {
+			_ = e.refundResidentBudgetLocked(c, c.subscriptionBudget, subscriptionDelta, subscriptionBorrowed)
+		}
+		if dialogDelta > 0 {
+			_ = e.refundResidentBudgetLocked(c, dialog.budget, dialogDelta, dialogBorrowed)
+		}
+		return refuse(errors.New("response produced no output"))
+	}
+	if direct == nil {
+		retainResidentCommandLocked(receipt)
+		releaseResidentCommandLocked(c, previous)
+	}
+	tx.native = next
+	if response.Status >= 300 && c.subscription != nil && c.subscription.Pending == tx.native.Key {
+		c.subscription.Pending = ""
+	}
+	e.commitResidentTransactionBytesLocked(c, tx, txDelta, txBorrowed)
+	if subscriptionDelta < 0 {
+		returned := min(c.subscriptionBorrowed, -subscriptionDelta)
+		_ = e.refundResidentBudgetLocked(c, c.subscriptionBudget, -subscriptionDelta, returned)
+		c.subscriptionBorrowed -= returned
+	}
+	c.subscriptionBorrowed += subscriptionBorrowed
+	if dialogDelta < 0 {
+		returned := min(dialog.borrowed, -dialogDelta)
+		_ = e.refundResidentBudgetLocked(c, dialog.budget, -dialogDelta, returned)
+		dialog.borrowed -= returned
+	}
+	if dialog != nil {
+		dialog.borrowed += dialogBorrowed
+	}
+	if dialog != nil {
+		previous := c.dialogs[dialogKey]
+		c.snapshot = inviteSnapshot
+		c.dialogs[dialogKey] = dialog
+		if previous != nil && previous.transaction != dialog.transaction {
+			if old := c.transactions[previous.transaction]; old != nil {
+				e.retireResidentTransactionLocked(c, old)
+			}
+		}
+		c.selectedDialog = dialogKey
+		c.revision++
+		c.snapshot.Revision++
+		if dialogSelector != "" {
+			e.mu.Lock()
+			e.dialogs[dialogSelector] = c
+			e.mu.Unlock()
+		}
+		_ = e.scheduleResidentDialogLocked(c, dialogKey, dialogEffects)
+	}
+	if subscription != nil {
+		if direct == nil {
+			c.requiredNotifyBudget = requiredNotify
+		}
+		requiredNotify = nil
+		c.subscription = subscription
+		c.snapshot = snapshot
+		if snapshot.Delivery != nil {
+			if direct != nil {
+				c.flow = directFlow
+			} else {
+				c.flow = proto.Clone(tx.flow).(*pb.FlowRef)
+			}
+		}
+		if direct != nil && direct.bindOwner || snapshot.Delivery != nil {
+			c.snapshot.Application = proto.Clone(tx.application).(*pb.ProcessRef)
+			c.ownerLost = false
+			e.mu.Lock()
+			e.indexResidentOwnerUnderEngineLock(c)
+			lease := e.leases[residentControllerKey(c.snapshot.Application)]
+			if !e.phoneDomain && (lease == nil || lease.term != c.snapshot.ApplicationLeaseTerm || !time.Now().Before(lease.expires)) {
+				expiredOwnerKey = c.ownerKey
+			}
+			e.mu.Unlock()
+		}
+		c.revision++
+		c.snapshot.Revision++
+		e.scheduleResidentSubscriptionLocked(c)
+		if dialogSelector != "" {
+			e.mu.Lock()
+			e.dialogs[dialogSelector] = c
+			e.mu.Unlock()
+		}
+	}
+	if response.PrincipalId != "" {
+		c.snapshot.PrincipalId = response.PrincipalId
+		c.snapshot.BindingId = response.BindingId
+	}
+	var committed *pb.OperationResult
+	if direct != nil {
+		e.commitResidentClientGrowth(c, directScopeGrowth, &c.borrowed)
+		c.snapshot = directSnapshot
+		c.flow = directFlow
+		e.clearResidentDecisionLocked(c, tx)
+		if notifyTx != nil {
+			c.transactions[notifyTx.native.Key] = notifyTx
+			e.mu.Lock()
+			for _, selector := range notifyTx.selectors {
+				e.transactions[selector] = c
+			}
+			e.mu.Unlock()
+			_ = e.scheduleResidentTransactionLocked(c, notifyTx, notifyEffects)
+		}
+		committed = finishResidentDecisionLocked(c, receipt, response.Status)
+	}
+	_ = e.scheduleResidentTransactionLocked(c, tx, effects)
+	e.retireResidentTransactionLocked(c, tx)
+	c.mu.Unlock()
+	if expiredOwnerKey != "" {
+		e.loseResidentOwner(c, expiredOwnerKey)
+	}
+	e.dispatchResident(ctx, writes)
+	if direct != nil {
+		return committed, nil
+	}
+	return awaitResidentCommand(ctx, c, receipt)
+}
+
+func (e *ResidentMemory) residentOutputCompleted(c *residentContext, output *residentOutput, result *pb.DeliveryResult) ([]*pb.FlowWrite, error) {
+	writes, handled, err := e.residentClientOutputCompletedLocked(c, output, result)
+	if err != nil || handled {
+		return writes, err
+	}
+	if output.command == nil {
+		return nil, nil
+	}
+	// A written client request is only transport evidence; its transaction
+	// remains pending until the native response establishes the result.
+	if output.status == 0 && result.Outcome == pb.DeliveryResult_WRITTEN {
+		if output.method == "BYE" {
+			if tx := c.transactions[output.transaction]; tx != nil && !tx.cleanup {
+				finishResidentCommandMessageLocked(c, output.command, pb.OperationResult_ACCEPTED, 0, "", tx.native.Origin, portable.Message{})
+			}
+		}
+		return nil, nil
+	}
+	certainty := pb.OperationResult_UNKNOWN
+	message := "SIP delivery unavailable or uncertain"
+	if result.Outcome == pb.DeliveryResult_WRITTEN {
+		certainty = pb.OperationResult_COMPLETED
+		message = ""
+	}
+	finishResidentCommandLocked(c, output.command, &pb.OperationResult{Certainty: certainty, SipStatus: output.status, Error: message})
+	return nil, nil
+}

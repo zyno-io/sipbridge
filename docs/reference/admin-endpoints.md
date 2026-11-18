@@ -1,0 +1,33 @@
+---
+description: The unauthenticated admin HTTP listener, its default address and the probe and metrics paths it serves.
+---
+
+# Admin Endpoints
+
+The admin listener is where probes and Prometheus reach sipbridge. It serves
+plain HTTP with no authentication on `--admin-listen` (default
+`127.0.0.1:8800`), so keep it on loopback or a restricted network. Any HTTP
+method is accepted, and unknown paths return `404`.
+
+| Path | Success | Failure | Notes |
+| --- | --- | --- | --- |
+| `/healthz` | `200`, empty body | none | Liveness. True whenever the admin server responds. |
+| `/sip-servingz` | `200`, empty body | `503 SIP listeners unavailable` | Listeners started, no drain in progress, public TLS certificate valid now. |
+| `/sip-readyz` | `200`, empty body | `503 signaling unavailable`, `503 authentication policy unavailable` | See [Health and Readiness](../guide/health.md). |
+| `/metrics` | `200`, `text/plain; version=0.0.4` | none | Counters listed in [Observability](../guide/observability.md#metrics). |
+
+An excerpt of `/metrics` output:
+
+```text
+zt_sipbridge_runtime_goroutines 41
+zt_sipbridge_ingress_rejected_total 0
+zt_sipbridge_tls_handshake_failures_total 0
+zt_sipbridge_invalid_messages_total 0
+zt_sipbridge_method_rejected_total 0
+zt_sipbridge_resident_contexts 3
+```
+
+Do not confuse this with the control listener, which is a separate server for
+controllers. Apart from `GET /v1/control`, the control listener answers only
+`/sip-readyz`, always with `503` and only to authenticated controllers, and
+returns `404` for everything else.

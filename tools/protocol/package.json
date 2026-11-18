@@ -1,0 +1,20 @@
+{
+  "name": "sipbridge-protocol-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node generate.mjs",
+    "check": "node generate.mjs --check",
+    "test": "node test-json.mjs"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "devDependencies": {
+    "@bufbuild/protobuf": "2.15.0",
+    "@types/node": "24.13.4",
+    "oxfmt": "0.68.0",
+    "ts-proto": "2.18.3",
+    "typescript": "5.9.3"
+  }
+}

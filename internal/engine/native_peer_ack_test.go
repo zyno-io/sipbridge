@@ -293,7 +293,7 @@ func TestResidentPeerReinviteACKDeliveryDrop(t *testing.T) {
 				t.Fatal(err)
 			}
 			c.budget = budget
-			event, err := e.stageResidentEventLocked(c, pb.DialogEvent_ACKNOWLEDGED, stateTestRequest("ACK", 42, "", "delivery-drop"), "", time.Now().Add(2*time.Minute))
+			event, err := e.stageResidentEventLocked(c, pb.DialogEvent_ACKNOWLEDGED, stateTestRequest("ACK", 0, "", "delivery-drop"), "", time.Now().Add(2*time.Minute))
 			if err != nil {
 				t.Fatal(err)
 			}

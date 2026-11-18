@@ -167,7 +167,7 @@ gives you permission to repeat the decision on another session.
 | --- | --- |
 | `PROVISIONAL` | An outgoing call received a provisional response such as `180 Ringing`. |
 | `ANSWERED` | An outgoing call was answered. |
-| `ACKNOWLEDGED` | The phone acknowledged your `200 OK` to its INVITE. Initial ACKs carry only a snapshot. With `sip.reinvite-ack.v1`, re-INVITE ACKs also carry `message` and non-zero `inviteCseq`. |
+| `ACKNOWLEDGED` | The phone acknowledged your `200 OK` to its INVITE. Initial ACKs carry only a snapshot. With `sip.reinvite-ack.v1`, re-INVITE ACKs carry `message` and an `inviteCseq` correlation value (which may be zero). Message presence distinguishes them from initial ACKs. |
 | `CANCELLED` | The caller cancelled before the call was answered. |
 | `ENDED` | The call ended, for example by a BYE from either side. |
 | `FAILED` | An outgoing call failed, for example a final error response or a transport failure. |

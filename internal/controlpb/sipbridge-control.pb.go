@@ -4857,7 +4857,8 @@ type DialogEvent struct {
 	OperationId string                 `protobuf:"bytes,4,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
 	Error       string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
 	// Only with sip.reinvite-ack.v1: message-bearing ACKNOWLEDGED for an accepted
-	// peer re-INVITE ACK, correlated by non-zero CSeq.
+	// peer re-INVITE ACK. Message presence distinguishes it from an initial ACK;
+	// invite_cseq is the correlation value and may be zero.
 	// Initial ACKNOWLEDGED remains snapshot-only and leaves this field zero.
 	InviteCseq    uint32 `protobuf:"varint,6,opt,name=invite_cseq,json=inviteCseq,proto3" json:"invite_cseq,omitempty"`
 	unknownFields protoimpl.UnknownFields

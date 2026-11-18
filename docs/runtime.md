@@ -67,8 +67,10 @@ only the allowed native root before its compatible binary profile starts.
 
 Both serving runtimes expose accepted peer re-INVITE ACKs only to controllers
 that negotiated `sip.reinvite-ack.v1`, using the message-bearing
-`ACKNOWLEDGED` lifecycle event with non-zero `inviteCseq` specified in
-[Protocol](../PROTOCOL.md#peer-re-invite-acknowledgement). The pinned reducer
+`ACKNOWLEDGED` lifecycle event specified in
+[Protocol](../PROTOCOL.md#peer-re-invite-acknowledgement). Message presence
+distinguishes a re-INVITE ACK from an initial ACK; `inviteCseq` is the correlation
+value and may be zero. The pinned reducer
 continues to own ACK acceptance, duplicate suppression and 2xx/ACK timer closure.
 Only a completed late offer updates remote SDP from the ACK. Initial ACK
 signaling keeps its existing snapshot-only event and `initialAck` meaning; its

@@ -861,7 +861,8 @@ export interface DialogEvent {
     error: string;
     /**
      * Only with sip.reinvite-ack.v1: message-bearing ACKNOWLEDGED for an accepted
-     * peer re-INVITE ACK, correlated by non-zero CSeq.
+     * peer re-INVITE ACK. Message presence distinguishes it from an initial ACK;
+     * invite_cseq is the correlation value and may be zero.
      * Initial ACKNOWLEDGED remains snapshot-only and leaves this field zero.
      */
     inviteCseq: number;

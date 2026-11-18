@@ -104,17 +104,21 @@ func TestSelectedSchemaDigestBindsFieldsNotJustVersion(t *testing.T) {
 	}
 }
 
-// These values were computed with profileFixture in an unmodified 88dab8d tree.
-// Optional public lifecycle metadata must not invalidate existing namespaces.
-func TestReinviteACKPreservesBaselineProfile(t *testing.T) {
+// Re-INVITE ACK record semantics require a new layout/profile and authority,
+// even though the selected-record descriptor graph is unchanged from 88dab8d.
+func TestReinviteACKChangesBaselineProfile(t *testing.T) {
 	binding, err := BindProfile(profileFixture())
 	if err != nil {
 		t.Fatal(err)
 	}
+	if fmt.Sprintf("%x", binding.Value) == "fa91b222f6bf61dcb83c38cd1d3d775069bbd158c0e6b9559939e4905cf65fe5" ||
+		binding.Authority.PrimaryId == "cc398c08bb06525ff9dedab1f9df62c281cec9b3" {
+		t.Fatal("incompatible re-INVITE ACK layout retained the 88dab8d profile or authority")
+	}
 	for _, check := range []struct{ name, got, want string }{
 		{"selected schema digest", fmt.Sprintf("%x", selectedSchemaDigest), "3f9edbced4a0fdfe3930b3f96427170172d551e1fbd8df8a8fb76c04fc795cfc"},
-		{"profile", fmt.Sprintf("%x", binding.Value), "fa91b222f6bf61dcb83c38cd1d3d775069bbd158c0e6b9559939e4905cf65fe5"},
-		{"StateAuthority.PrimaryId", binding.Authority.PrimaryId, "cc398c08bb06525ff9dedab1f9df62c281cec9b3"},
+		{"profile", fmt.Sprintf("%x", binding.Value), "8c63ab86e1989520fe5b3602fd1a5209f39ab3d0bb6ed1833a2fc9e0a9a09a6d"},
+		{"StateAuthority.PrimaryId", binding.Authority.PrimaryId, "2279d8af6b2ad961491f9ffa37d23d326104cdac"},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s changed: got %s, want %s", check.name, check.got, check.want)

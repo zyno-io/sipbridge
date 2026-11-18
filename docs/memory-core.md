@@ -365,7 +365,9 @@ domain does not mirror its native records into Redis or restore them after resta
 ## Peer re-INVITE ACK observations
 
 The accepted native ACK transition stages a message-bearing `ACKNOWLEDGED` with
-non-zero `inviteCseq` only for a live controller negotiating `sip.reinvite-ack.v1`. Retain its immutable native
+an `inviteCseq` correlation value (which may be zero) only for a live controller
+negotiating `sip.reinvite-ack.v1`. Message presence distinguishes it from an
+initial ACK. Retain its immutable native
 message and frozen post-transition snapshot in the existing charged lifecycle
 budget through acknowledgement or the original two-minute cutoff. A subsequent
 INVITE cannot replace that event's answer. Duplicate ACKs incur no additional

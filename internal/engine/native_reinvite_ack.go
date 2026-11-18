@@ -31,5 +31,5 @@ func projectReinviteACK(event *pb.DialogEvent, message portable.Message) error {
 
 // Initial ACKNOWLEDGED keeps its original snapshot-only shape.
 func isReinviteACKEvent(event *pb.DialogEvent) bool {
-	return event != nil && event.Kind == pb.DialogEvent_ACKNOWLEDGED && event.Message != nil && event.InviteCseq != 0
+	return event != nil && event.Kind == pb.DialogEvent_ACKNOWLEDGED && event.Message != nil
 }

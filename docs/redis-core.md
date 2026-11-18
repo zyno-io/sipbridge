@@ -480,11 +480,38 @@ Explicit `redis` selection uses the composed runtime defined in [Runtime](runtim
 
 A namespace previously written by the checkpoint engine is not readable by this runtime. Stop all old writers before starting the binary runtime on the allowed native root; old JSON records are never decoded, migrated, cleaned up by a recurring task or reset automatically. Grant the Redis credentials only the minimum command allowlist and a wake-channel pattern restricted to the same native root; never all keys/channels or another role's root. Record field/authority compatibility and a concrete rollback procedure before changing a deployment.
 
+### Re-INVITE ACK layout upgrade and rollback
+
+Redis deployments need a coordinated cutover to a new namespace for the
+re-INVITE ACK layout. Previous-layout state is not migrated; retained calls are
+lost. The retained schema digest alone does not establish field/authority
+compatibility: message-bearing `ACKNOWLEDGED` events now reference a re-INVITE
+procedure and own separate frozen ACK message records. The layout identifier,
+profile and logical authority change to prevent older workers from repeatedly
+fencing on these records.
+
+1. Withdraw admission and drain the old deployment, then stop every old-layout
+   worker before starting the replacement deployment.
+2. Configure a fresh, empty allowed native namespace and its scoped Redis
+   credentials for all new-layout workers. Pin the matching image and control
+   schema receipt together; controllers must use the new logical authority.
+3. Start the new deployment, verify readiness and authority agreement across
+   workers/controllers, then restore admission. Retained calls from the previous
+   namespace cannot resume.
+4. To roll back, withdraw admission, drain and stop every new-layout worker, then
+   start the pinned previous build with its matching control schema receipt on
+   another fresh, empty namespace. Verify its authority and readiness before
+   restoring admission. This also loses retained calls; never resume stale
+   pre-cutover state or point the old build at the new-layout namespace.
+
+Memory runtime is unaffected by this Redis namespace cutover requirement.
+
 ## Peer re-INVITE ACK observations
 
 An accepted non-initial ACK atomically stages a message-bearing `ACKNOWLEDGED`
 under its exact noninitial InviteServer procedure, independently of worker-local
-controller sessions. Delivery projects non-zero `inviteCseq` and requires the
+controller sessions. Message presence identifies a re-INVITE ACK; delivery
+projects its `inviteCseq` correlation value (which may be zero) and requires the
 original term and negotiated `sip.reinvite-ack.v1` capability. A mismatch
 settles and deletes the debt without retry; unavailable sessions retain only
 the existing bounded retries and cutoff. That procedure reciprocally owns the
@@ -503,5 +530,10 @@ negotiation; initial ACK events remain snapshot-only.
 
 Fork events project SDP from the accepted fork’s retained INVITE/final/ACK,
 preserving selected-dialog current SDP. Early-offer ACK bodies are delivered
-as-is without updating remote SDP. The unchanged enum and retained descriptor
-graph preserve the existing Redis schema digest, profile and logical authority.
+as-is without updating remote SDP. The retained descriptor graph and schema digest
+are unchanged, but the new event meaning, procedure ownership and `r:event-ack-*`
+message records are incompatible with the preceding Redis layout. The layout
+identifier now ends in `invite-disconnect-peer-reinvite-ack-v1`, changing the
+profile and logical authority. Mixed-version workers and rollbacks against the
+other layout are refused at connection time. Memory runtime is unaffected by
+this Redis layout change.

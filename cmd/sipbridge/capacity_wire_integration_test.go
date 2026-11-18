@@ -182,7 +182,7 @@ func runTwoLeggedCapacity(t *testing.T, ws *websocket.Conn, hello *pb.SessionHel
 		if body != "" {
 			content = "Content-Type: application/sdp\r\n"
 		}
-		return []byte(fmt.Sprintf("%s sip:service@example.test SIP/2.0\r\nVia: SIP/2.0/TLS phone.example.test:5061;branch=z9hG4bK-capacity-%d;rport\r\nFrom: <sip:phone@example.test>;tag=phone\r\nTo: <sip:service@example.test>\r\nCall-ID: %s-%d\r\nCSeq: 1 %s\r\nContact: <sip:phone@phone.example.test:5061;transport=tls>\r\nMax-Forwards: 70\r\n%sContent-Length: %d\r\n\r\n%s", method, i, hello.Sipbridge.InstanceId, i, method, content, len(body), body))
+		return []byte(fmt.Sprintf("%s sip:service@example.test SIP/2.0\r\nVia: SIP/2.0/TLS phone.example.test:5061;branch=z9hG4bK-capacity-%s-%d;rport\r\nFrom: <sip:phone@example.test>;tag=phone\r\nTo: <sip:service@example.test>\r\nCall-ID: %s-%d\r\nCSeq: 1 %s\r\nContact: <sip:phone@phone.example.test:5061;transport=tls>\r\nMax-Forwards: 70\r\n%sContent-Length: %d\r\n\r\n%s", method, hello.Sipbridge.InstanceId, i, hello.Sipbridge.InstanceId, i, method, content, len(body), body))
 	}
 	decide := func(presentation *pb.RequestPresented, operation string, body []byte) {
 		t.Helper()

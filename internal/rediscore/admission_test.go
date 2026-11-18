@@ -75,4 +75,9 @@ func TestInstanceAdmissionCapacity(t *testing.T) {
 	if err != nil || size <= DefaultNamespaceMaxBytes {
 		t.Fatalf("instance admissions did not exceed the former namespace limit: %d %v", size, err)
 	}
+	for i := 512; i < 1024; i++ {
+		create(fmt.Sprintf("pod-a-out-%d", i), "pod-a", AdmissionOutbound, "", nil)
+	}
+	create("pod-a-overflow", "pod-a", AdmissionOutbound, "", ErrCapacity)
+	create("pod-b-headroom", "pod-b", AdmissionOutbound, "", nil)
 }

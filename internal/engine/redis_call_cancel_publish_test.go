@@ -237,6 +237,7 @@ func TestRedisInitialServerCancelAtomicPair(t *testing.T) {
 			if !statuses[200] || !statuses[487] || len(statuses) != 2 {
 				t.Fatal("both native responses were not reservable", statuses)
 			}
+			reportRedisContextFootprint(t, ctx, client, root+"core:context:call", oldFlow.Transport, "CANCEL and INVITE finals in flight")
 			assertSuppressed("STARTED")
 			ownWrite, inviteWrite := writesByStatus[200], writesByStatus[487]
 			var unknownReplay *pb.FlowWrite

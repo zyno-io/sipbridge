@@ -18,7 +18,7 @@ import (
 // An ACK event has its own frozen wire, independent of the dialog's current
 // remote INVITE. The exact server procedure keeps it reachable until settlement.
 func validReinviteACKLifecycle(record *nativepb.Lifecycle, field string) bool {
-	return record != nil && record.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED &&
+	return record != nil && record.Kind == pb.DialogEvent_ACKNOWLEDGED && record.Message != "" &&
 		strings.HasPrefix(field, "r:event-") && record.Message == "r:event-ack-"+strings.TrimPrefix(field, "r:event-") &&
 		record.Root != "" && record.OperationId == "" && record.Error == "" && len(record.Owners) == 0
 }

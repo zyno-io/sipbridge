@@ -364,10 +364,14 @@ domain does not mirror its native records into Redis or restore them after resta
 
 ## Peer re-INVITE ACK observations
 
-The accepted native ACK transition stages `REINVITE_ACKNOWLEDGED` only for a
-live controller negotiating `sip.reinvite-ack.v1`. Retain its immutable native
+The accepted native ACK transition stages a message-bearing `ACKNOWLEDGED` with
+non-zero `inviteCseq` only for a live controller negotiating `sip.reinvite-ack.v1`. Retain its immutable native
 message and frozen post-transition snapshot in the existing charged lifecycle
 budget through acknowledgement or the original two-minute cutoff. A subsequent
 INVITE cannot replace that event's answer. Duplicate ACKs incur no additional
 delivery debt. Updating remote SDP for `LocalOfferInACK` is part of the same
 locked, accounted publication; initial ACK events remain snapshot-only.
+
+Delivery rechecks the original term and negotiated capability; a mismatch
+releases the event without retry. Late-offer SDP updates apply to all controllers.
+An early-offer ACK body is delivered unchanged without replacing remote SDP.

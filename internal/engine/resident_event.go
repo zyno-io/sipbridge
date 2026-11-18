@@ -148,12 +148,12 @@ func (e *ResidentMemory) deliverResidentEvent(parent context.Context, event *res
 		public.Message, err = projectNativeMessage(event.native, false)
 		if err == nil {
 			public.Message.Selectors = event.selectors
-			if public.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED {
+			if public.Kind == pb.DialogEvent_ACKNOWLEDGED {
 				err = projectReinviteACK(public, event.native)
 			}
 		}
 	}
-	if err == nil && public.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED && !acceptsReinviteACK(peer, public.Snapshot.ApplicationLeaseTerm) {
+	if err == nil && isReinviteACKEvent(public) && !acceptsReinviteACK(peer, public.Snapshot.ApplicationLeaseTerm) {
 		// A different negotiated session cannot receive this optional event.
 		accepted = true
 	} else if err == nil {

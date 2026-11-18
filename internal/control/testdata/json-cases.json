@@ -282,11 +282,11 @@
     {
         "name": "peer re-INVITE ACK answer",
         "valid": true,
-        "json": "{\"correlationId\":\"event-ack\",\"dialogEvent\":{\"kind\":\"REINVITE_ACKNOWLEDGED\",\"inviteCseq\":42,\"message\":{\"method\":\"ACK\",\"body\":\"dj0wDQo=\",\"headers\":[{\"name\":\"CSeq\",\"value\":\"42 ACK\"},{\"name\":\"Content-Type\",\"value\":\"application/sdp\"}]}}}"
+        "json": "{\"correlationId\":\"event-ack\",\"dialogEvent\":{\"kind\":\"ACKNOWLEDGED\",\"inviteCseq\":42,\"message\":{\"method\":\"ACK\",\"body\":\"dj0wDQo=\",\"headers\":[{\"name\":\"CSeq\",\"value\":\"42 ACK\"},{\"name\":\"Content-Type\",\"value\":\"application/sdp\"}]}}}"
     },
     {
         "name": "invalid re-INVITE CSeq",
         "valid": false,
-        "json": "{\"correlationId\":\"event-ack\",\"dialogEvent\":{\"kind\":\"REINVITE_ACKNOWLEDGED\",\"inviteCseq\":-1}}"
+        "json": "{\"correlationId\":\"event-ack\",\"dialogEvent\":{\"kind\":\"ACKNOWLEDGED\",\"inviteCseq\":-1}}"
     }
 ]

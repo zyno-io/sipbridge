@@ -9,7 +9,6 @@ import (
 
 	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
-	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/rediscore"
 )
@@ -35,7 +34,7 @@ func (e *redisNative) tryCallCompletion(parent context.Context, flow *pb.FlowRef
 	defer cancel()
 	executor := rediscore.TimerAssignment{Worker: e.worker, Epoch: e.cfg.Process.Epoch, Term: e.cfg.Process.Epoch}
 	for attempts := 0; attempts < 3; attempts++ {
-		handled, matchErr := matchRedisCallCompletion(ctx, store, e.cfg.Process, flow, message, e.cfg.StateIdentityKey, executor, deadline, e.control)
+		handled, matchErr := matchRedisCallCompletion(ctx, store, e.cfg.Process, flow, message, e.cfg.StateIdentityKey, executor, deadline)
 		if !errors.Is(matchErr, rediscore.ErrConflict) || ctx.Err() != nil || !time.Now().Before(deadline) {
 			return handled, matchErr
 		}
@@ -43,7 +42,7 @@ func (e *redisNative) tryCallCompletion(parent context.Context, flow *pb.FlowRef
 	return true, rediscore.ErrConflict
 }
 
-func matchRedisCallCompletion(ctx context.Context, store *rediscore.Store, local *pb.ProcessRef, flow *pb.FlowRef, message portable.Message, key []byte, executor rediscore.TimerAssignment, deadline time.Time, server *control.Server) (bool, error) {
+func matchRedisCallCompletion(ctx context.Context, store *rediscore.Store, local *pb.ProcessRef, flow *pb.FlowRef, message portable.Message, key []byte, executor rediscore.TimerAssignment, deadline time.Time) (bool, error) {
 	facts, err := message.Facts()
 	if err != nil {
 		return false, err
@@ -86,7 +85,7 @@ func matchRedisCallCompletion(ctx context.Context, store *rediscore.Store, local
 		return true, err
 	}
 	if facts.Method == sip.ACK {
-		return true, publishRedisCallDialogACK(ctx, store, selected, flow, key, executor, deadline, supportsReinviteACK(server, selected.Context.Application, selected.Context.ApplicationLeaseTerm))
+		return true, publishRedisCallDialogACK(ctx, store, selected, flow, key, executor, deadline)
 	}
 	return true, publishRedisCallRemoteBye(ctx, store, selected, flow, key, executor, deadline)
 }

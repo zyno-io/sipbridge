@@ -482,10 +482,13 @@ A namespace previously written by the checkpoint engine is not readable by this 
 
 ## Peer re-INVITE ACK observations
 
-An accepted non-initial ACK can atomically stage `REINVITE_ACKNOWLEDGED` under
-its exact noninitial InviteServer procedure when the original live controller
-negotiated `sip.reinvite-ack.v1`. That procedure reciprocally owns the event
-until acknowledgement or its original two-minute cutoff, preserving its existing
+An accepted non-initial ACK atomically stages a message-bearing `ACKNOWLEDGED`
+under its exact noninitial InviteServer procedure, independently of worker-local
+controller sessions. Delivery projects non-zero `inviteCseq` and requires the
+original term and negotiated `sip.reinvite-ack.v1` capability. A mismatch
+settles and deletes the debt without retry; unavailable sessions retain only
+the existing bounded retries and cutoff. That procedure reciprocally owns the
+event until acknowledgement or its original two-minute cutoff, preserving its existing
 contribution and retirement duty. This adds at most one ACK event per procedure
 within its existing three-event limit, not an ACK history. The event owns a
 separate frozen ACK message record: the SDK dialog's current ACK can be replaced
@@ -497,3 +500,8 @@ ACK validation, duplicate suppression, retransmission stop hints and timers are
 unchanged. A `LocalOfferInACK` completion updates current remote SDP and the
 frozen event snapshot in that same publication, independently of capability
 negotiation; initial ACK events remain snapshot-only.
+
+Fork events project SDP from the accepted fork’s retained INVITE/final/ACK,
+preserving selected-dialog current SDP. Early-offer ACK bodies are delivered
+as-is without updating remote SDP. The unchanged enum and retained descriptor
+graph preserve the existing Redis schema digest, profile and logical authority.

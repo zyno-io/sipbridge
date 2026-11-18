@@ -2,6 +2,7 @@ package rediscore
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -100,5 +101,24 @@ func TestSelectedSchemaDigestBindsFieldsNotJustVersion(t *testing.T) {
 	repeated, err := schemaGraphDigest([]protoreflect.MessageDescriptor{makeRoot(1), makeRoot(1)})
 	if err != nil || repeated != a {
 		t.Fatal("root ordering or duplicate traversal changes the schema receipt", err)
+	}
+}
+
+// These values were computed with profileFixture in an unmodified 88dab8d tree.
+// Optional public lifecycle metadata must not invalidate existing namespaces.
+func TestReinviteACKPreservesBaselineProfile(t *testing.T) {
+	binding, err := BindProfile(profileFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct{ name, got, want string }{
+		{"selected schema digest", fmt.Sprintf("%x", selectedSchemaDigest), "3f9edbced4a0fdfe3930b3f96427170172d551e1fbd8df8a8fb76c04fc795cfc"},
+		{"profile", fmt.Sprintf("%x", binding.Value), "fa91b222f6bf61dcb83c38cd1d3d775069bbd158c0e6b9559939e4905cf65fe5"},
+		{"StateAuthority.PrimaryId", binding.Authority.PrimaryId, "cc398c08bb06525ff9dedab1f9df62c281cec9b3"},
+	} {
+		if check.got != check.want {
+			t.Errorf("%s changed: got %s, want %s", check.name, check.got, check.want)
+		}
+		t.Logf("%s: %s", check.name, check.got)
 	}
 }

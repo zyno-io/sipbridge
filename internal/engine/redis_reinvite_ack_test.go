@@ -11,10 +11,11 @@ import (
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
+	"sipbridge/internal/nativepb"
 	"sipbridge/internal/rediscore"
 )
 
-func assertRedisPeerACKRetention(t *testing.T, ctx context.Context, store *rediscore.Store, client *redis.Client, identity rediscore.Identity, procedureField, dialogField string, ack portable.Message, outcome string) {
+func assertRedisPeerACKRetention(t *testing.T, ctx context.Context, store *rediscore.Store, client *redis.Client, root string, identity rediscore.Identity, procedureField, dialogField string, ack portable.Message, outcome string) {
 	t.Helper()
 	view, err := store.Read(ctx, identity, "r:context", procedureField, dialogField)
 	if err != nil {
@@ -30,7 +31,15 @@ func assertRedisPeerACKRetention(t *testing.T, ctx context.Context, store *redis
 		t.Fatal(err)
 	}
 	current, err := decodeNativeContext(view.Records["r:context"])
-	if err != nil || !current.InitialAck || !bytes.Equal(current.RemoteSdp, peerACKAnswer) {
+	expectedCurrent := peerACKAnswer
+	expectedEvent := peerACKAnswer
+	if strings.HasPrefix(outcome, "fork-") {
+		expectedCurrent = []byte("selected remote SDP")
+		if outcome == "fork-early" {
+			expectedEvent = []byte("v=0\r\ns=hold\r\n")
+		}
+	}
+	if err != nil || !current.InitialAck || !bytes.Equal(current.RemoteSdp, expectedCurrent) {
 		t.Fatal("late-offer ACK snapshot", err)
 	}
 	eventView, err := store.Read(ctx, identity, field)
@@ -38,8 +47,14 @@ func assertRedisPeerACKRetention(t *testing.T, ctx context.Context, store *redis
 		t.Fatal(err)
 	}
 	event, err := decodeNativeLifecycle(eventView.Records[field])
-	if err != nil || event.Kind != pb.DialogEvent_REINVITE_ACKNOWLEDGED || event.Root != procedureField || event.Message == dialog.RemoteInvite.Ack {
+	if err != nil || event.Kind != pb.DialogEvent_ACKNOWLEDGED || event.Root != procedureField || event.Message == dialog.RemoteInvite.Ack {
 		t.Fatal("ACK event wire lacks independent lifetime", err)
+	}
+	if event.DeadlineMs-event.NextMs != (2 * time.Minute).Milliseconds() {
+		t.Fatal("ACK debt changed its original bounded cutoff")
+	}
+	if strings.HasPrefix(outcome, "fork-") && (!bytes.Equal(current.LocalSdp, []byte("selected local SDP")) || !bytes.Equal(event.Snapshot.LocalSdp, []byte("v=0\r\ns=answer\r\n")) || event.Snapshot.RemoteTag == current.RemoteTag) {
+		t.Fatal("fork ACK borrowed the selected leg's identity or local SDP")
 	}
 	// The accepted native duplicate must not allocate a second event or change
 	// either revision, even while this first event is still undelivered.
@@ -48,7 +63,7 @@ func assertRedisPeerACKRetention(t *testing.T, ctx context.Context, store *redis
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := publishRedisCallDialogACK(ctx, store, selectedACK, flow, bytes.Repeat([]byte{7}, 32), view.Timer, time.Now().Add(time.Second), true); err != nil {
+	if err := publishRedisCallDialogACK(ctx, store, selectedACK, flow, bytes.Repeat([]byte{7}, 32), view.Timer, time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	duplicate, err := store.Read(ctx, identity, field)
@@ -80,8 +95,13 @@ func assertRedisPeerACKRetention(t *testing.T, ctx context.Context, store *redis
 	}
 	due := observe()
 	selected, public, err := selectRedisNativeLifecycle(ctx, store, due)
-	if err != nil || public == nil || public.InviteCseq != 14 || public.Message == nil || !bytes.Equal(public.Message.Wire, ack.WireBytes()) || !bytes.Equal(public.Snapshot.RemoteSdp, peerACKAnswer) {
+	if err != nil || public == nil || public.InviteCseq != 14 || public.Message == nil || !bytes.Equal(public.Message.Wire, ack.WireBytes()) || !bytes.Equal(public.Snapshot.RemoteSdp, expectedEvent) {
 		t.Fatal("frozen ACK evidence replaced by current state", err)
+	}
+	if outcome == "no-capability" || outcome == "changed-term" || outcome == "without-local-session" {
+		assertRedisPeerACKDeliverySession(t, ctx, store, identity, current, event, field, outcome)
+		assertRedisPeerACKSettled(t, ctx, store, client, root, identity, field, event.Message, procedureField, dialog.RemoteInvite.Ack)
+		return
 	}
 	original := proto.Clone(public).(*pb.DialogEvent)
 	staged, err := prepareRedisNativeLifecycleAttempt(ctx, store, selected, time.Now().Add(time.Second), time.Now().Add(time.Second))
@@ -121,15 +141,79 @@ func assertRedisPeerACKRetention(t *testing.T, ctx context.Context, store *redis
 			t.Fatal("staged ACK changed")
 		}
 	}
-	if err := completeRedisNativeLifecycle(ctx, store, selected, outcome == "accepted", time.Now().Add(time.Second)); err != nil {
+	if err := completeRedisNativeLifecycle(ctx, store, selected, outcome != "expired", time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	closed, err := store.Read(ctx, identity, field, event.Message, procedureField, dialog.RemoteInvite.Ack)
+	assertRedisPeerACKSettled(t, ctx, store, client, root, identity, field, event.Message, procedureField, dialog.RemoteInvite.Ack)
+}
+
+func assertRedisPeerACKSettled(t *testing.T, ctx context.Context, store *rediscore.Store, client *redis.Client, root string, identity rediscore.Identity, field, messageField, procedureField, nativeACK string) {
+	t.Helper()
+	closed, err := store.Read(ctx, identity, field, messageField, procedureField, nativeACK)
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err = readPrivateProcedureRecord(closed.Records[procedureField])
-	if err != nil || len(owner.Events) != 0 || len(closed.Records[field]) != 0 || len(closed.Records[event.Message]) != 0 || len(closed.Records[dialog.RemoteInvite.Ack]) == 0 {
+	owner, err := readPrivateProcedureRecord(closed.Records[procedureField])
+	if err != nil || len(owner.Events) != 0 || len(closed.Records[field]) != 0 || len(closed.Records[messageField]) != 0 || len(closed.Records[nativeACK]) == 0 {
 		t.Fatal("ACK settlement lost native wire or retained lifecycle debt", err)
+	}
+	_, err = client.ZScore(ctx, root+"core:deadlines:"+identity.Context, strings.TrimPrefix(field, "r:")).Result()
+	if err != redis.Nil {
+		t.Fatal("settled ACK retained a retry deadline", err)
+	}
+}
+
+func assertRedisPeerACKDeliverySession(t *testing.T, ctx context.Context, store *rediscore.Store, identity rediscore.Identity, current *nativepb.Context, event *nativepb.Lifecycle, field, outcome string) {
+	t.Helper()
+	transport, peer, ws, sessionCtx, session, _, _ := residentControlFixture(t, true, outcome != "no-capability")
+	// Model an event captured under the original term, before a different
+	// negotiated session became the executor's delivery target.
+	term := peer.ApplicationLease().GetTerm()
+	if outcome == "changed-term" {
+		term = "previous-controller-term"
+	}
+	current.Application, current.ApplicationLeaseTerm = peer.Application(), term
+	event.Snapshot.Application, event.Snapshot.ApplicationLeaseTerm = peer.Application(), term
+	contextData, err := encodeNativeContext(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventData, err := encodeNativeLifecycle(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := store.Read(ctx, identity, field)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := store.Commit(ctx, rediscore.Publication{Identity: identity, Revision: view.Revision, Deadline: time.Now().Add(time.Second), SpendReservation: true, Changes: []rediscore.Change{{Field: "r:context", Value: contextData}, {Field: field, Value: eventData}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	due := &rediscore.DueContext{Identity: identity, Revision: revision, Assignment: view.Timer, Member: strings.TrimPrefix(field, "r:"), DeadlineMS: event.NextMs, CheckedAtMS: max(time.Now().UnixMilli(), event.NextMs), Observed: time.Now()}
+	executor := &redisNative{control: transport.control, eventWork: make(chan struct{}, 1), events: make(map[redisNativeEventKey]struct{})}
+	if err := executor.dispatchLifecycle(ctx, store, due); err != nil {
+		t.Fatal(err)
+	}
+	if outcome == "without-local-session" {
+		frame := peerACKRead(t, sessionCtx, ws, session)
+		public := frame.GetDialogEvent()
+		if public == nil || public.Kind != pb.DialogEvent_ACKNOWLEDGED || public.InviteCseq != 14 || public.Message == nil || !bytes.Equal(public.Message.Body, peerACKAnswer) {
+			t.Fatal("receiving worker failed to create ACK for another worker's session", frame)
+		}
+		writeControllerEnvelope(t, sessionCtx, ws, &pb.Envelope{SessionId: session, CorrelationId: frame.CorrelationId, Payload: &pb.Envelope_Result{Result: &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED}}})
+	}
+	done := make(chan struct{})
+	go func() { executor.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-sessionCtx.Done():
+		t.Fatal("capability/term mismatch retried instead of settling")
+	}
+	// A ping barrier detects any event sent to a mismatched session or any
+	// additional delivery after settlement.
+	writeControllerEnvelope(t, sessionCtx, ws, &pb.Envelope{SessionId: session, CorrelationId: "drop-barrier", Payload: &pb.Envelope_Ping{Ping: &pb.Heartbeat{Nonce: "drop-barrier"}}})
+	if frame := peerACKRead(t, sessionCtx, ws, session); frame.GetPong().GetNonce() != "drop-barrier" {
+		t.Fatal("mismatched session received ACK", frame)
 	}
 }

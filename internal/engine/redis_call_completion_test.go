@@ -886,10 +886,10 @@ func testSelectedRedisCallDialogReplacementFlow(t *testing.T, pendingOnly bool) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = publishRedisCallDialogACK(ctx, remoteStore, uasSelected, wrongSocket, bytes.Repeat([]byte{7}, 32), uasAssignment, time.Now().Add(time.Second), false); err == nil {
+	if err = publishRedisCallDialogACK(ctx, remoteStore, uasSelected, wrongSocket, bytes.Repeat([]byte{7}, 32), uasAssignment, time.Now().Add(time.Second)); err == nil {
 		t.Fatal("ACK publication accepted a different selected flow")
 	}
-	if err = publishRedisCallDialogACK(ctx, remoteStore, uasSelected, flow, bytes.Repeat([]byte{7}, 32), uasAssignment, time.Now().Add(time.Second), false); err != nil {
+	if err = publishRedisCallDialogACK(ctx, remoteStore, uasSelected, flow, bytes.Repeat([]byte{7}, 32), uasAssignment, time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	tlsHintCtx, cancelTLSHint := context.WithTimeout(ctx, time.Second)
@@ -1026,7 +1026,7 @@ func testSelectedRedisCallDialogReplacementFlow(t *testing.T, pendingOnly bool) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = publishRedisCallDialogACK(ctx, store, uSelected, udpFlow, bytes.Repeat([]byte{7}, 32), assignment, time.Now().Add(time.Second), false); err != nil {
+	if err = publishRedisCallDialogACK(ctx, store, uSelected, udpFlow, bytes.Repeat([]byte{7}, 32), assignment, time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	hintCtx, cancelHint := context.WithTimeout(ctx, time.Second)

@@ -51,9 +51,9 @@ func TestRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T) {
 }
 
 func TestRedisPeerACKLifecycleRetention(t *testing.T) {
-	for _, outcome := range []string{"accepted", "expired"} {
+	for _, outcome := range []string{"accepted", "expired", "without-local-session", "no-capability", "changed-term", "fork-late", "fork-early"} {
 		t.Run(outcome, func(t *testing.T) {
-			testRedisDialogRequestAdmissionDefersDialogMutation(t, sip.REFER, false, false, false, 0, outcome)
+			testRedisDialogRequestAdmissionDefersDialogMutation(t, sip.INFO, false, false, false, 0, outcome)
 		})
 	}
 }
@@ -615,7 +615,7 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 		t.Fatal("INFO write changed decision certainty", err)
 	}
 	var offer []byte
-	if method == sip.INFO {
+	if method == sip.INFO && (len(ackEvent) == 0 || ackEvent[0] == "fork-early") {
 		offer = []byte("v=0\r\ns=hold\r\n")
 	}
 	invite, err := portable.BuildDialogRequest(peer, sip.INVITE, 14, offer, "z9hG4bK-pending-invite")
@@ -978,6 +978,30 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	ackBody := []byte(nil)
 	if len(ackEvent) > 0 {
 		ackBody = peerACKAnswer
+		if ackEvent[0] == "fork-early" {
+			ackBody = []byte("opaque early-offer ACK body")
+		}
+		if strings.HasPrefix(ackEvent[0], "fork-") {
+			view, e := remoteStore.Read(ctx, id, "r:context")
+			if e != nil {
+				t.Fatal(e)
+			}
+			selectedLeg, e := decodeNativeContext(view.Records["r:context"])
+			if e != nil {
+				t.Fatal(e)
+			}
+			// Another fork is selected while this admitted dialog is awaiting ACK.
+			selectedLeg.RemoteTag = "selected-other-fork"
+			selectedLeg.LocalSdp, selectedLeg.RemoteSdp = []byte("selected local SDP"), []byte("selected remote SDP")
+			data, e := encodeNativeContext(selectedLeg)
+			if e != nil {
+				t.Fatal(e)
+			}
+			_, e = remoteStore.Commit(ctx, rediscore.Publication{Identity: id, Revision: view.Revision, Deadline: time.Now().Add(time.Second), SpendReservation: true, Changes: []rediscore.Change{{Field: "r:context", Value: data}}})
+			if e != nil {
+				t.Fatal(e)
+			}
+		}
 	}
 	ack, err := portable.BuildDialogRequest(peer, sip.ACK, 14, ackBody, "z9hG4bK-reinvite-ack")
 	if err != nil {
@@ -1015,8 +1039,10 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	if selectedACK.ProcedureField != "r:procedure-"+inviteID {
 		t.Fatal("ACK associated with wrong INVITE")
 	}
-	if err = publishRedisCallDialogACK(ctx, remoteStore, selectedACK, flow, key, rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}, time.Now().Add(time.Second), len(ackEvent) > 0); err != nil {
-		t.Fatal("commit re-INVITE ACK", err)
+	// This receiving worker has no local control session. Shared debt must still
+	// be created by the production matching path for delivery on its executor.
+	if handled, e := matchRedisCallCompletion(ctx, remoteStore, executor, flow, ack, key, rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}, time.Now().Add(time.Second)); e != nil || !handled {
+		t.Fatal("commit re-INVITE ACK without local controller", handled, e)
 	}
 	acked, err := remoteStore.Read(ctx, selectedACK.Identity, "r:dialog")
 	if err != nil {
@@ -1027,7 +1053,7 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 		t.Fatal("re-INVITE ACK not applied", err)
 	}
 	if len(ackEvent) > 0 {
-		assertRedisPeerACKRetention(t, ctx, remoteStore, client, selectedACK.Identity, "r:procedure-"+inviteID, "r:dialog", ack, ackEvent[0])
+		assertRedisPeerACKRetention(t, ctx, remoteStore, client, root, selectedACK.Identity, "r:procedure-"+inviteID, "r:dialog", ack, ackEvent[0])
 		return
 	}
 	if ownerCase == 3 {
@@ -1191,7 +1217,7 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	if err != nil || !handled {
 		t.Fatal("select re-INVITE CANCEL", handled, err)
 	}
-	handled, err = matchRedisCallCompletion(ctx, store, executor, flow, cancel, key, rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}, time.Now().Add(time.Second), nil)
+	handled, err = matchRedisCallCompletion(ctx, store, executor, flow, cancel, key, rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}, time.Now().Add(time.Second))
 	if err != nil || !handled {
 		t.Fatal("publish re-INVITE CANCEL", handled, err)
 	}

@@ -106,7 +106,7 @@ func callByeOutputFixture(t *testing.T, ingress ...bool) (*rediscore.Store, *pb.
 	assignment := rediscore.TimerAssignment{Worker: worker, Epoch: process.Epoch, Term: process.Epoch}
 	if len(ingress) != 0 && ingress[0] {
 		var handled bool
-		handled, err = matchRedisCallCompletion(ctx, store, process, flow, message, bytes.Repeat([]byte{7}, 32), assignment, time.Now().Add(time.Second), nil)
+		handled, err = matchRedisCallCompletion(ctx, store, process, flow, message, bytes.Repeat([]byte{7}, 32), assignment, time.Now().Add(time.Second))
 		if !handled {
 			t.Fatal("native BYE ingress was not handled")
 		}

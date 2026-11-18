@@ -110,7 +110,7 @@ func publishRedisCallTransactionACK(ctx context.Context, store *rediscore.Store,
 
 // publishRedisCallDialogACK commits the selected successful-final ACK and its
 // native timer changes with any newly incurred frozen lifecycle debt.
-func publishRedisCallDialogACK(ctx context.Context, store *rediscore.Store, selected *selectedRedisCall, flow *pb.FlowRef, key []byte, executor rediscore.TimerAssignment, deadline time.Time, notifyReinvite bool) error {
+func publishRedisCallDialogACK(ctx context.Context, store *rediscore.Store, selected *selectedRedisCall, flow *pb.FlowRef, key []byte, executor rediscore.TimerAssignment, deadline time.Time) error {
 	if store == nil || selected == nil || selected.Context == nil || selected.Context.Kind != pb.ContextSnapshot_UAS && selected.Context.Kind != pb.ContextSnapshot_UAC || selected.Dialog.Metadata == nil || selected.Procedure == nil || selected.Procedure.Metadata == nil || selected.ProcedureField == "" || len(selected.ProcedureBytes) == 0 || !validPolicyFlow(selected.Procedure.Metadata.Flow) || selected.Candidate.TransactionACK || selected.Dialog.Refs.Remote == nil || !validPolicyFlow(flow) || !proto.Equal(selected.Flow, flow) || !time.Now().Before(deadline) {
 		return errNativeRecord
 	}
@@ -191,7 +191,7 @@ func publishRedisCallDialogACK(ctx context.Context, store *rediscore.Store, sele
 			timers = append(timers, rediscore.TimerChange{Member: "event-" + eventID, Due: now})
 		}
 	}
-	if !selected.Candidate.Dialog.RemoteInvite.Initial && notifyReinvite && !ownerLost {
+	if !selected.Candidate.Dialog.RemoteInvite.Initial && !ownerLost {
 		if !slices.Contains(current.NoninitialProcedures, selected.ProcedureField) || current.Revision >= 1<<53-1 {
 			return errNativeRecord
 		}
@@ -201,6 +201,21 @@ func publishRedisCallDialogACK(ctx context.Context, store *rediscore.Store, sele
 		if e != nil {
 			return e
 		}
+		if current.LocalTag != selected.Candidate.Dialog.LocalTag || current.RemoteTag != selected.Candidate.Dialog.RemoteTag {
+			// Project media from the accepted fork without changing the selected leg.
+			invite := selected.Candidate.Dialog.RemoteInvite
+			snapshot.LocalSdp, e = invite.Final.Body()
+			if e == nil {
+				if selected.Dialog.Native.Offer == portable.LocalOfferInACK {
+					snapshot.RemoteSdp, e = invite.ACK.Body()
+				} else {
+					snapshot.RemoteSdp, e = invite.Request.Body()
+				}
+			}
+			if e != nil {
+				return e
+			}
+		}
 		now := time.Now()
 		eventID := uuid.NewString()
 		eventField := "r:event-" + eventID
@@ -209,7 +224,7 @@ func publishRedisCallDialogACK(ctx context.Context, store *rediscore.Store, sele
 		if e != nil {
 			return e
 		}
-		event, e := encodeNativeLifecycle(&nativepb.Lifecycle{Kind: pb.DialogEvent_REINVITE_ACKNOWLEDGED, Snapshot: snapshot,
+		event, e := encodeNativeLifecycle(&nativepb.Lifecycle{Kind: pb.DialogEvent_ACKNOWLEDGED, Snapshot: snapshot,
 			Root: selected.ProcedureField, Message: messageField, Selectors: selectors,
 			DeadlineMs: now.Add(2 * time.Minute).UnixMilli(), NextMs: now.UnixMilli()})
 		if e != nil {

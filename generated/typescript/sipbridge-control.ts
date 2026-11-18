@@ -860,7 +860,8 @@ export interface DialogEvent {
     operationId: string;
     error: string;
     /**
-     * Only with sip.reinvite-ack.v1: accepted peer re-INVITE ACK, correlated by CSeq.
+     * Only with sip.reinvite-ack.v1: message-bearing ACKNOWLEDGED for an accepted
+     * peer re-INVITE ACK, correlated by non-zero CSeq.
      * Initial ACKNOWLEDGED remains snapshot-only and leaves this field zero.
      */
     inviteCseq: number;
@@ -875,7 +876,6 @@ export enum DialogEvent_Kind {
     ENDED = 5,
     FAILED = 6,
     SUBSCRIPTION_EXPIRED = 7,
-    REINVITE_ACKNOWLEDGED = 8,
     UNRECOGNIZED = -1
 }
 
@@ -905,9 +905,6 @@ export function dialogEvent_KindFromJSON(object: unknown): DialogEvent_Kind {
         case 7:
         case 'SUBSCRIPTION_EXPIRED':
             return DialogEvent_Kind.SUBSCRIPTION_EXPIRED;
-        case 8:
-        case 'REINVITE_ACKNOWLEDGED':
-            return DialogEvent_Kind.REINVITE_ACKNOWLEDGED;
         case -1:
         case 'UNRECOGNIZED':
         default:
@@ -933,8 +930,6 @@ export function dialogEvent_KindToJSON(object: DialogEvent_Kind): string {
             return 'FAILED';
         case DialogEvent_Kind.SUBSCRIPTION_EXPIRED:
             return 'SUBSCRIPTION_EXPIRED';
-        case DialogEvent_Kind.REINVITE_ACKNOWLEDGED:
-            return 'REINVITE_ACKNOWLEDGED';
         case DialogEvent_Kind.UNRECOGNIZED:
         default:
             return 'UNRECOGNIZED';

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/emiago/sipgo/sip"
@@ -19,15 +20,17 @@ var peerACKOffer = []byte("v=0\r\no=offer 1 1 IN IP4 192.0.2.20\r\ns=offer\r\nt=
 var peerACKAnswer = []byte("v=0\r\no=answer 2 2 IN IP4 192.0.2.21\r\ns=answer\r\nt=0 0\r\n")
 
 type peerACKScenario struct {
-	optIn, requestOffer, initialLate, retry bool
+	optIn, requestOffer, initialLate, retry, earlyACKBody bool
 }
 
 func peerACKScenarios() map[string]peerACKScenario {
 	return map[string]peerACKScenario{
-		"late-offer-retry":   {optIn: true, retry: true},
-		"request-offer":      {optIn: true, requestOffer: true},
-		"legacy-controller":  {},
-		"initial-late-offer": {optIn: true, initialLate: true},
+		"late-offer-retry":          {optIn: true, retry: true},
+		"request-offer":             {optIn: true, requestOffer: true},
+		"early-offer-ack-body":      {optIn: true, requestOffer: true, earlyACKBody: true},
+		"legacy-controller":         {},
+		"legacy-initial-late-offer": {initialLate: true},
+		"initial-late-offer":        {optIn: true, initialLate: true},
 	}
 }
 
@@ -205,15 +208,22 @@ func testPeerACKExchange(t *testing.T, runtime peerACKRuntime, peer *control.Pee
 				t.Fatal("late-offer ACK without an answer was accepted", err)
 			}
 		}
+		if scenario.earlyACKBody {
+			ackBody = []byte("opaque early-offer ACK body")
+		}
 		ack := build(sip.ACK, cseq, ackBody)
 		done = complete(ack)
 		if scenario.optIn {
 			frame := peerACKRead(t, ctx, conn, session)
 			event := frame.GetDialogEvent()
-			if event == nil || event.Kind != pb.DialogEvent_REINVITE_ACKNOWLEDGED || event.InviteCseq != cseq || event.OperationId != "" || event.Message == nil || !bytes.Equal(event.Message.Wire, ack.WireBytes()) || !bytes.Equal(event.Message.Body, ackBody) || !proto.Equal(event.Snapshot.Context, ref) || event.Snapshot.DialogId == "" || !event.Snapshot.InitialAck || event.Snapshot.ApplicationLeaseTerm != first.Snapshot.ApplicationLeaseTerm {
+			if event == nil || event.Kind != pb.DialogEvent_ACKNOWLEDGED || event.InviteCseq != cseq || event.OperationId != "" || event.Message == nil || !bytes.Equal(event.Message.Wire, ack.WireBytes()) || !bytes.Equal(event.Message.Body, ackBody) || !proto.Equal(event.Snapshot.Context, ref) || event.Snapshot.DialogId == "" || !event.Snapshot.InitialAck || event.Snapshot.ApplicationLeaseTerm != first.Snapshot.ApplicationLeaseTerm {
 				t.Fatal("wrong re-INVITE ACK event", frame)
 			}
-			if !bytes.Equal(event.Snapshot.RemoteSdp, peerACKAnswer) && !scenario.requestOffer {
+			expectedSDP := peerACKAnswer
+			if scenario.requestOffer {
+				expectedSDP = peerACKOffer
+			}
+			if !bytes.Equal(event.Snapshot.RemoteSdp, expectedSDP) {
 				t.Fatal("ACK answer snapshot missing")
 			}
 			found := false
@@ -262,5 +272,40 @@ func testPeerACKExchange(t *testing.T, runtime peerACKRuntime, peer *control.Pee
 		if snapshot == nil || !snapshot.InitialAck || !bytes.Equal(snapshot.RemoteSdp, expectedRemote) {
 			t.Fatal("current ACK SDP snapshot", snapshot)
 		}
+	}
+}
+
+func TestResidentPeerReinviteACKDeliveryDrop(t *testing.T) {
+	for _, outcome := range []string{"no-capability", "changed-term"} {
+		t.Run(outcome, func(t *testing.T) {
+			transport, peer, ws, ctx, session, _, _ := residentControlFixture(t, true, outcome == "changed-term")
+			e, c, _ := residentSubscriptionFixture(t)
+			e.maxBytes = 64 << 20
+			e.control = transport.control
+			e.ctx = ctx
+			c.snapshot.Application = peer.Application()
+			c.snapshot.ApplicationLeaseTerm = peer.ApplicationLease().GetTerm()
+			if outcome == "changed-term" {
+				c.snapshot.ApplicationLeaseTerm = "previous-controller-term"
+			}
+			budget, err := e.openResidentBudgetLocked(c, residentInviteBudget)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.budget = budget
+			event, err := e.stageResidentEventLocked(c, pb.DialogEvent_ACKNOWLEDGED, stateTestRequest("ACK", 42, "", "delivery-drop"), "", time.Now().Add(2*time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := e.bytes
+			e.deliverResidentEvent(ctx, event)
+			if len(c.events) != 0 || !event.next.IsZero() || event.backoff != 0 || e.bytes >= before {
+				t.Fatal("mismatched session retained ACK debt or scheduled a retry")
+			}
+			writeControllerEnvelope(t, ctx, ws, &pb.Envelope{SessionId: session, CorrelationId: "drop-barrier", Payload: &pb.Envelope_Ping{Ping: &pb.Heartbeat{Nonce: "drop-barrier"}}})
+			if frame := peerACKRead(t, ctx, ws, session); frame.GetPong().GetNonce() != "drop-barrier" {
+				t.Fatal("mismatched session received ACK", frame)
+			}
+		})
 	}
 }

@@ -169,7 +169,7 @@ func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb
 				if initial {
 					event, stepErr = e.stageResidentEventLocked(c, pb.DialogEvent_ACKNOWLEDGED, nil, "", time.Now().Add(2*time.Minute), dialog.budget)
 				} else if notify {
-					event, stepErr = e.stageResidentEventNativeLocked(c, pb.DialogEvent_REINVITE_ACKNOWLEDGED, received, message, "", time.Now().Add(2*time.Minute), tx.budget)
+					event, stepErr = e.stageResidentEventNativeLocked(c, pb.DialogEvent_ACKNOWLEDGED, received, message, "", time.Now().Add(2*time.Minute), tx.budget)
 				}
 				c.snapshot = previous
 			}

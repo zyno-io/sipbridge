@@ -133,8 +133,9 @@ func (e *ResidentMemory) afterResidentOutputReleaseLocked(c *residentContext) {
 			}
 		}
 	}
+	compacted := e.compactResidentRefusalLocked(c, time.Now())
 	for _, tx := range c.transactions {
-		if tx.retired && time.Now().Before(tx.retireAt) {
+		if !compacted && tx.retired && time.Now().Before(tx.retireAt) {
 			return
 		}
 		if !tx.retired && ((!c.retireReady || !c.snapshot.Ended) || tx.native.Phase != portable.Terminated) {
@@ -187,7 +188,9 @@ func (e *ResidentMemory) afterResidentOutputReleaseLocked(c *residentContext) {
 		incarnation := c.snapshot.Context.GetState().GetIncarnation()
 		e.deadlines.remove(residentDeadlineKey{kind: residentOwnerCleanupDeadline, contextID: c.snapshot.Context.Id, record: incarnation})
 		e.deadlines.remove(residentDeadlineKey{kind: residentContextRetirementDeadline, contextID: c.snapshot.Context.Id, record: incarnation})
+		e.deadlines.remove(residentDeadlineKey{kind: residentRefusalCompactDeadline, contextID: c.snapshot.Context.Id})
 		delete(e.contexts, c.snapshot.Context.Id)
+		e.changeResidentAdmissionLocked(c, residentUncounted)
 		e.bytes -= c.bytes
 		e.reserved -= c.reserved
 		c.bytes = 0

@@ -283,6 +283,7 @@ func receiveRedisUACProvisional(ctx context.Context, store *rediscore.Store, flo
 	var successDialog *nativepb.Dialog
 	var successDialogRefs nativeDialogRefs
 	var successDialogNative portable.Dialog
+	var credit int64
 	if dialogField != "" {
 		existing := view.Records[dialogField]
 		var previous *portable.Dialog
@@ -312,6 +313,10 @@ func receiveRedisUACProvisional(ctx context.Context, store *rediscore.Store, flo
 			return true, e
 		}
 		if existing == nil {
+			if len(current.Dialogs) > 0 {
+				credit = redisAdditionalForkCredit
+				root.CreditContribution += uint64(credit)
+			}
 			current.Dialogs = append(current.Dialogs, dialogField)
 			slices.Sort(current.Dialogs)
 			selectorChanges = append(selectorChanges, rediscore.SelectorChange{Selector: selectors[1], Record: dialogField})
@@ -484,7 +489,7 @@ func receiveRedisUACProvisional(ctx context.Context, store *rediscore.Store, flo
 	if target == (rediscore.TimerAssignment{}) {
 		target = executor
 	}
-	publication := rediscore.Publication{Identity: selected.Identity, Revision: view.Revision, Deadline: deadline, SpendReservation: true, Changes: changes, Selectors: selectorChanges, NewOutputs: outputs}
+	publication := rediscore.Publication{Identity: selected.Identity, Revision: view.Revision, Deadline: deadline, CreditDelta: credit, SpendReservation: true, Changes: changes, Selectors: selectorChanges, NewOutputs: outputs}
 	if len(timers) != 0 {
 		publication.Timers = &rediscore.TimerMutation{Expected: view.Timer, Target: target, Changes: timers}
 	}

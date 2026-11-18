@@ -92,6 +92,53 @@ func TestResidentPublicRejectValidatesRawWire(t *testing.T) {
 	}
 }
 
+func TestResidentRefusalUsesIndependentCapacityAndCompacts(t *testing.T) {
+	e, _, _, ctx, _, writes, _ := residentControlFixture(t)
+	flow := residentDirectFlow(e)
+	message := stateTestRequest("INVITE", 1, "", "refusal-disposition")
+	e.mu.Lock()
+	e.classCounts[residentInbound] = e.maxContexts
+	e.classCounts[residentOutbound] = e.maxContexts
+	e.mu.Unlock()
+	if err := e.Reject(ctx, flow, message, 503); err != nil {
+		t.Fatal(err)
+	}
+	var wire []byte
+	select {
+	case wire = <-writes:
+	case <-ctx.Done():
+		t.Fatal("missing native overload response")
+	}
+	ack, err := portable.BuildNon2xxACK(portable.RestoreMessage(message.Wire, "tls", "", ""), portable.RestoreMessage(wire, "tls", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handled, err := e.TryNativeCompletion(ctx, flow, &pb.SipMessage{Wire: ack.WireBytes()}); err != nil || !handled {
+		t.Fatalf("native ACK completion: %v %v", handled, err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		e.mu.Lock()
+		active, compact := e.classCounts[residentRefusal], len(e.refusalDispositions)
+		e.mu.Unlock()
+		if active == 0 && compact == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("refusal did not compact: active=%d dispositions=%d", active, compact)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := e.Reject(ctx, flow, message, 486); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case wire := <-writes:
+		t.Fatalf("settled retransmission selected another final: %q", wire)
+	default:
+	}
+}
+
 func TestResidentParsedRefusalRetainsOriginalFinalOnReplay(t *testing.T) {
 	e, _, _, ctx, _, writes, _ := residentControlFixture(t)
 	flow := residentDirectFlow(e)

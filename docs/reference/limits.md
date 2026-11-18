@@ -53,13 +53,16 @@ allocated up front. The exact rules are in
 
 | Resource | Default | Setting |
 | --- | --- | --- |
-| Memory: contexts | 128 | `SIPBRIDGE_MEMORY_MAX_GROUPS` (1 to 1,048,576) |
+| Memory: inbound and outbound contexts | 128 each | `SIPBRIDGE_MEMORY_MAX_GROUPS` (1 to 1,048,576) |
 | Memory: retained bytes plus reserved completion room | 1 GiB | `SIPBRIDGE_MEMORY_MAX_BYTES` (at least 8 MiB) |
 | Memory: controller processes with a lease | 1,024 | fixed |
-| Redis: shared contexts per namespace | 131,072 | fixed |
-| Redis: stored bytes per namespace | 1 GiB | fixed |
+| Initial decisions per instance | 128, 32 per observed source | fixed |
+| Fresh refusals plus pending decisions per instance | 1,024 | fixed |
+| Memory: compact refusal dispositions | 4,096 | fixed |
+| Redis: inbound and outbound call legs per instance | 1,024 each | fixed |
+| Redis: outbound standalone procedures per instance | 512 | fixed |
 | Redis: stored bytes per context | 32 MiB | fixed |
-| Redis: local registrations and subscriptions per instance | Same numbers as the namespace limits | fixed |
+| Redis: local registration and subscription domain per instance | 131,072 inbound contexts, 1 GiB | fixed |
 | Redis: controller processes admitted at once | 1,024 | fixed |
 
 These are admission limits: work beyond them is refused, and nothing already

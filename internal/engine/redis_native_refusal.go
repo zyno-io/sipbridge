@@ -177,7 +177,7 @@ func (e *redisNative) rejectInitialNative(parent context.Context, flow *pb.FlowR
 		Transport: flow.Transport, Selectors: publicSelectors, Ended: true, Revision: 1}
 	metadata := &nativepb.Procedure{Flow: proto.Clone(flow).(*pb.FlowRef), Application: proto.Clone(e.cfg.Process).(*pb.ProcessRef),
 		RequestId: requestID, Emissions: 1, DeadlineMs: deadline.UnixMilli()}
-	publication := rediscore.Publication{Identity: rediscore.Identity{Context: id, Incarnation: incarnation}, Create: true, Deadline: deadline,
+	publication := rediscore.Publication{Identity: rediscore.Identity{Context: id, Incarnation: incarnation}, Create: true, Admission: redisInstanceAdmission(e.cfg.StateIdentityKey, e.cfg.Process, rediscore.AdmissionRefusal, ""), Deadline: deadline,
 		Reserved: residentSmallBudget, Selectors: []rediscore.SelectorChange{{Selector: selectors[0], Record: procedureField}},
 		Timers: &rediscore.TimerMutation{Target: rediscore.TimerAssignment{Worker: e.worker, Epoch: e.cfg.Process.Epoch, Term: e.cfg.Process.Epoch}}}
 	if facts.Method == sip.INVITE {

@@ -97,17 +97,10 @@ func (e *ResidentMemory) ingest(ctx context.Context, peer *control.Peer, in *pb.
 	e.mu.Lock()
 	current, exists := e.admissions[in.Context.Id]
 	liveLease := e.leases[residentControllerKey(in.Application)]
-	valid := exists && current == admission && time.Now().Before(current.expires) && e.contexts[in.Context.Id] == nil && !e.closed && liveLease != nil && liveLease.term == lease.Term && time.Now().Before(liveLease.expires)
+	valid := exists && current == admission && time.Now().Before(current.expires) && e.contexts[in.Context.Id] == nil && !e.closed && !e.residentSelectorOccupiedLocked(observed.Selectors) && liveLease != nil && liveLease.term == lease.Term && time.Now().Before(liveLease.expires)
 	if valid {
-		delete(e.admissions, in.Context.Id)
-		e.admissionCounts[current.callID]--
-		if e.admissionCounts[current.callID] == 0 {
-			delete(e.admissionCounts, current.callID)
-		}
-		if e.admissionByWire[current.wireHash] == in.Context.Id {
-			delete(e.admissionByWire, current.wireHash)
-		}
-		e.deadlines.remove(residentDeadlineKey{kind: residentAdmissionDeadline, contextID: in.Context.Id})
+		e.releaseResidentAdmissionLocked(in.Context.Id, current, false)
+		e.changeResidentAdmissionLocked(candidate, residentInbound)
 		e.contexts[in.Context.Id] = candidate
 		e.indexResidentOwnerUnderEngineLock(candidate)
 		for _, selector := range observed.Selectors {

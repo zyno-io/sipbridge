@@ -211,6 +211,14 @@ finals/ACK, SUBSCRIBE state and required NOTIFY completion are unchanged.
 
 ## What lives in memory
 
+New requests awaiting an initial controller decision and isolated final
+refusals have their own bounded admission. Pending work uses the observed
+source address for its per-source limit. An inbound decision has reserved
+room to promote its context, while outbound admission has independent room.
+Refusals keep their reducer and exact write evidence until both settle.
+After settlement, an isolated refusal can release its context and retain a
+bounded duplicate-disposition record through the original cutoff.
+
 | Record | Retention |
 | --- | --- |
 | Transaction | Native phase, observed return flow, needed wire and original timers; remove after protocol/replay duties finish |

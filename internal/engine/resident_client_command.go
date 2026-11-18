@@ -69,13 +69,14 @@ func (e *ResidentMemory) commandResidentClient(ctx context.Context, peer *contro
 		}
 		e.mu.Lock()
 		lease := e.leases[residentControllerKey(app)]
-		if e.closed || lease == nil || lease.term != c.snapshot.ApplicationLeaseTerm || !time.Now().Before(lease.expires) || e.contexts[ref.Id] != nil || len(e.contexts)+len(e.admissions) >= e.maxContexts {
+		if e.closed || lease == nil || lease.term != c.snapshot.ApplicationLeaseTerm || !time.Now().Before(lease.expires) || e.contexts[ref.Id] != nil || e.classCounts[residentOutbound] >= e.maxContexts {
 			e.mu.Unlock()
 			_ = e.accountResidentLocked(c, -c.bytes, -c.reserved)
 			c.mu.Unlock()
 			return nil, errors.New("outbound context capacity or identity conflict")
 		}
 		e.contexts[ref.Id] = c
+		e.changeResidentAdmissionLocked(c, residentOutbound)
 		e.indexResidentOwnerUnderEngineLock(c)
 		e.mu.Unlock()
 		created = true
@@ -94,6 +95,7 @@ func (e *ResidentMemory) commandResidentClient(ctx context.Context, peer *contro
 		if created {
 			e.mu.Lock()
 			delete(e.contexts, ref.Id)
+			e.changeResidentAdmissionLocked(c, residentUncounted)
 			if owners := e.owners[c.ownerKey]; owners != nil {
 				delete(owners, c)
 				if len(owners) == 0 {

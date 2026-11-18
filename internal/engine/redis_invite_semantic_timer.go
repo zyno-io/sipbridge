@@ -103,10 +103,14 @@ func fireRedisInviteServerTimer(ctx context.Context, store *rediscore.Store, due
 	if noninitial && len(procedure.Metadata.Outputs) == 0 {
 		timers = append(timers, rediscore.TimerChange{Member: "call-proc-" + id, Due: time.UnixMilli(due.DeadlineMS)})
 	}
+	var credit int64
+	if initial && timerKind == portable.TimerL {
+		credit = releaseRedisSettledSetupCredit(current, procedure.Metadata)
+	}
 	encoded, err := encodeNativeProcedure(next, procedure.Refs, procedure.Metadata)
 	if err != nil {
 		return err
 	}
-	_, err = store.Commit(ctx, rediscore.Publication{Identity: due.Identity, Revision: view.Revision, Deadline: deadline, SpendReservation: true, Changes: []rediscore.Change{{Field: procedureField, Value: encoded}}, Timers: &rediscore.TimerMutation{Expected: due.Assignment, Target: due.Assignment, RequireLease: true, Changes: timers}})
+	_, err = store.Commit(ctx, rediscore.Publication{Identity: due.Identity, Revision: view.Revision, Deadline: deadline, CreditDelta: credit, SpendReservation: true, Changes: []rediscore.Change{{Field: procedureField, Value: encoded}}, Timers: &rediscore.TimerMutation{Expected: due.Assignment, Target: due.Assignment, RequireLease: true, Changes: timers}})
 	return err
 }

@@ -192,6 +192,24 @@ the resident owner and are not Redis obligations.
 
 The namespace capacity hash tracks context count and logical retained bytes atomically with every context, timer and physical-output mutation. Logical bytes include each context hash key and exact hash field/value bytes, completion reservations, each nonempty per-context deadline-key string, each deadline member and eight-byte score, each per-worker timer or ready member and eight-byte score, and each binary selector field/value. Each context's index-byte scalar is itself counted as a hash field. Shared per-worker key names, Redis allocator overhead and separately bounded worker/application control-plane metadata are excluded; measure actual Redis memory separately. A terminal native caller may retire an exactly fenced context only after its records, outputs, deadlines, indexed projections and reservations have all been discharged. No context scan or automatic reset repairs accounting.
 
+Serving admission charges fresh work to the admitting instance. The charge survives
+process replacement and timer-executor handoff. Pending decisions, inbound
+call legs, outbound call legs and native refusals have independent limits. Pending
+decisions also have a limit per observed source address on the admitting instance.
+The native publication that selects the decision moves the pending charge in the
+same atomic operation. Terminal retirement releases the remaining charge. Namespace
+totals remain available for accounting. Adding an instance adds admission capacity.
+Each context retains its record and completion-credit bounds.
+
+Initial INVITE credit retains eight maximum-size wire units. It budgets 22
+possible retained write records on TCP/TLS and 44 on UDP. Redis bounds actual
+growth on every publication. Native UDP timer retransmissions reuse the selected
+wire, so their local sends do not require a Redis write record per tick.
+Additional outbound fork branches fund their own bounded growth when first
+admitted. After the initial replay timer ends, a single confirmed leg with no
+outstanding write or lifecycle record can release its setup allowance and keep
+the reserved room for established-call completion.
+
 Quiet records retain compact facts and their necessary owned bytes. They must not keep a large packet or decoded-record buffer alive through a small Go substring/slice. Share a required immutable output's wire within its bounded procedure; do not duplicate it in a rich public-result DTO merely for storage.
 
 An initial UAS provisional response that has been superseded by a selected final is not an active-call recovery obligation. Its original physical cutoff first resolves any pending ordinary Respond receipt to its truthful outcome. An UNKNOWN attempt may then be forgotten at the unchanged original physical deadline plus two minutes when its own receipt is no longer pending and it owns no required final, ACK, event or dialog wire. Preserve that receipt's UNKNOWN certainty; a replay cannot recreate a physical attempt or recover discarded evidence. Keep the exact output metadata, native ownership and indexed cutoff through proof release and lost-reply reconciliation. Selecting a final re-arms only the actual provisional outputs' original physical duties, so an earlier removed head cannot strand this finite release. This exception does not cover successful finals, ACKs, BYE, required NOTIFY or another transaction's output.

@@ -285,7 +285,8 @@ func testRedisNativeOpenUACCommand(t *testing.T, cancelLookup int) {
 	witness := rediscore.ApplicationLeaseRef{Application: appID, Term: hello.ApplicationLease.Term}
 	identity := rediscore.Identity{Context: "outbound", Incarnation: result.Snapshot.Context.State.Incarnation, Owner: appID, Term: witness.Term}
 	view, err := store.ReadApplication(ctx, identity, witness, "r:context")
-	if err != nil || view.Reserved <= residentServerInviteBudget-(64<<10) || view.Reserved > residentServerInviteBudget {
+	credit := redisInviteCompletionCredit(flow.Transport)
+	if err != nil || view.Reserved <= credit-(64<<10) || view.Reserved > credit {
 		t.Fatal("production logical headroom missing", err)
 	}
 	retained, err := decodeNativeContext(view.Records["r:context"])
@@ -297,7 +298,7 @@ func testRedisNativeOpenUACCommand(t *testing.T, cancelLookup int) {
 		t.Fatal(err)
 	}
 	owner, err := readPrivateProcedureRecord(ownerView.Records[retained.InitialProcedures[0]])
-	if err != nil || owner.CreditContribution != uint64(residentServerInviteBudget) {
+	if err != nil || owner.CreditContribution != uint64(credit) {
 		t.Fatal("original contribution missing", err)
 	}
 	waitOutputs := func() {

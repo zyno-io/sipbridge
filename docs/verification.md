@@ -28,6 +28,7 @@ its tests use separate namespaces. Do not point failure-injection tests at produ
 | Pinned native reducers | `sh scripts/test-native.sh` | Native branch regressions in a disposable copy, including generated TLS certificates; pinned tree stays immutable. |
 | Independent TLS wire fixture | `go build -race -o bin/sipbridge-fixture ./cmd/sipbridge-fixture` then `python3 test/run.py`; Python/OpenSSL | Real two-ingress TLS/library wire behavior and source/binary hashes. Separate resident stdio fixture, not service Redis execution. |
 | Service binary | `go build -o bin/sipbridge ./cmd/sipbridge` | Service builds; image CI additionally verifies version/receipt/digest. |
+| Two-legged call capacity | `SIPBRIDGE_CAPACITY_WIRE=1 SIPBRIDGE_STATE_TEST_REDIS=127.0.0.1:6379 go test ./cmd/sipbridge -run '^TestBinaryRedisTwoLeggedCallCapacity$' -v` | Production service path with fixture controllers and 512 simultaneous two-legged TLS calls per instance. Runs one instance, then two instances sharing Redis. Checks the wire 503 and outbound admission with the pending quota filled, records Redis allocation and credit, and exercises replacement and teardown. |
 
 Memory state, shared backend contracts and default-memory service startup run
 without Redis. The shared contract suite runs both adapters when the disposable

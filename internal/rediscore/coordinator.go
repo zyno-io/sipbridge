@@ -85,7 +85,7 @@ if count==0 then
  redis.call('ZREM',KEYS[3],'w-'..source);redis.call('DEL',KEYS[4]);return {'OK',string.format('%.0f',now),'0','1'}
 end
 if not redis.acl_check_cmd('HLEN',KEYS[8]) then return fail('AUTHORITY') end
-local cap=redis.call('HMGET',KEYS[8],'contexts','bytes');if not number(cap[1]) or not number(cap[2]) or redis.call('HLEN',KEYS[8])~=2 then return fail('CORRUPT') end
+local cap=redis.call('HMGET',KEYS[8],'contexts','bytes');if not number(cap[1]) or not number(cap[2]) then return fail('CORRUPT') end
 for i=1,#heads,2 do
  local context=heads[i];local due=number(heads[i+1]);if not ref(context) or not due or due==0 then return fail('CORRUPT') end
  local contextKey=root..'core:context:'..context;local deadlines=root..'core:deadlines:'..context

@@ -26,12 +26,12 @@ func (e *ResidentMemory) locate(ctx context.Context, message *pb.SipMessage) (*p
 	if err != nil {
 		return nil, err
 	}
-	return e.locateResidentParsed(ctx, message.Wire, parsed, observedMessageSelectors(parsed, false), false)
+	return e.locateResidentParsed(ctx, message.Wire, parsed, observedMessageSelectors(parsed, false), false, nil)
 }
 
 // Direct lookup needs only immutable routing references. Public inspection still
 // receives the full isolated snapshot; no parsed object crosses this operation.
-func (e *ResidentMemory) locateResidentParsed(ctx context.Context, wire []byte, parsed sip.Message, selectors []string, direct bool) (*pb.ContextSnapshot, error) {
+func (e *ResidentMemory) locateResidentParsed(ctx context.Context, wire []byte, parsed sip.Message, selectors []string, direct bool, flow *pb.FlowRef) (*pb.ContextSnapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -44,6 +44,10 @@ func (e *ResidentMemory) locateResidentParsed(ctx context.Context, wire []byte, 
 	}
 	var selected *residentContext
 	for _, key := range selectors {
+		if err := e.observeResidentRefusalLocked(key, wire, flow, parsed); err != nil {
+			e.mu.Unlock()
+			return nil, err
+		}
 		selected = e.transactions[key]
 		if selected == nil {
 			selected = e.dialogs[key]
@@ -77,7 +81,9 @@ func (e *ResidentMemory) locateResidentParsed(ctx context.Context, wire []byte, 
 			return &pb.ContextSnapshot{Context: e.contextRef(callID, id)}, nil
 		}
 	}
-	if len(e.contexts)+len(e.admissions) >= e.maxContexts || e.admissionCounts[callID] >= stateAdmissionLimit {
+	source := normalizedAdmissionSource(flow.GetSourceIp())
+	pending := e.classCounts[residentPending]
+	if pending >= residentPendingLimit || pending+e.classCounts[residentInbound] >= e.maxContexts || pending+e.classCounts[residentRefusal] >= residentRefusalLimit || e.pendingSources[source] >= residentSourceLimit || e.admissionCounts[callID] >= stateAdmissionLimit {
 		e.mu.Unlock()
 		return nil, rejectIngest(503, "native admission capacity")
 	}
@@ -85,6 +91,7 @@ func (e *ResidentMemory) locateResidentParsed(ctx context.Context, wire []byte, 
 		e.admissions = make(map[string]residentAdmission)
 		e.admissionByWire = make(map[[32]byte]string)
 		e.admissionCounts = make(map[string]int)
+		e.pendingSources = make(map[string]int)
 	}
 	e.admissionSerial++
 	serial := fmt.Sprintf("%016x", e.admissionSerial)
@@ -93,9 +100,13 @@ func (e *ResidentMemory) locateResidentParsed(ctx context.Context, wire []byte, 
 		id = e.phoneID(callID, serial)
 	}
 	expires := now.Add(time.Duration(stateAdmissionMS) * time.Millisecond)
-	e.admissions[id] = residentAdmission{callID: callID, wireHash: hash, expires: expires}
+	e.admissions[id] = residentAdmission{callID: callID, source: source, wireHash: hash, expires: expires}
 	e.admissionByWire[hash] = id
 	e.admissionCounts[callID]++
+	e.classCounts[residentPending]++
+	if source != "" {
+		e.pendingSources[source]++
+	}
 	e.deadlines.set(residentDeadlineKey{kind: residentAdmissionDeadline, contextID: id}, e.admissionSerial, expires)
 	e.wakeDeadline()
 	e.mu.Unlock()
@@ -103,7 +114,7 @@ func (e *ResidentMemory) locateResidentParsed(ctx context.Context, wire []byte, 
 }
 
 func (e *ResidentMemory) fireResidentDeadline(item residentDeadline) {
-	if e.fireResidentDecisionDeadline(item) || e.fireResidentOutputDeadline(item) || e.fireResidentEventDeadline(item) || e.fireResidentSubscriptionDeadline(item) || e.fireResidentTransactionRetirement(item) || e.fireResidentOwnerCleanup(item) {
+	if e.fireResidentRefusalDeadline(item) || e.fireResidentDecisionDeadline(item) || e.fireResidentOutputDeadline(item) || e.fireResidentEventDeadline(item) || e.fireResidentSubscriptionDeadline(item) || e.fireResidentTransactionRetirement(item) || e.fireResidentOwnerCleanup(item) {
 		return
 	}
 	if item.key.kind == residentContextRetirementDeadline {
@@ -384,14 +395,7 @@ func (e *ResidentMemory) fireResidentDeadline(item residentDeadline) {
 		e.mu.Lock()
 		admission, ok := e.admissions[id]
 		if ok && !time.Now().Before(admission.expires) {
-			delete(e.admissions, id)
-			if e.admissionByWire[admission.wireHash] == id {
-				delete(e.admissionByWire, admission.wireHash)
-			}
-			e.admissionCounts[admission.callID]--
-			if e.admissionCounts[admission.callID] == 0 {
-				delete(e.admissionCounts, admission.callID)
-			}
+			e.releaseResidentAdmissionLocked(id, admission, false)
 		}
 		e.mu.Unlock()
 	}

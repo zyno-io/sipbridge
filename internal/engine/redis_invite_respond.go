@@ -197,6 +197,18 @@ func publishRedisInviteRespond(ctx context.Context, store *rediscore.Store, key 
 			}
 		}
 	}
+	if response.Status >= 300 && len(next.Dialogs) == 0 {
+		next.Ended = true
+		next.CallRetireAtMs = now.Add(2 * time.Minute).UnixMilli()
+		timers = append(timers, rediscore.TimerChange{Member: "call-retire", Due: time.UnixMilli(next.CallRetireAtMs)})
+	}
+	if response.Status >= 200 {
+		redrive, e := planRedisProvisionalOutputRedrive(ctx, store, selected, procedureField, procedure.Metadata)
+		if e != nil {
+			return zero, e
+		}
+		timers = append(timers, redrive...)
+	}
 	snapshot, err = nativeProjectSnapshot(next, native.Dialog, nil, nil)
 	if err != nil {
 		return zero, err
@@ -240,13 +252,7 @@ func publishRedisInviteRespond(ctx context.Context, store *rediscore.Store, key 
 		return zero, err
 	}
 	timers = append(timers, previous...)
-	if response.Status >= 200 {
-		redrive, e := planRedisProvisionalOutputRedrive(ctx, store, selected, procedureField, procedure.Metadata)
-		if e != nil {
-			return zero, e
-		}
-		timers = append(timers, redrive...)
-	}
+
 	timers = append(timers, rediscore.TimerChange{Member: "out-" + outputField[2:], Due: until})
 	tag, err := nativeDeliveryTagChange(next.Delivery)
 	if err != nil {
@@ -261,6 +267,9 @@ func publishRedisInviteRespond(ctx context.Context, store *rediscore.Store, key 
 		target = executor
 	}
 	publication := rediscore.Publication{Identity: selected.Identity, Revision: selected.View.Revision, Deadline: until, Application: &lease, SpendReservation: true, Changes: changes, NewOutputs: []rediscore.OutputIntent{intent}, Selectors: selectors, Timers: &rediscore.TimerMutation{Expected: selected.View.Timer, Target: target, Changes: timers}}
+	if response.Status >= 300 {
+		publication.Admission.Class = rediscore.AdmissionRefusal
+	}
 	_, err = store.Commit(ctx, publication)
 	if errors.Is(err, rediscore.ErrExpired) && selected.View.Timer != (rediscore.TimerAssignment{}) && selected.View.Timer != executor && time.Now().Before(until) && ctx.Err() == nil {
 		publication.Timers.Target = executor

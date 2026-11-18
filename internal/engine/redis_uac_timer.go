@@ -120,6 +120,10 @@ func fireRedisUACDeadline(ctx context.Context, store *rediscore.Store, due *redi
 		}
 		procedure.Metadata.SuccessfulAck, procedure.Metadata.Events = candidate.SuccessfulAck, candidate.Events
 	}
+	var credit int64
+	if timer == portable.TimerM {
+		credit = releaseRedisSettledSetupCredit(current, procedure.Metadata)
+	}
 	procData, err := encodeNativeProcedure(next, procedure.Refs, procedure.Metadata)
 	if err != nil {
 		return err
@@ -162,6 +166,6 @@ func fireRedisUACDeadline(ctx context.Context, store *rediscore.Store, due *redi
 			changes = append(changes, rediscore.Change{Field: "r:result-1", Value: data})
 		}
 	}
-	_, err = store.Commit(ctx, rediscore.Publication{Identity: due.Identity, Revision: view.Revision, Deadline: deadline, SpendReservation: true, Changes: changes, Timers: &rediscore.TimerMutation{Expected: due.Assignment, Target: due.Assignment, RequireLease: true, Changes: timers}})
+	_, err = store.Commit(ctx, rediscore.Publication{Identity: due.Identity, Revision: view.Revision, Deadline: deadline, CreditDelta: credit, SpendReservation: true, Changes: changes, Timers: &rediscore.TimerMutation{Expected: due.Assignment, Target: due.Assignment, RequireLease: true, Changes: timers}})
 	return err
 }

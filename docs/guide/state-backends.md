@@ -42,7 +42,7 @@ Two settings bound how much work memory state admits:
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `SIPBRIDGE_MEMORY_MAX_GROUPS` | 128 | Maximum contexts (calls, subscriptions, transactions) at once |
+| `SIPBRIDGE_MEMORY_MAX_GROUPS` | 128 | Maximum inbound and outbound contexts, applied independently |
 | `SIPBRIDGE_MEMORY_MAX_BYTES` | 1 GiB | Bytes of retained state plus room reserved for finishing work already accepted |
 
 When either limit is reached, new work is refused; nothing already accepted is
@@ -130,8 +130,11 @@ requests are refused with `501`.
   namespace, generation and prefix, and run the same sipbridge build. A build
   with a different storage format refuses to use the namespace; compare the
   output of `sipbridge --state-schema` when in doubt.
-- By default a namespace admits up to 131,072 shared contexts and 1 GiB of
-  stored data. These are admission limits, not memory Redis reserves up front.
+- Each instance admits its own inbound call legs, outbound call legs,
+  pending decisions and refusals. Adding an instance adds admission capacity.
+  Size Redis for the total workload on the primary, including indexes,
+  allocator overhead and space to finish already-admitted work. See
+  [state capacity](../reference/limits.md#state-capacity).
 
 ### Failure and recovery
 

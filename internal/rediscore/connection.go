@@ -26,6 +26,7 @@ type Connection struct {
 	profile                                         []byte
 	authority                                       *pb.StateAuthority
 	recordBudget, namespaceContexts, namespaceBytes int64
+	instanceAdmission                               bool
 	timeout                                         time.Duration
 }
 
@@ -46,7 +47,7 @@ func NewConnection(cfg ConnectionConfig) (*Connection, error) {
 	if namespaceBytes == 0 {
 		namespaceBytes = DefaultNamespaceMaxBytes
 	}
-	return &Connection{client: redisclient.New(options, options.PoolSize, nil), root: cfg.Profile.Root, profile: bytes.Clone(binding.Value), authority: proto.Clone(binding.Authority).(*pb.StateAuthority), recordBudget: cfg.Profile.RecordBudget, namespaceContexts: contexts, namespaceBytes: namespaceBytes, timeout: options.IOTimeout}, nil
+	return &Connection{client: redisclient.New(options, options.PoolSize, nil), root: cfg.Profile.Root, profile: bytes.Clone(binding.Value), authority: proto.Clone(binding.Authority).(*pb.StateAuthority), recordBudget: cfg.Profile.RecordBudget, namespaceContexts: contexts, namespaceBytes: namespaceBytes, instanceAdmission: cfg.Profile.InstanceAdmission, timeout: options.IOTimeout}, nil
 }
 
 // AdmissionLimits are immutable profile bounds. The sole process-local phone
@@ -104,7 +105,11 @@ func (c *Connection) Refresh(ctx context.Context) (*Store, error) {
 	if !ok || !validPrimary(primary) || e != nil || elapsed < 0 || skew < -workerClockTolerance.Milliseconds() || skew > workerClockTolerance.Milliseconds() || now < low || now > finish.UnixMilli()+workerClockTolerance.Milliseconds() || ctx.Err() != nil || callCtx.Err() != nil {
 		return nil, errors.Join(ErrUnknown, ErrClock)
 	}
-	return New(c.client, Config{Root: c.root, Profile: c.profile, RecordBudget: c.recordBudget, NamespaceMaxContexts: c.namespaceContexts, NamespaceMaxBytes: c.namespaceBytes, PrimaryRunID: primary})
+	contexts, namespaceBytes := c.namespaceContexts, c.namespaceBytes
+	if c.instanceAdmission {
+		contexts, namespaceBytes = maxExactInteger, maxExactInteger
+	}
+	return New(c.client, Config{Root: c.root, Profile: c.profile, RecordBudget: c.recordBudget, NamespaceMaxContexts: contexts, NamespaceMaxBytes: namespaceBytes, PrimaryRunID: primary, InstanceAdmission: c.instanceAdmission})
 }
 
 var connectionProbeScript = redis.NewScript(`

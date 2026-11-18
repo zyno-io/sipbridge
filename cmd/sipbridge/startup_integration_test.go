@@ -104,6 +104,21 @@ func testStateStartupWithShutdown(t *testing.T, backend string, offline, partial
 }
 
 func testStateStartupWithHook(t *testing.T, backend string, offline, partial bool, securityMode string, observeDrain bool, hook func(*testing.T, *websocket.Conn, *pb.SessionHelloAck, string, string, *tls.Config), erase ...bool) {
+	var observe func(*testing.T, *websocket.Conn, *pb.SessionHelloAck, string, string, *tls.Config, *redis.Client, string)
+	if hook != nil {
+		observe = func(t *testing.T, controller *websocket.Conn, ack *pb.SessionHelloAck, public, admin string, config *tls.Config, _ *redis.Client, _ string) {
+			hook(t, controller, ack, public, admin, config)
+		}
+	}
+	testStateStartupObservingRedis(t, backend, offline, partial, securityMode, observeDrain, nil, observe, erase...)
+}
+
+type startupRedisDomain struct {
+	namespace string
+	instance  string
+}
+
+func testStateStartupObservingRedis(t *testing.T, backend string, offline, partial bool, securityMode string, observeDrain bool, domain *startupRedisDomain, hook func(*testing.T, *websocket.Conn, *pb.SessionHelloAck, string, string, *tls.Config, *redis.Client, string), erase ...bool) {
 	endpoint := os.Getenv("SIPBRIDGE_STATE_TEST_REDIS")
 	if endpoint == "" && backend == "redis" {
 		t.Skip("disposable Redis required")
@@ -132,6 +147,10 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 	}
 	sip, public, control, admin := reserveStartupEndpoint(t), reserveStartupEndpoint(t), reserveStartupEndpoint(t), reserveStartupEndpoint(t)
 	namespace := "empty-" + uuid.NewString()
+	instance := "degraded-fixture"
+	if domain != nil {
+		namespace, instance = domain.namespace, domain.instance
+	}
 	root := prefixForStartup(namespace)
 	prefix := "sipstate:startup-test"
 	connectEndpoint := endpoint
@@ -148,7 +167,7 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 	fixtureRedis := redis.NewClient(&redis.Options{Addr: endpoint, MaxRetries: -1})
 	t.Cleanup(func() {
 		defer fixtureRedis.Close()
-		if backend == "memory" {
+		if backend == "memory" || domain != nil {
 			return
 		}
 		var cursor uint64
@@ -175,7 +194,7 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 			t.Fatal(err)
 		}
 	}
-	arguments := []string{"--control-listen", control, "--sip-listen", public, "--sip-plain-listen", sip, "--admin-listen", admin, "--sip-cert", certificate, "--sip-key", keyPath, "--instance", "degraded-fixture", "--advertise", public, "--advertise-plain", sip}
+	arguments := []string{"--control-listen", control, "--sip-listen", public, "--sip-plain-listen", sip, "--admin-listen", admin, "--sip-cert", certificate, "--sip-key", keyPath, "--instance", instance, "--advertise", public, "--advertise-plain", sip}
 	arguments = append(arguments, "--sip-withdrawal-grace", "0s", "--sip-drain-timeout", "500ms")
 	if observeDrain {
 		arguments = append(arguments, "--sip-withdrawal-grace", "500ms", "--sip-drain-timeout", "1500ms")
@@ -352,7 +371,11 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 	}
 	var controller *websocket.Conn
 	recoveryDeadline := time.Now().Add(8 * time.Second)
-	hello := &pb.Envelope{CorrelationId: "recover-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "surviving-controller", Epoch: "same-process"}, ConnectionAttempt: 1, Major: 1, Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: controlpkg.MaxEnvelope}}}}
+	controllerID := "surviving-controller"
+	if domain != nil {
+		controllerID = instance + "-controller"
+	}
+	hello := &pb.Envelope{CorrelationId: "recover-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: controllerID, Epoch: "same-process"}, ConnectionAttempt: 1, Major: 1, Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: controlpkg.MaxEnvelope}}}}
 	var ack *pb.SessionHelloAck
 	var lastHelloError error
 	for time.Now().Before(recoveryDeadline) {
@@ -420,7 +443,7 @@ func testStateStartupWithHook(t *testing.T, backend string, offline, partial boo
 					testStartupStateLoss(t, redisClient, root, controller, ack, hello, transport, control)
 				}
 				if hook != nil {
-					hook(t, controller, ack, public, admin, transport.TLSClientConfig)
+					hook(t, controller, ack, public, admin, transport.TLSClientConfig, fixtureRedis, root)
 					if backend == "redis" {
 						assertBinaryStartupKeys(t, fixtureRedis, root, partial, true)
 					}
@@ -597,6 +620,12 @@ func assertBinaryStartupKeys(t *testing.T, client *redis.Client, root string, pa
 				t.Fatal(err)
 			}
 			for name, value := range records {
+				if name == "r:delivery-tag" {
+					if len(value) != 32 {
+						t.Fatal("invalid delivery digest")
+					}
+					continue
+				}
 				if strings.HasPrefix(name, "r:") && (len(value) < 6 || !bytes.HasPrefix([]byte(value), []byte{'S', 'I', 'P', 'B', 1})) {
 					t.Fatal("retained record is not a raw protobuf frame", name)
 				}

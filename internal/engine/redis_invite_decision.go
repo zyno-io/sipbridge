@@ -129,7 +129,7 @@ func commitRedisInviteDeferral(ctx context.Context, store *rediscore.Store, key 
 		return nil, err
 	}
 	changes = append(changes, rediscore.Change{Field: procedureField, Value: procedureBytes})
-	_, err = store.Commit(ctx, rediscore.Publication{Identity: selected.Identity, Revision: selected.View.Revision, Deadline: until, Application: &lease, BindApplication: true, SpendReservation: true, Changes: changes, NewOutputs: outputs, Timers: &rediscore.TimerMutation{Expected: selected.View.Timer, Target: selected.View.Timer, Changes: timers}})
+	_, err = store.Commit(ctx, rediscore.Publication{Identity: selected.Identity, Revision: selected.View.Revision, Deadline: until, Application: &lease, BindApplication: true, Admission: rediscore.Admission{Class: rediscore.AdmissionInbound}, SpendReservation: true, Changes: changes, NewOutputs: outputs, Timers: &rediscore.TimerMutation{Expected: selected.View.Timer, Target: selected.View.Timer, Changes: timers}})
 	if err != nil {
 		return nil, err
 	}

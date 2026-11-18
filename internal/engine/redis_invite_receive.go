@@ -74,11 +74,12 @@ func receiveRedisInvite(ctx context.Context, store *rediscore.Store, in redisReg
 	}
 	procedureField, originField := "r:procedure-"+in.RequestID, "r:origin-"+in.RequestID
 	current := &nativepb.Context{Context: proto.Clone(in.Context).(*pb.ContextRef), Application: proto.Clone(in.Application).(*pb.ProcessRef), ApplicationLeaseTerm: in.Lease.Term, Executor: proto.Clone(in.Executor).(*pb.ProcessRef), Flow: proto.Clone(in.Flow).(*pb.FlowRef), Kind: pb.ContextSnapshot_UAS, CallId: facts.CallID, LocalTag: in.LocalTag, RemoteTag: facts.FromTag, LocalUri: facts.ToURI, RemoteUri: facts.FromURI, Transport: in.Flow.Transport, Selectors: append([]string(nil), observed.Selectors...), InitialProcedures: []string{procedureField}}
+	credit := redisInviteCompletionCredit(in.Flow.Transport)
 	contextBytes, err := encodeNativeContext(current)
 	if err != nil {
 		return nil, err
 	}
-	procedureBytes, err := encodeNativeProcedure(transaction, nativeProcedureRefs{Origin: originField}, &nativepb.Procedure{Flow: proto.Clone(in.Flow).(*pb.FlowRef), Application: proto.Clone(in.Application).(*pb.ProcessRef), RequestId: in.RequestID, PresentDeadlineMs: until.UnixMilli(), Direct: true, DecisionPending: true, DeadlineMs: in.Deadline.UnixMilli(), CreditContribution: uint64(residentServerInviteBudget)})
+	procedureBytes, err := encodeNativeProcedure(transaction, nativeProcedureRefs{Origin: originField}, &nativepb.Procedure{Flow: proto.Clone(in.Flow).(*pb.FlowRef), Application: proto.Clone(in.Application).(*pb.ProcessRef), RequestId: in.RequestID, PresentDeadlineMs: until.UnixMilli(), Direct: true, DecisionPending: true, DeadlineMs: in.Deadline.UnixMilli(), CreditContribution: uint64(credit)})
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +92,7 @@ func receiveRedisInvite(ctx context.Context, store *rediscore.Store, in redisReg
 		return nil, err
 	}
 	timers = append(timers, rediscore.TimerChange{Member: "call-decision-" + in.RequestID, Due: until})
-	_, err = store.Commit(ctx, rediscore.Publication{Identity: rediscore.Identity{Context: in.Context.Id, Incarnation: in.Context.State.Incarnation}, Create: true, Deadline: until, CreditDelta: residentServerInviteBudget, Application: &in.Lease, Changes: []rediscore.Change{{Field: "r:context", Value: contextBytes}, {Field: procedureField, Value: procedureBytes}, {Field: originField, Value: origin}}, Selectors: []rediscore.SelectorChange{{Selector: selectors[0], Record: procedureField}}, Timers: &rediscore.TimerMutation{Target: in.Timer, Changes: timers}})
+	_, err = store.Commit(ctx, rediscore.Publication{Identity: rediscore.Identity{Context: in.Context.Id, Incarnation: in.Context.State.Incarnation}, Create: true, Admission: redisInstanceAdmission(in.IdentityKey, in.Executor, rediscore.AdmissionPending, in.Flow.SourceIp), Deadline: until, CreditDelta: credit, Application: &in.Lease, Changes: []rediscore.Change{{Field: "r:context", Value: contextBytes}, {Field: procedureField, Value: procedureBytes}, {Field: originField, Value: origin}}, Selectors: []rediscore.SelectorChange{{Selector: selectors[0], Record: procedureField}}, Timers: &rediscore.TimerMutation{Target: in.Timer, Changes: timers}})
 	if err != nil {
 		return nil, err
 	}

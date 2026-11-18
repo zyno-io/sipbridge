@@ -1380,7 +1380,17 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
         fields: {
             kind: {
                 kind: 'enum',
-                values: ['UNSPECIFIED', 'PROVISIONAL', 'ANSWERED', 'ACKNOWLEDGED', 'CANCELLED', 'ENDED', 'FAILED', 'SUBSCRIPTION_EXPIRED']
+                values: [
+                    'UNSPECIFIED',
+                    'PROVISIONAL',
+                    'ANSWERED',
+                    'ACKNOWLEDGED',
+                    'CANCELLED',
+                    'ENDED',
+                    'FAILED',
+                    'SUBSCRIPTION_EXPIRED',
+                    'REINVITE_ACKNOWLEDGED'
+                ]
             },
             snapshot: {
                 kind: 'message',
@@ -1396,6 +1406,10 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             error: {
                 kind: 'string'
+            },
+            inviteCseq: {
+                kind: 'uint32',
+                alias: 'invite_cseq'
             }
         },
         oneofs: []

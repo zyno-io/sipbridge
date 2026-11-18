@@ -433,6 +433,7 @@ const CommandBudgetCapability = "sip.command-budget.v1"
 const CommandAdmissionCapability = "sip.command-admission.v1"
 const DialogContinuityCapability = "sip.dialog-continuity.v1"
 const StateCapability = "sip.state.v1"
+const ReinviteAckCapability = "sip.reinvite-ack.v1"
 const RequestDecisionCapability = "sip.request-decision.v1"
 
 var requestDecisionDependencies = [...]string{"sip.v1", StateCapability, NativeCompletionCapability, CommandAdmissionCapability, CommandBudgetCapability, DialogContinuityCapability}

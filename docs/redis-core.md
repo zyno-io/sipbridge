@@ -479,3 +479,21 @@ Measure selected records/bytes decoded and encoded, round trips, retained bytes,
 Explicit `redis` selection uses the composed runtime defined in [Runtime](runtime.md#native-ownership-domains). The checkpoint execution/JSON path is not a serving alternative or legacy reader. The private binary format has an explicit compatibility identity. Keep the application control schema/JSON profile unchanged unless a deliberate observable contract change is required. The binary Redis runtime MUST use the same direct `sip.request-decision.v1` request path as Memory, without the checkpoint routing/presentation alternative. The negotiated capability and public wire contract are shared with Memory; verify every producer and consumer together. Initial INVITE setup may fail during a core outage, but this does not introduce a non-persisted initial-procedure path, a public API change or a routing-affinity exception. Any pending native procedure required for matching and any-worker semantics remains uniform and bounded; it is not an application job queue.
 
 A namespace previously written by the checkpoint engine is not readable by this runtime. Stop all old writers before starting the binary runtime on the allowed native root; old JSON records are never decoded, migrated, cleaned up by a recurring task or reset automatically. Grant the Redis credentials only the minimum command allowlist and a wake-channel pattern restricted to the same native root; never all keys/channels or another role's root. Record field/authority compatibility and a concrete rollback procedure before changing a deployment.
+
+## Peer re-INVITE ACK observations
+
+An accepted non-initial ACK can atomically stage `REINVITE_ACKNOWLEDGED` under
+its exact noninitial InviteServer procedure when the original live controller
+negotiated `sip.reinvite-ack.v1`. That procedure reciprocally owns the event
+until acknowledgement or its original two-minute cutoff, preserving its existing
+contribution and retirement duty. This adds at most one ACK event per procedure
+within its existing three-event limit, not an ACK history. The event owns a
+separate frozen ACK message record: the SDK dialog's current ACK can be replaced
+by later negotiation without changing an undelivered event. The two records
+have independent finite owners and are charged by existing record/namespace
+bounds. Event completion/expiry deletes its message and reciprocal reference
+atomically and re-drives the procedure's existing retirement duty. Native
+ACK validation, duplicate suppression, retransmission stop hints and timers are
+unchanged. A `LocalOfferInACK` completion updates current remote SDP and the
+frozen event snapshot in that same publication, independently of capability
+negotiation; initial ACK events remain snapshot-only.

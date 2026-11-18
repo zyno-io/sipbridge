@@ -339,7 +339,7 @@ func TestRedisInitialServerCancelAtomicPair(t *testing.T) {
 				t.Fatal(err)
 			}
 			ack = portable.RestoreMessage(ack.WireBytes(), transport, net.JoinHostPort(flow.SourceIp, strconv.Itoa(int(flow.SourcePort))), "")
-			if handled, e := matchRedisCallCompletion(ctx, store, local, flow, ack, key, assignment, time.Now().Add(time.Second)); e != nil || !handled {
+			if handled, e := matchRedisCallCompletion(ctx, store, local, flow, ack, key, assignment, time.Now().Add(time.Second), nil); e != nil || !handled {
 				t.Fatal("ACK before physical INVITE completion", e)
 			}
 			acknowledged, err := store.Read(ctx, identity, procedureField)

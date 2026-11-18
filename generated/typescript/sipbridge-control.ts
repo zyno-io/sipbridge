@@ -859,6 +859,11 @@ export interface DialogEvent {
     message?: SipMessage | undefined;
     operationId: string;
     error: string;
+    /**
+     * Only with sip.reinvite-ack.v1: accepted peer re-INVITE ACK, correlated by CSeq.
+     * Initial ACKNOWLEDGED remains snapshot-only and leaves this field zero.
+     */
+    inviteCseq: number;
 }
 
 export enum DialogEvent_Kind {
@@ -870,6 +875,7 @@ export enum DialogEvent_Kind {
     ENDED = 5,
     FAILED = 6,
     SUBSCRIPTION_EXPIRED = 7,
+    REINVITE_ACKNOWLEDGED = 8,
     UNRECOGNIZED = -1
 }
 
@@ -899,6 +905,9 @@ export function dialogEvent_KindFromJSON(object: unknown): DialogEvent_Kind {
         case 7:
         case 'SUBSCRIPTION_EXPIRED':
             return DialogEvent_Kind.SUBSCRIPTION_EXPIRED;
+        case 8:
+        case 'REINVITE_ACKNOWLEDGED':
+            return DialogEvent_Kind.REINVITE_ACKNOWLEDGED;
         case -1:
         case 'UNRECOGNIZED':
         default:
@@ -924,6 +933,8 @@ export function dialogEvent_KindToJSON(object: DialogEvent_Kind): string {
             return 'FAILED';
         case DialogEvent_Kind.SUBSCRIPTION_EXPIRED:
             return 'SUBSCRIPTION_EXPIRED';
+        case DialogEvent_Kind.REINVITE_ACKNOWLEDGED:
+            return 'REINVITE_ACKNOWLEDGED';
         case DialogEvent_Kind.UNRECOGNIZED:
         default:
             return 'UNRECOGNIZED';
@@ -3341,7 +3352,12 @@ export const DialogEvent: MessageFns<DialogEvent> = {
                 : isSet(object.operation_id)
                   ? globalThis.String(object.operation_id)
                   : '',
-            error: isSet(object.error) ? globalThis.String(object.error) : ''
+            error: isSet(object.error) ? globalThis.String(object.error) : '',
+            inviteCseq: isSet(object.inviteCseq)
+                ? globalThis.Number(object.inviteCseq)
+                : isSet(object.invite_cseq)
+                  ? globalThis.Number(object.invite_cseq)
+                  : 0
         };
     },
 
@@ -3361,6 +3377,9 @@ export const DialogEvent: MessageFns<DialogEvent> = {
         }
         if (message.error !== '') {
             obj.error = message.error;
+        }
+        if (message.inviteCseq !== 0) {
+            obj.inviteCseq = message.inviteCseq;
         }
         return obj;
     }

@@ -148,9 +148,15 @@ func (e *ResidentMemory) deliverResidentEvent(parent context.Context, event *res
 		public.Message, err = projectNativeMessage(event.native, false)
 		if err == nil {
 			public.Message.Selectors = event.selectors
+			if public.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED {
+				err = projectReinviteACK(public, event.native)
+			}
 		}
 	}
-	if err == nil {
+	if err == nil && public.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED && !acceptsReinviteACK(peer, public.Snapshot.ApplicationLeaseTerm) {
+		// A different negotiated session cannot receive this optional event.
+		accepted = true
+	} else if err == nil {
 		e.callbackMetrics.callback("event", callbackFresh, callbackAttempt)
 		reply, callErr := peer.Call(ctx, &pb.Envelope{CorrelationId: event.id, RemainingBudgetMs: uint32(max(1, time.Until(deadline).Milliseconds())), Payload: &pb.Envelope_DialogEvent{DialogEvent: public}})
 		if callErr == nil {

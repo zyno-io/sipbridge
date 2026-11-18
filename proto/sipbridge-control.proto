@@ -257,8 +257,11 @@ message ApplicationStatus {
 }
 message FlowClosed { FlowRef flow = 1; }
 message DialogEvent {
-  enum Kind { UNSPECIFIED = 0; PROVISIONAL = 1; ANSWERED = 2; ACKNOWLEDGED = 3; CANCELLED = 4; ENDED = 5; FAILED = 6; SUBSCRIPTION_EXPIRED = 7; }
+  enum Kind { UNSPECIFIED = 0; PROVISIONAL = 1; ANSWERED = 2; ACKNOWLEDGED = 3; CANCELLED = 4; ENDED = 5; FAILED = 6; SUBSCRIPTION_EXPIRED = 7; REINVITE_ACKNOWLEDGED = 8; }
   Kind kind = 1; ContextSnapshot snapshot = 2; SipMessage message = 3; string operation_id = 4; string error = 5;
+  // Only with sip.reinvite-ack.v1: accepted peer re-INVITE ACK, correlated by CSeq.
+  // Initial ACKNOWLEDGED remains snapshot-only and leaves this field zero.
+  uint32 invite_cseq = 6;
 }
 message ContextInspect { ContextRef context = 1; }
 

@@ -91,7 +91,10 @@ func (e *redisNative) dispatchLifecycle(parent context.Context, store *rediscore
 		if parent.Err() == nil && time.Now().Before(callDeadline) {
 			ctx, cancel := context.WithDeadline(parent, callDeadline)
 			peer, peerErr := e.control.Peer(public.Snapshot.Application)
-			if peerErr == nil && ctx.Err() == nil {
+			if peerErr == nil && public.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED && !acceptsReinviteACK(peer, public.Snapshot.ApplicationLeaseTerm) {
+				// Executor transfer cannot bypass the selected session's opt-in.
+				accepted = true
+			} else if peerErr == nil && ctx.Err() == nil {
 				reply, callErr := peer.Call(ctx, &pb.Envelope{CorrelationId: due.Member,
 					RemainingBudgetMs: uint32(max(1, time.Until(callDeadline).Milliseconds())),
 					Payload:           &pb.Envelope_DialogEvent{DialogEvent: public}})

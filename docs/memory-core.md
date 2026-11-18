@@ -361,3 +361,13 @@ periodic work, and retained resources must not grow with retired history.
 The binary Redis storage contract is owned by [Redis core](redis-core.md).
 JSON remains confined to the application control connection. This resident phone
 domain does not mirror its native records into Redis or restore them after restart.
+
+## Peer re-INVITE ACK observations
+
+The accepted native ACK transition stages `REINVITE_ACKNOWLEDGED` only for a
+live controller negotiating `sip.reinvite-ack.v1`. Retain its immutable native
+message and frozen post-transition snapshot in the existing charged lifecycle
+budget through acknowledgement or the original two-minute cutoff. A subsequent
+INVITE cannot replace that event's answer. Duplicate ACKs incur no additional
+delivery debt. Updating remote SDP for `LocalOfferInACK` is part of the same
+locked, accounted publication; initial ACK events remain snapshot-only.

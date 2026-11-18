@@ -403,14 +403,15 @@ func (DeliveryResult_Outcome) EnumDescriptor() ([]byte, []int) {
 type DialogEvent_Kind int32
 
 const (
-	DialogEvent_UNSPECIFIED          DialogEvent_Kind = 0
-	DialogEvent_PROVISIONAL          DialogEvent_Kind = 1
-	DialogEvent_ANSWERED             DialogEvent_Kind = 2
-	DialogEvent_ACKNOWLEDGED         DialogEvent_Kind = 3
-	DialogEvent_CANCELLED            DialogEvent_Kind = 4
-	DialogEvent_ENDED                DialogEvent_Kind = 5
-	DialogEvent_FAILED               DialogEvent_Kind = 6
-	DialogEvent_SUBSCRIPTION_EXPIRED DialogEvent_Kind = 7
+	DialogEvent_UNSPECIFIED           DialogEvent_Kind = 0
+	DialogEvent_PROVISIONAL           DialogEvent_Kind = 1
+	DialogEvent_ANSWERED              DialogEvent_Kind = 2
+	DialogEvent_ACKNOWLEDGED          DialogEvent_Kind = 3
+	DialogEvent_CANCELLED             DialogEvent_Kind = 4
+	DialogEvent_ENDED                 DialogEvent_Kind = 5
+	DialogEvent_FAILED                DialogEvent_Kind = 6
+	DialogEvent_SUBSCRIPTION_EXPIRED  DialogEvent_Kind = 7
+	DialogEvent_REINVITE_ACKNOWLEDGED DialogEvent_Kind = 8
 )
 
 // Enum value maps for DialogEvent_Kind.
@@ -424,16 +425,18 @@ var (
 		5: "ENDED",
 		6: "FAILED",
 		7: "SUBSCRIPTION_EXPIRED",
+		8: "REINVITE_ACKNOWLEDGED",
 	}
 	DialogEvent_Kind_value = map[string]int32{
-		"UNSPECIFIED":          0,
-		"PROVISIONAL":          1,
-		"ANSWERED":             2,
-		"ACKNOWLEDGED":         3,
-		"CANCELLED":            4,
-		"ENDED":                5,
-		"FAILED":               6,
-		"SUBSCRIPTION_EXPIRED": 7,
+		"UNSPECIFIED":           0,
+		"PROVISIONAL":           1,
+		"ANSWERED":              2,
+		"ACKNOWLEDGED":          3,
+		"CANCELLED":             4,
+		"ENDED":                 5,
+		"FAILED":                6,
+		"SUBSCRIPTION_EXPIRED":  7,
+		"REINVITE_ACKNOWLEDGED": 8,
 	}
 )
 
@@ -4850,12 +4853,15 @@ func (x *FlowClosed) GetFlow() *FlowRef {
 }
 
 type DialogEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          DialogEvent_Kind       `protobuf:"varint,1,opt,name=kind,proto3,enum=sipbridge.control.v1.DialogEvent_Kind" json:"kind,omitempty"`
-	Snapshot      *ContextSnapshot       `protobuf:"bytes,2,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
-	Message       *SipMessage            `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	OperationId   string                 `protobuf:"bytes,4,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	Error         string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Kind        DialogEvent_Kind       `protobuf:"varint,1,opt,name=kind,proto3,enum=sipbridge.control.v1.DialogEvent_Kind" json:"kind,omitempty"`
+	Snapshot    *ContextSnapshot       `protobuf:"bytes,2,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	Message     *SipMessage            `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	OperationId string                 `protobuf:"bytes,4,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Error       string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	// Only with sip.reinvite-ack.v1: accepted peer re-INVITE ACK, correlated by CSeq.
+	// Initial ACKNOWLEDGED remains snapshot-only and leaves this field zero.
+	InviteCseq    uint32 `protobuf:"varint,6,opt,name=invite_cseq,json=inviteCseq,proto3" json:"invite_cseq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4923,6 +4929,13 @@ func (x *DialogEvent) GetError() string {
 		return x.Error
 	}
 	return ""
+}
+
+func (x *DialogEvent) GetInviteCseq() uint32 {
+	if x != nil {
+		return x.InviteCseq
+	}
+	return 0
 }
 
 type ContextInspect struct {
@@ -5615,13 +5628,15 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\rchecked_at_ms\x18\x05 \x01(\x04R\vcheckedAtMs\"?\n" +
 	"\n" +
 	"FlowClosed\x121\n" +
-	"\x04flow\x18\x01 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\"\x8c\x03\n" +
+	"\x04flow\x18\x01 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\"\xc8\x03\n" +
 	"\vDialogEvent\x12:\n" +
 	"\x04kind\x18\x01 \x01(\x0e2&.sipbridge.control.v1.DialogEvent.KindR\x04kind\x12A\n" +
 	"\bsnapshot\x18\x02 \x01(\v2%.sipbridge.control.v1.ContextSnapshotR\bsnapshot\x12:\n" +
 	"\amessage\x18\x03 \x01(\v2 .sipbridge.control.v1.SipMessageR\amessage\x12!\n" +
 	"\foperation_id\x18\x04 \x01(\tR\voperationId\x12\x14\n" +
-	"\x05error\x18\x05 \x01(\tR\x05error\"\x88\x01\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\x12\x1f\n" +
+	"\vinvite_cseq\x18\x06 \x01(\rR\n" +
+	"inviteCseq\"\xa3\x01\n" +
 	"\x04Kind\x12\x0f\n" +
 	"\vUNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vPROVISIONAL\x10\x01\x12\f\n" +
@@ -5631,7 +5646,8 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x05ENDED\x10\x05\x12\n" +
 	"\n" +
 	"\x06FAILED\x10\x06\x12\x18\n" +
-	"\x14SUBSCRIPTION_EXPIRED\x10\a\"L\n" +
+	"\x14SUBSCRIPTION_EXPIRED\x10\a\x12\x19\n" +
+	"\x15REINVITE_ACKNOWLEDGED\x10\b\"L\n" +
 	"\x0eContextInspect\x12:\n" +
 	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\"\xc7\x01\n" +
 	"\x0fContextDelivery\x121\n" +

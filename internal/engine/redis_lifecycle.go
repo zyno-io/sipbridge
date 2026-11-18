@@ -52,9 +52,9 @@ func selectRedisNativeLifecycle(ctx context.Context, store *rediscore.Store, due
 	messageEvent := record.Message != ""
 	switch record.Snapshot.Kind {
 	case pb.ContextSnapshot_UAS:
-		allowed = !messageEvent && (record.Kind == pb.DialogEvent_ACKNOWLEDGED || record.Kind == pb.DialogEvent_CANCELLED) || record.Kind == pb.DialogEvent_ENDED
+		allowed = messageEvent && record.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED || !messageEvent && (record.Kind == pb.DialogEvent_ACKNOWLEDGED || record.Kind == pb.DialogEvent_CANCELLED) || record.Kind == pb.DialogEvent_ENDED
 	case pb.ContextSnapshot_UAC:
-		allowed = !messageEvent && (record.Kind == pb.DialogEvent_ACKNOWLEDGED || record.Kind == pb.DialogEvent_CANCELLED) || record.Kind == pb.DialogEvent_ENDED ||
+		allowed = messageEvent && record.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED || !messageEvent && (record.Kind == pb.DialogEvent_ACKNOWLEDGED || record.Kind == pb.DialogEvent_CANCELLED) || record.Kind == pb.DialogEvent_ENDED ||
 			record.Kind == pb.DialogEvent_FAILED && record.Snapshot.Ended && record.Error == "" && validSendText(record.OperationId, 160, false) ||
 			messageEvent && (record.Kind == pb.DialogEvent_PROVISIONAL || record.Kind == pb.DialogEvent_ANSWERED) && validSendText(record.OperationId, 160, false)
 	}
@@ -85,6 +85,12 @@ func selectRedisNativeLifecycle(ctx context.Context, store *rediscore.Store, due
 		return out, nil, nil
 	}
 	public := &pb.DialogEvent{Kind: record.Kind, Snapshot: proto.Clone(record.Snapshot).(*pb.ContextSnapshot), OperationId: record.OperationId, Error: record.Error}
+	if record.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED {
+		if err := projectRedisReinviteACK(ctx, store, due, view.Revision, field, record, public); err != nil {
+			return out, nil, err
+		}
+		return out, public, nil
+	}
 	if messageEvent {
 		wireView, e := store.Read(ctx, due.Identity, "r:context", record.Root, record.Message)
 		if e != nil {
@@ -277,7 +283,7 @@ func completeRedisNativeLifecycle(ctx context.Context, store *rediscore.Store, s
 				timers = append(timers, rediscore.TimerChange{Member: "call-retire", Due: time.UnixMilli(current.CallRetireAtMs)})
 			}
 			changes := []rediscore.Change{{Field: selected.field, Delete: true}}
-			if currentEvent.Message == "" && currentEvent.Root != "" {
+			if (currentEvent.Message == "" || currentEvent.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED) && currentEvent.Root != "" {
 				ownerView, x := store.Read(ctx, due.Identity, currentEvent.Root)
 				if x != nil {
 					return x
@@ -301,11 +307,17 @@ func completeRedisNativeLifecycle(ctx context.Context, store *rediscore.Store, s
 					return x
 				}
 				changes = append(changes, rediscore.Change{Field: currentEvent.Root, Value: data})
+				if currentEvent.Kind == pb.DialogEvent_REINVITE_ACKNOWLEDGED {
+					if !validReinviteACKLifecycle(currentEvent, selected.field) {
+						return errNativeRecord
+					}
+					changes = append(changes, rediscore.Change{Field: currentEvent.Message, Delete: true})
+				}
 				if owner.Native.Phase == string(portable.Terminated) && len(owner.Events) == 0 && len(owner.Outputs) == 0 {
 					timers = append(timers, rediscore.TimerChange{Member: "call-proc-" + id, Due: time.UnixMilli(due.CheckedAtMS)})
 				}
 			}
-			if currentEvent.Message != "" {
+			if currentEvent.Message != "" && currentEvent.Kind != pb.DialogEvent_REINVITE_ACKNOWLEDGED {
 				release, x := planRedisLifecycleMessageRelease(ctx, store, due.Identity, due.Revision, due.Assignment, current, selected.field, currentEvent)
 				if errors.Is(x, rediscore.ErrConflict) {
 					continue

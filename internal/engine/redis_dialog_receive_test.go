@@ -50,7 +50,15 @@ func TestRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T) {
 	})
 }
 
-func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method sip.RequestMethod, cancelCase, tryingCase, ackTimeoutCase bool, ownerCase int) {
+func TestRedisPeerACKLifecycleRetention(t *testing.T) {
+	for _, outcome := range []string{"accepted", "expired"} {
+		t.Run(outcome, func(t *testing.T) {
+			testRedisDialogRequestAdmissionDefersDialogMutation(t, sip.REFER, false, false, false, 0, outcome)
+		})
+	}
+}
+
+func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method sip.RequestMethod, cancelCase, tryingCase, ackTimeoutCase bool, ownerCase int, ackEvent ...string) {
 	address := os.Getenv("SIPBRIDGE_CORE_TEST_REDIS")
 	if address == "" {
 		t.Skip("isolated Redis fixture required")
@@ -967,7 +975,11 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	if err != nil {
 		t.Fatal(err)
 	}
-	ack, err := portable.BuildDialogRequest(peer, sip.ACK, 14, nil, "z9hG4bK-reinvite-ack")
+	ackBody := []byte(nil)
+	if len(ackEvent) > 0 {
+		ackBody = peerACKAnswer
+	}
+	ack, err := portable.BuildDialogRequest(peer, sip.ACK, 14, ackBody, "z9hG4bK-reinvite-ack")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1003,7 +1015,7 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	if selectedACK.ProcedureField != "r:procedure-"+inviteID {
 		t.Fatal("ACK associated with wrong INVITE")
 	}
-	if err = publishRedisCallDialogACK(ctx, remoteStore, selectedACK, flow, key, rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}, time.Now().Add(time.Second)); err != nil {
+	if err = publishRedisCallDialogACK(ctx, remoteStore, selectedACK, flow, key, rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}, time.Now().Add(time.Second), len(ackEvent) > 0); err != nil {
 		t.Fatal("commit re-INVITE ACK", err)
 	}
 	acked, err := remoteStore.Read(ctx, selectedACK.Identity, "r:dialog")
@@ -1013,6 +1025,10 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	ackedDialog, err := readPrivateDialogRecord(acked.Records["r:dialog"])
 	if err != nil || ackedDialog.Native.RemoteInvite.State != string(portable.InviteAcked) {
 		t.Fatal("re-INVITE ACK not applied", err)
+	}
+	if len(ackEvent) > 0 {
+		assertRedisPeerACKRetention(t, ctx, remoteStore, client, selectedACK.Identity, "r:procedure-"+inviteID, "r:dialog", ack, ackEvent[0])
+		return
 	}
 	if ownerCase == 3 {
 		view, e := remoteStore.Read(ctx, id, "r:context", "r:subscription")
@@ -1175,7 +1191,7 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	if err != nil || !handled {
 		t.Fatal("select re-INVITE CANCEL", handled, err)
 	}
-	handled, err = matchRedisCallCompletion(ctx, store, executor, flow, cancel, key, rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}, time.Now().Add(time.Second))
+	handled, err = matchRedisCallCompletion(ctx, store, executor, flow, cancel, key, rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}, time.Now().Add(time.Second), nil)
 	if err != nil || !handled {
 		t.Fatal("publish re-INVITE CANCEL", handled, err)
 	}

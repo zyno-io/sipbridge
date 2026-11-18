@@ -5,11 +5,12 @@ package rediscore
 type AdmissionClass string
 
 const (
-	AdmissionPending    AdmissionClass = "pending"
-	AdmissionInbound    AdmissionClass = "inbound"
-	AdmissionOutbound   AdmissionClass = "outbound"
-	AdmissionRefusal    AdmissionClass = "refusal"
-	AdmissionStandalone AdmissionClass = "standalone"
+	AdmissionPending       AdmissionClass = "pending"
+	AdmissionInbound       AdmissionClass = "inbound"
+	AdmissionOutbound      AdmissionClass = "outbound"
+	AdmissionRefusal       AdmissionClass = "refusal"
+	AdmissionNativeRefusal AdmissionClass = "nativerefusal"
+	AdmissionStandalone    AdmissionClass = "standalone"
 )
 
 type Admission struct {
@@ -29,7 +30,7 @@ func (a Admission) valid(create bool) bool {
 		switch a.Class {
 		case AdmissionPending:
 			return reference(a.Source)
-		case AdmissionOutbound, AdmissionRefusal, AdmissionStandalone:
+		case AdmissionOutbound, AdmissionNativeRefusal, AdmissionStandalone:
 			return a.Source == ""
 		}
 		return false
@@ -38,7 +39,7 @@ func (a Admission) valid(create bool) bool {
 }
 
 const admissionScript = `
-local admissionLimits={pending=128,inbound=1024,outbound=1024,refusal=1024,standalone=512}
+local admissionLimits={pending=128,inbound=1024,outbound=1024,refusal=1024,nativerefusal=1024,standalone=512}
 local function admissionPlan(capacity,old,creating,retiring,instance,class,source)
  local changes={}
  local priorInstance,priorClass,priorSource
@@ -82,14 +83,11 @@ local function admissionPlan(capacity,old,creating,retiring,instance,class,sourc
  if creating then
   local used=count(class);if not used then return nil,'CORRUPT' end
   if used>=admissionLimits[class] then return nil,'CAPACITY' end
-  if class=='pending' or class=='refusal' then
-   local pending,refusal=count('pending'),count('refusal');if not pending or not refusal then return nil,'CORRUPT' end
-   if pending+refusal>=admissionLimits.refusal then return nil,'CAPACITY' end
-   if class=='pending' then
-    local inbound,sourceUsed=count('inbound'),count('source:'..source);if not inbound or not sourceUsed then return nil,'CORRUPT' end
-    if inbound+pending>=admissionLimits.inbound or sourceUsed>=32 then return nil,'CAPACITY' end
-    problem=change('source:'..source,1);if problem then return nil,problem end
-   end
+  if class=='pending' then
+   local inbound,refusal,sourceUsed=count('inbound'),count('refusal'),count('source:'..source)
+   if not inbound or not refusal or not sourceUsed then return nil,'CORRUPT' end
+   if inbound+used>=admissionLimits.inbound or refusal+used>=admissionLimits.refusal or sourceUsed>=32 then return nil,'CAPACITY' end
+   problem=change('source:'..source,1);if problem then return nil,problem end
   end
  end
  problem=change(class,1);if problem then return nil,problem end

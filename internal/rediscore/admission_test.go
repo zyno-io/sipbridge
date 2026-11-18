@@ -64,6 +64,17 @@ func TestInstanceAdmissionCapacity(t *testing.T) {
 	if count, err := client.HExists(ctx, store.capacityKey(), "admission:pod-a:refusal").Result(); count || err != nil {
 		t.Fatalf("empty refusal counter was retained: %v %v", count, err)
 	}
+	firstNativeRefusal := create("native-refusal-0", "pod-refusal", AdmissionNativeRefusal, "", nil)
+	for i := 1; i < 1024; i++ {
+		create(fmt.Sprintf("native-refusal-%d", i), "pod-refusal", AdmissionNativeRefusal, "", nil)
+	}
+	create("native-refusal-overflow", "pod-refusal", AdmissionNativeRefusal, "", ErrCapacity)
+	pending := create("pending-after-native-refusals", "pod-refusal", AdmissionPending, "source", nil)
+	move(pending, AdmissionInbound)
+	if err := store.RetireContext(ctx, firstNativeRefusal, 1, deadline, true); err != nil {
+		t.Fatal(err)
+	}
+	create("native-refusal-capacity-reclaimed", "pod-refusal", AdmissionNativeRefusal, "", nil)
 	for _, pod := range []string{"pod-a", "pod-b"} {
 		for i := 0; i < 512; i++ {
 			in := create(fmt.Sprintf("%s-in-%d", pod, i), pod, AdmissionPending, "normal", nil)

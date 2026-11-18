@@ -7,9 +7,10 @@ import (
 )
 
 const (
-	residentPendingLimit = 128
-	residentSourceLimit  = 32
-	residentRefusalLimit = 1024
+	residentPendingLimit       = 128
+	residentSourceLimit        = 32
+	residentRefusalLimit       = 1024
+	residentNativeRefusalLimit = 1024
 )
 
 type residentAdmissionClass uint8
@@ -20,6 +21,7 @@ const (
 	residentInbound
 	residentOutbound
 	residentRefusal
+	residentNativeRefusal
 )
 
 func normalizedAdmissionSource(source string) string {

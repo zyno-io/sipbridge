@@ -36,7 +36,7 @@ type ResidentMemory struct {
 	admissions          map[string]residentAdmission
 	admissionByWire     map[[32]byte]string
 	admissionCounts     map[string]int
-	classCounts         [residentRefusal + 1]int
+	classCounts         [residentNativeRefusal + 1]int
 	pendingSources      map[string]int
 	refusalDispositions map[string]residentRefusalDisposition
 	admissionSerial     uint64

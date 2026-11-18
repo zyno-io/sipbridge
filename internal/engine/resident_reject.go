@@ -172,11 +172,11 @@ func (e *ResidentMemory) rejectParsed(ctx context.Context, flow *pb.FlowRef, mes
 		return err
 	}
 	e.mu.Lock()
-	valid := !e.closed && e.classCounts[residentRefusal]+e.classCounts[residentPending] < residentRefusalLimit && e.contexts[id] == nil
+	valid := !e.closed && e.classCounts[residentNativeRefusal] < residentNativeRefusalLimit && e.contexts[id] == nil
 	valid = valid && !e.residentSelectorOccupiedLocked(selectors)
 	if valid {
 		e.contexts[id] = c
-		e.changeResidentAdmissionLocked(c, residentRefusal)
+		e.changeResidentAdmissionLocked(c, residentNativeRefusal)
 		for _, selector := range selectors {
 			e.transactions[selector] = c
 		}

@@ -99,6 +99,7 @@ func TestResidentRefusalUsesIndependentCapacityAndCompacts(t *testing.T) {
 	e.mu.Lock()
 	e.classCounts[residentInbound] = e.maxContexts
 	e.classCounts[residentOutbound] = e.maxContexts
+	e.classCounts[residentRefusal] = residentRefusalLimit
 	e.mu.Unlock()
 	if err := e.Reject(ctx, flow, message, 503); err != nil {
 		t.Fatal(err)
@@ -119,7 +120,7 @@ func TestResidentRefusalUsesIndependentCapacityAndCompacts(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for {
 		e.mu.Lock()
-		active, compact := e.classCounts[residentRefusal], len(e.refusalDispositions)
+		active, compact := e.classCounts[residentNativeRefusal], len(e.refusalDispositions)
 		e.mu.Unlock()
 		if active == 0 && compact == 1 {
 			break
@@ -136,6 +137,17 @@ func TestResidentRefusalUsesIndependentCapacityAndCompacts(t *testing.T) {
 	case wire := <-writes:
 		t.Fatalf("settled retransmission selected another final: %q", wire)
 	default:
+	}
+}
+
+func TestResidentNativeRefusalsDoNotBlockControllerAdmission(t *testing.T) {
+	e, _, _, ctx, _, _, _ := residentControlFixture(t)
+	e.mu.Lock()
+	e.classCounts[residentNativeRefusal] = residentNativeRefusalLimit
+	e.mu.Unlock()
+	message := stateTestRequest("INVITE", 1, "", "pending-after-native-refusals")
+	if _, err := e.locate(ctx, message); err != nil {
+		t.Fatal(err)
 	}
 }
 

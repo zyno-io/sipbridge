@@ -57,7 +57,8 @@ allocated up front. The exact rules are in
 | Memory: retained bytes plus reserved completion room | 1 GiB | `SIPBRIDGE_MEMORY_MAX_BYTES` (at least 8 MiB) |
 | Memory: controller processes with a lease | 1,024 | fixed |
 | Initial decisions per instance | 128, 32 per observed source | fixed |
-| Fresh refusals plus pending decisions per instance | 1,024 | fixed |
+| Controller refusals plus pending decisions per instance | 1,024 | fixed |
+| Native refusals per instance | 1,024 | fixed |
 | Memory: compact refusal dispositions | 4,096 | fixed |
 | Redis: inbound and outbound call legs per instance | 1,024 each | fixed |
 | Redis: outbound standalone procedures per instance | 512 | fixed |

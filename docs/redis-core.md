@@ -193,9 +193,12 @@ the resident owner and are not Redis obligations.
 The namespace capacity hash tracks context count and logical retained bytes atomically with every context, timer and physical-output mutation. Logical bytes include each context hash key and exact hash field/value bytes, completion reservations, each nonempty per-context deadline-key string, each deadline member and eight-byte score, each per-worker timer or ready member and eight-byte score, and each binary selector field/value. Each context's index-byte scalar is itself counted as a hash field. Shared per-worker key names, Redis allocator overhead and separately bounded worker/application control-plane metadata are excluded; measure actual Redis memory separately. A terminal native caller may retire an exactly fenced context only after its records, outputs, deadlines, indexed projections and reservations have all been discharged. No context scan or automatic reset repairs accounting.
 
 Serving admission charges fresh work to the admitting instance. The charge survives
-process replacement and timer-executor handoff. Pending decisions, inbound
-call legs, outbound call legs and native refusals have independent limits. Pending
-decisions also have a limit per observed source address on the admitting instance.
+process replacement and timer-executor handoff. Initial native refusals have
+their own limit, including those generated when a controller admission limit is
+reached. They leave room for the next controller decision after pressure clears.
+Pending decisions reserve room in the inbound and controller-refusal limits.
+Outbound call legs have a separate limit. Pending decisions also have a limit
+per observed source address on the admitting instance.
 The native publication that selects the decision moves the pending charge in the
 same atomic operation. Terminal retirement releases the remaining charge. Namespace
 totals remain available for accounting. Adding an instance adds admission capacity.

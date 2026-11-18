@@ -82,7 +82,7 @@ func BindProfile(cfg ProfileConfig) (ProfileBinding, error) {
 	// accounting/authority interpretation change incompatibly.
 	text("context-hash-record-deadlines-worker-heads-ready-cutoff-owner-terms-application-admission-raw-selectors-worker-reacquire-output-proof-dependencies-delivery-register-obsolete-pooled-credit-application-witness-finished-notify-obsolete-superseded-provisional-original-result-pinned-sub-dialog-invite-disconnect-peer-reinvite-ack-v1")
 	if cfg.InstanceAdmission {
-		text("instance-admission-v1")
+		text("instance-admission-v2")
 	}
 	for _, kind := range []byte{storagecodec.SelectedMessage, storagecodec.NativeContext, storagecodec.NativeProcedure, storagecodec.NativeDialog,
 		storagecodec.NativeSubscription, storagecodec.NativeResult, storagecodec.NativeLifecycle, storagecodec.NativeOutput} {

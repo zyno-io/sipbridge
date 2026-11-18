@@ -31,7 +31,8 @@ func (d residentRefusalDisposition) matches(wire []byte, flow *pb.FlowRef) bool 
 // Called with the context lock after physical proof, receipt pins, and native
 // transaction work have settled. Release the heavy context on the same pass.
 func (e *ResidentMemory) compactResidentRefusalLocked(c *residentContext, now time.Time) bool {
-	if c.admissionClass != residentRefusal || c.subscription != nil || len(c.dialogs) != 0 || len(c.transactions) != 1 {
+	if (c.admissionClass != residentRefusal && c.admissionClass != residentNativeRefusal) ||
+		c.subscription != nil || len(c.dialogs) != 0 || len(c.transactions) != 1 {
 		return false
 	}
 	for _, tx := range c.transactions {

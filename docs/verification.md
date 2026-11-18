@@ -69,10 +69,10 @@ fault tests make no exactly-once or rollback-survival guarantee.
 
 ## Performance and load
 
-None of the checks above measures CPU, latency or capacity under load, and no
-load, soak or matched-traffic CPU qualification is part of this repository's
-evidence. The private codec benchmark compares complete storage codec layers on
-synthetic records; its results are local fixture evidence only:
+The two-legged wire check measures simultaneous call capacity with a fixture
+controller. Production traffic mixes, latency, CPU and soak behavior require
+separate qualification. The private codec benchmark compares complete storage
+codec layers on synthetic records:
 
 ```bash
 go test ./internal/engine -run '^$' -bench '^BenchmarkRetainedRecordCodec$' -benchtime=300ms -count=3

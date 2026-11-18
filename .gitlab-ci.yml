@@ -49,7 +49,7 @@ test:unit:
   stage: test
   cache:
     policy: pull
-  services:
+  services: &native_redis_service
     - name: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
       alias: redis
       command: [redis-server, --save, '', --appendonly, 'no', --maxmemory-policy, noeviction]
@@ -93,6 +93,22 @@ test:wire:
     paths:
       - artifacts/qualification/reconnect-evidence.json
     expire_in: 30 days
+
+test:call-capacity:
+  extends: .go-base
+  stage: test
+  cache:
+    policy: pull
+  services: *native_redis_service
+  variables:
+    SIPBRIDGE_CAPACITY_WIRE: '1'
+    SIPBRIDGE_STATE_TEST_REDIS: redis:6379
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true
+  script:
+    - go test -count=1 -v ./cmd/sipbridge -run '^TestBinaryRedisTwoLeggedCallCapacity$'
 
 .publish-base:
   image: ghcr.io/zyno-io/container-tooling:latest

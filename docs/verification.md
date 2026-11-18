@@ -70,9 +70,10 @@ fault tests make no exactly-once or rollback-survival guarantee.
 ## Performance and load
 
 The two-legged wire check measures simultaneous call capacity with a fixture
-controller. Production traffic mixes, latency, CPU and soak behavior require
-separate qualification. The private codec benchmark compares complete storage
-codec layers on synthetic records:
+controller. Run it on a merge request with the optional `test:call-capacity`
+job. Production traffic mixes, latency, CPU and soak behavior require separate
+qualification. The private codec benchmark compares complete storage codec layers
+on synthetic records:
 
 ```bash
 go test ./internal/engine -run '^$' -bench '^BenchmarkRetainedRecordCodec$' -benchtime=300ms -count=3

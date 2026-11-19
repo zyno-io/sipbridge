@@ -97,8 +97,11 @@ func (e *redisNative) commandApplicationBye(parent context.Context, peer *contro
 		if x == nil {
 			break
 		}
-		if errors.Is(x, rediscore.ErrConflict) && ctx.Err() == nil && time.Now().Before(deadline) && attempts < 2 {
-			continue
+		if errors.Is(x, rediscore.ErrConflict) && !errors.Is(x, rediscore.ErrUnknown) {
+			if ctx.Err() == nil && time.Now().Before(deadline) && attempts < 2 {
+				continue
+			}
+			return commandRefusal(x), nil
 		}
 		if errors.Is(x, errStatePolicyAdmission) || errors.Is(x, rediscore.ErrCapacity) {
 			return commandRefusal(x), nil

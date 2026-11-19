@@ -114,6 +114,10 @@ func testRedisInitialACKAfterApplicationBYE(t *testing.T, ctx context.Context, e
 		}
 	}
 	if decisionProxy != nil {
+		if decisionCase >= 23 {
+			testRedisDialogCommandConflict(t, ctx, e, ws, hello, flow, opened.Snapshot.Context, identity, decisionRoot, decisionProxy, decisionCase, written)
+			return
+		}
 		testRedisDirectDecisionReadConflict(t, ctx, e, ws, hello, flow, opened.Snapshot.Context, store, identity, origin, final, initialACK, dialogField, decisionRoot, decisionProxy, decisionCase, written)
 		return
 	}

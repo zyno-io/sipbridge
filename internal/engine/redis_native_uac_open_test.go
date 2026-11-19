@@ -57,7 +57,7 @@ func testRedisNativeOpenUACCommand(t *testing.T, cancelLookup int) {
 	application := &pb.ProcessRef{InstanceId: "controller", Epoch: uuid.NewString()}
 	connectionAddress := address
 	var decisionProxy *redisReservationFaultProxy
-	if cancelLookup >= 12 && cancelLookup <= 22 {
+	if cancelLookup >= 12 && cancelLookup <= 25 {
 		decisionProxy = newRedisReservationFaultProxy(t, address)
 		connectionAddress = decisionProxy.address
 	}
@@ -380,7 +380,7 @@ func testRedisNativeOpenUACCommand(t *testing.T, cancelLookup int) {
 		testRedisPreviousACKCompletionBeforeResume(t, ctx, engine, ws, hello, flow, result, store, identity, origin, written, previousACK, cancelLookup == 11)
 		return
 	}
-	if cancelLookup == 3 || cancelLookup >= 8 && cancelLookup <= 10 || cancelLookup >= 12 && cancelLookup <= 22 {
+	if cancelLookup == 3 || cancelLookup >= 8 && cancelLookup <= 10 || cancelLookup >= 12 && cancelLookup <= 25 {
 		keys = append(keys, "core:context:after-ack-cutoff", "core:deadlines:after-ack-cutoff")
 		testRedisInitialACKAfterApplicationBYE(t, ctx, engine, ws, hello, flow, result, store, identity, origin, written, cancelLookup >= 8, cancelLookup == 9, cancelLookup == 10, root, decisionProxy, cancelLookup)
 		return

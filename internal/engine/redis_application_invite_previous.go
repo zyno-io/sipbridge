@@ -17,7 +17,7 @@ import (
 	"sipbridge/internal/storagecodec"
 )
 
-var errPreviousInviteACKPending = errors.New("previous INVITE ACK output still pending")
+var errPreviousInviteACKPending = &portable.ProtocolError{Status: 491, Reason: "previous INVITE ACK output still pending"}
 
 // previousInviteOutputPending carries only this operation's exact selected
 // attempt. It is not retained and cannot grant a replacement by itself.

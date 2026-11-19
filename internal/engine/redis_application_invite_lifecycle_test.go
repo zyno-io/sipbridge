@@ -12,6 +12,7 @@ import (
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/nativepb"
 	"sipbridge/internal/rediscore"
+	"sipbridge/internal/selectedmessage"
 	"sipbridge/internal/storagecodec"
 )
 
@@ -229,5 +230,92 @@ func testRedisApplicationInviteRetirement(t *testing.T, ctx context.Context, sto
 	previous, err := decodeNativeResult(view.Records[output.Result])
 	if err != nil || len(view.Records[output.Procedure]) != 0 || previous.Request != oldRequest || previous.Response != oldResponse || len(view.Records[oldRequest]) == 0 || len(view.Records[oldResponse]) == 0 || len(view.Records[oldACK]) != 0 {
 		t.Fatal("replaced INVITE did not release only its exact owners", err)
+	}
+}
+
+func testRedisLocalInviteTimerB(t *testing.T, ctx context.Context, store *rediscore.Store, client *redis.Client, input redisUACQualification, identity rediscore.Identity, output *nativepb.Output, wire []byte, written bool) {
+	t.Helper()
+	view, err := store.Read(ctx, identity, output.Procedure, output.Result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	procedure, err := readPrivateProcedureRecord(view.Records[output.Procedure])
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked, err := client.Time(ctx).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	due := checked.Add(-time.Millisecond)
+	procedure.Native.Timers.Values[string(portable.TimerB)].At = due.UnixMilli()
+	value, err := marshalNativeRecord(storagecodec.NativeProcedure, procedure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes := []rediscore.Change{{Field: output.Procedure, Value: value}}
+	if !written {
+		pending, err := decodeNativeResult(view.Records[output.Result])
+		if err != nil || !pending.GetPending() {
+			t.Fatal("expected unconfirmed write to leave the receipt pending", pending, err)
+		}
+		pending.CutoffMs = due.UnixMilli()
+		value, err := encodeNativeResult(pending)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changes = append(changes, rediscore.Change{Field: output.Result, Value: value})
+	}
+	member := strings.TrimPrefix(output.Procedure, "r:") + "-B"
+	revision, err := store.Commit(ctx, rediscore.Publication{Identity: identity, Revision: view.Revision, Deadline: time.Now().Add(time.Second), SpendReservation: true, Changes: changes, Timers: &rediscore.TimerMutation{Expected: view.Timer, Target: view.Timer, RequireLease: true, Changes: []rediscore.TimerChange{{Member: member, Due: due}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := &rediscore.DueContext{Identity: identity, Revision: revision, Assignment: view.Timer, Member: member, DeadlineMS: due.UnixMilli(), CheckedAtMS: checked.UnixMilli()}
+	if err = fireRedisApplicationInviteDeadline(ctx, store, observation, time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	view, err = store.Read(ctx, identity, "r:context", output.Result, procedure.Origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := decodeNativeResult(view.Records[output.Result])
+	if err != nil || result.GetPending() || result.GetSipStatus() != 0 || result.GetResponse() != "" {
+		t.Fatal("invalid timeout receipt", result, err)
+	}
+	if !written {
+		if result.Certainty != pb.OperationResult_UNKNOWN || result.Request != "" {
+			t.Fatal("SIP timeout claimed definite evidence for an uncertain write", result)
+		}
+		return
+	}
+	if result.Certainty != pb.OperationResult_COMPLETED || result.Error != "timeout" || result.Request != procedure.Origin {
+		t.Fatal("written re-INVITE timeout did not settle the original command", result)
+	}
+	request, err := selectedmessage.DecodeOpaque(view.Records[result.Request])
+	if err != nil || !bytes.Equal(request.WireBytes(), wire) {
+		t.Fatal("timeout lost the original re-INVITE", err)
+	}
+	current, err := decodeNativeContext(view.Records["r:context"])
+	if err != nil || !current.Answered || current.Ended {
+		t.Fatal("local re-INVITE timeout changed the established call", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	bye := &pb.Command{Context: input.Context, Sequence: result.Sequence + 1, Admission: &pb.CommandAdmission{DirectoryEpoch: "directory", ExpiresAtMs: uint64(deadline.UnixMilli()), SelectedFlow: input.Flow}, Action: &pb.Command_DialogRequest{DialogRequest: &pb.DialogRequest{Method: "BYE"}}}
+	capture, err := captureRedisNotifyWait(bye)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = publishRedisApplicationBye(ctx, store, input.Key, input.Application, input.Lease, bye, capture, "bye-after-timeout", input.ExecutorTimer, deadline)
+	if err != nil {
+		t.Fatal("BYE publication failed after re-INVITE timeout", err)
+	}
+	view, err = store.Read(ctx, identity, "r:result-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byeResult, err := decodeNativeResult(view.Records["r:result-5"])
+	if err != nil || !byeResult.GetPending() || byeResult.GetOutput() == "" {
+		t.Fatal("BYE was not admitted for delivery after re-INVITE timeout", byeResult, err)
 	}
 }

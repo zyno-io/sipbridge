@@ -932,6 +932,10 @@ native bytes and original retirement/quota, independently of provisional branch 
 An already-ended successful branch replays ACK without recancelling or allocating BYE.
 Pending ACK wire capacity survives separately from live-dialog count.
 
+A local re-INVITE that times out after a proven write completes with a zero SIP
+status and no peer response. It does not end the established dialog. If the
+write is uncertain, the timer does not make the write certain.
+
 Application-created client transactions, including local re-INVITE inside a UAS
 dialog, pin their own outbound application scope. Their ACK uses that transaction
 scope. Initial context/dialog cleanup scope remains separate; only an actual cleanup

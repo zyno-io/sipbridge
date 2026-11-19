@@ -12,3 +12,12 @@ func TestRedisApplicationInviteACKOutcomes(t *testing.T) {
 		})
 	}
 }
+
+func TestRedisApplicationInviteTimeout(t *testing.T) {
+	t.Run("written", func(t *testing.T) {
+		testRedisUACQualificationInitialAdmission(t, false, false, false, true, false, 72)
+	})
+	t.Run("uncertain-write", func(t *testing.T) {
+		testRedisUACQualificationInitialAdmission(t, false, false, false, true, false, 73)
+	})
+}

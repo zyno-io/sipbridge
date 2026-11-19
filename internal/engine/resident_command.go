@@ -577,6 +577,11 @@ func (e *ResidentMemory) residentOutputCompleted(c *residentContext, output *res
 	if err != nil || handled {
 		return writes, err
 	}
+	if output.method == "INVITE" && result.Outcome == pb.DeliveryResult_WRITTEN {
+		if tx := c.transactions[output.transaction]; tx != nil && tx.native.Family == portable.InviteClient {
+			tx.inviteWritten = true
+		}
+	}
 	if output.command == nil {
 		return nil, nil
 	}

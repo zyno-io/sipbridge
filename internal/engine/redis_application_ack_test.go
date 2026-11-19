@@ -247,7 +247,7 @@ func testRedisApplicationAnswerACK(t *testing.T, ctx context.Context, store *red
 	if err != nil || result.Output != "" || closed.Records[outputField] != nil {
 		t.Fatal("physical ACK not retired", err)
 	}
-	if kind == 44 || kind == 47 || kind >= 55 && kind <= 58 || kind == 61 || kind == 62 || kind == 67 || kind == 68 || kind == 69 {
+	if kind == 44 || kind == 47 || kind >= 55 && kind <= 58 || kind == 61 || kind == 62 || kind == 67 || kind == 68 || kind == 69 || kind == 72 || kind == 73 {
 		again := &pb.Command{Context: input.Context, Sequence: 3, Admission: &pb.CommandAdmission{DirectoryEpoch: "directory", ExpiresAtMs: uint64(time.Now().Add(2 * time.Second).UnixMilli()), SelectedFlow: input.Flow}, Action: &pb.Command_DialogRequest{DialogRequest: &pb.DialogRequest{Method: "ACK", Body: command.GetDialogRequest().Body}}}
 		second, e := captureRedisNotifyWait(again)
 		if e != nil {
@@ -385,11 +385,19 @@ func testRedisApplicationAnswerACK(t *testing.T, ctx context.Context, store *red
 		if e != nil || facts.Method != sip.INVITE {
 			t.Fatal("wrong new INVITE wire", e)
 		}
+		if kind == 73 {
+			testRedisLocalInviteTimerB(t, ctx, store, client, input, identity, inviteOutput, inviteWire.Wire, false)
+			return
+		}
 		if e = writer.Complete(ctx, inviteOutput.Write, &pb.DeliveryResult{Effect: inviteOutput.Write.Effect, Outcome: pb.DeliveryResult_WRITTEN}); e != nil {
 			t.Fatal("record new INVITE write", e)
 		}
 		if e = settleRedisApplicationByeOutput(ctx, store, inviteOutput.Write, nil, input.ExecutorTimer, time.Now().Add(time.Second)); e != nil {
 			t.Fatal("settle new INVITE write", e)
+		}
+		if kind == 72 {
+			testRedisLocalInviteTimerB(t, ctx, store, client, input, identity, inviteOutput, inviteWire.Wire, true)
+			return
 		}
 		var retryStopped <-chan struct{}
 		if kind == 47 && input.Flow.Transport == "udp" {
@@ -574,6 +582,25 @@ func testRedisApplicationAnswerACK(t *testing.T, ctx context.Context, store *red
 				proof, e := store.InspectOutput(ctx, ref)
 				if e != nil || proof.State != rediscore.OutputUnknown {
 					t.Fatal("uncertain re-INVITE ACK not retained", e)
+				}
+				if kind == 56 {
+					next := &pb.Command{Context: input.Context, Sequence: 5, Admission: invite.Admission, Action: &pb.Command_DialogRequest{DialogRequest: &pb.DialogRequest{Method: "INVITE"}}}
+					capture, e := captureRedisNotifyWait(next)
+					if e != nil {
+						t.Fatal(e)
+					}
+					_, e = publishRedisApplicationInvite(ctx, store, input.Key, input.Application, input.Lease, next, capture, "invite-before-previous-ack", input.ExecutorTimer, time.Now().Add(time.Second), leaseUntil)
+					if e != nil {
+						t.Fatal(e)
+					}
+					view, e := store.Read(ctx, identity, "r:result-5")
+					if e != nil {
+						t.Fatal(e)
+					}
+					refusal, e := decodeNativeResult(view.Records["r:result-5"])
+					if e != nil || refusal.GetCertainty() != pb.OperationResult_NOT_ACCEPTED || refusal.GetSipStatus() != 491 || refusal.GetError() != "SIP 491: previous INVITE ACK output still pending" {
+						t.Fatal("a prior ACK that may still be in flight did not cause a 491 refusal", refusal, e)
+					}
 				}
 				if kind == 68 {
 					testRedisInviteACKDuringBye(t, ctx, store, client, input, identity, dialogField, ackOutput, response)

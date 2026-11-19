@@ -117,6 +117,7 @@ type residentTransaction struct {
 	charged                 int64
 	retired                 bool
 	reliableRegisterWritten bool
+	inviteWritten           bool
 	wireHash                [32]byte
 	command                 *residentCommand
 	cleanup                 bool

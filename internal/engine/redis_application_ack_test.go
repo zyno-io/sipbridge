@@ -681,8 +681,8 @@ func testRedisApplicationAnswerACK(t *testing.T, ctx context.Context, store *red
 		timedContext, e := decodeNativeContext(timed.Records["r:context"])
 		timedResult, resultErr := decodeNativeResult(timed.Records["r:result-4"])
 		timedProcedure, timerErr := readPrivateProcedureRecord(timed.Records[procedureField])
-		if e != nil || resultErr != nil || timerErr != nil || timedContext.Ended || !timedResult.Pending || timedProcedure.Native.Phase != string(portable.Terminated) {
-			t.Fatal("B timeout did not preserve the established call and original waiter", e, resultErr, timerErr)
+		if e != nil || resultErr != nil || timerErr != nil || timedContext.Ended || timedResult.Pending || timedResult.Certainty != pb.OperationResult_COMPLETED || timedProcedure.Native.Phase != string(portable.Terminated) {
+			t.Fatal("B timeout did not preserve the established call and complete its result", e, resultErr, timerErr)
 		}
 		// Age only the original result cutoff and its matching retirement index.
 		timedResult.CutoffMs = time.Now().Add(-time.Second).UnixMilli()
@@ -710,7 +710,7 @@ func testRedisApplicationAnswerACK(t *testing.T, ctx context.Context, store *red
 		expiredReceipt, e := decodeNativeResult(retainedState.Records["r:result-4"])
 		retainedProcedure, procErr := readPrivateProcedureRecord(retainedState.Records[procedureField])
 		retainedDialog, dialogErr := readPrivateDialogRecord(retainedState.Records[dialogField])
-		if e != nil || procErr != nil || dialogErr != nil || expiredReceipt.Pending || expiredReceipt.Certainty != pb.OperationResult_UNKNOWN || expiredReceipt.Output != inviteOutputField || !slices.Contains(retainedProcedure.Outputs, inviteOutputField) || !slices.Contains(retainedDialog.Outputs, inviteOutputField) {
+		if e != nil || procErr != nil || dialogErr != nil || expiredReceipt.Pending || expiredReceipt.Certainty != pb.OperationResult_COMPLETED || expiredReceipt.Output != inviteOutputField || !slices.Contains(retainedProcedure.Outputs, inviteOutputField) || !slices.Contains(retainedDialog.Outputs, inviteOutputField) {
 			t.Fatal("expired waiter lost native or output ownership", e, procErr, dialogErr)
 		}
 	}

@@ -211,14 +211,16 @@ finals/ACK, SUBSCRIBE state and required NOTIFY completion are unchanged.
 
 ## What lives in memory
 
-New requests awaiting an initial controller decision reserve room in the
-inbound and controller-refusal limits. Pending work uses the observed source
-address for its per-source limit. Outbound admission and native refusals each
-have separate limits. Native refusals include responses generated when admission
-is full, and use their own room while controller admission recovers.
-Refusals keep their reducer and exact write evidence until both settle.
-After settlement, an isolated refusal can release its context and retain a
-bounded duplicate-disposition record through the original cutoff.
+A request waiting for a controller decision reserves room for either outcome.
+It counts toward the inbound limit and the limit for refusals after controller
+admission. The per-source limit uses the address sipbridge sees on the network.
+Outgoing work and refusals generated before controller admission each have
+their own limit. The latter includes a `503` sent when admission is full.
+
+A refusal keeps its transaction state and the evidence of whether its
+response was written until the SIP timers and write tracking have settled.
+If the refusal has no other work left, sipbridge can free the context and
+keep a small record to recognize retries through the original replay deadline.
 
 | Record | Retention |
 | --- | --- |

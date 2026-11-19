@@ -108,12 +108,16 @@ of old and new instances is not safe, and an older build is not a safe
 rollback once a newer one has written to the namespace.
 
 Upgrade the whole group in one maintenance step: drain and stop every old
-instance in the namespace, confirm none is left, then start all the new ones.
-Calls stored in Redis stay there; phones reconnect and, where their controller
-kept its session, continue. Afterwards, check controller readiness,
-re-registration, subscriptions and NOTIFY delivery. `OnDelete` alone does not
-enforce this order; make the stop/start boundary an explicit step in your
-deployment tooling.
+instance in the namespace and confirm none is left before starting the new
+ones. If the upgrade changes the Redis storage format, use an empty namespace
+or set a fresh `SIPBRIDGE_STATE_GENERATION`. This applies to the upgrade that
+adds per-instance call limits and changes how sipbridge stores re-INVITE ACKs.
+Calls still using the old namespace end when you switch.
+
+After starting the new group, check controller readiness, re-registration,
+subscriptions and NOTIFY delivery. Make the stop/start boundary explicit in
+your deployment tooling when using `OnDelete`. See the
+[cutover and rollback steps](../redis-core.md#re-invite-ack-layout-upgrade-and-rollback).
 
 ## Rollback
 

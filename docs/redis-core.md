@@ -182,7 +182,7 @@ Account for encoded record lengths, scalar projections, selectors and required c
 
 A native publication may spend previously admitted completion credit. The atomic storage operation computes positive growth of the final planned records, indexes and context envelope, and deducts it before any mutation; Go does not duplicate that accounting or guess a decrement. Exclude the reservation's numeric credit and its own decimal text from the growth calculation. Shrinking that text can only release additional capacity. Released bytes belonging to a still-open ACK/NOTIFY obligation must replenish its credit or stay reserved until explicit closure; do not fund that admitted obligation through a future fresh business admission.
 
-An optional per-context credit ceiling bounds the pooled remaining credit for open obligations. Admission adds its independently bounded contribution to both; native closure spends required completion growth, reduces the ceiling and clamps the remainder. Fresh business admission without a required completion pays its growth from available namespace capacity and does not spend old credit. Atomic record, index and physical-proof releases replenish only the current ceiling, including when the exact proof settles outside a context publication. A required worker transfer may spend or replenish pooled credit for its exact assignment-byte change. Refunds cannot increase namespace charge through changing decimal-field lengths. A zero ceiling cannot be revived by a late release. The engine owns each admission and closure decision.
+An optional per-context credit ceiling bounds the pooled remaining credit for open obligations. Admission adds its independently bounded contribution to both; native closure spends required completion growth, reduces the ceiling and clamps the remainder. New work without an existing completion duty gets its own charge and leaves earlier reservations available. Atomic record, index and physical-proof releases replenish only the current ceiling, including when the exact proof settles outside a context publication. A required worker transfer may spend or replenish pooled credit for its exact assignment-byte change. Refunds cannot increase namespace charge through changing decimal-field lengths. A zero ceiling cannot be revived by a late release. The engine owns each admission and closure decision.
 
 Each retained business result records the deciding application's existing lease
 term. Exact replay verifies that term and designated recipient as well as the
@@ -192,26 +192,27 @@ the resident owner and are not Redis obligations.
 
 The namespace capacity hash tracks context count and logical retained bytes atomically with every context, timer and physical-output mutation. Logical bytes include each context hash key and exact hash field/value bytes, completion reservations, each nonempty per-context deadline-key string, each deadline member and eight-byte score, each per-worker timer or ready member and eight-byte score, and each binary selector field/value. Each context's index-byte scalar is itself counted as a hash field. Shared per-worker key names, Redis allocator overhead and separately bounded worker/application control-plane metadata are excluded; measure actual Redis memory separately. A terminal native caller may retire an exactly fenced context only after its records, outputs, deadlines, indexed projections and reservations have all been discharged. No context scan or automatic reset repairs accounting.
 
-Serving admission charges fresh work to the admitting instance. The charge survives
-process replacement and timer-executor handoff. Initial native refusals have
-their own limit, including those generated when a controller admission limit is
-reached. They leave room for the next controller decision after pressure clears.
-Pending decisions reserve room in the inbound and controller-refusal limits.
-Outbound call legs have a separate limit. Pending decisions also have a limit
-per observed source address on the admitting instance.
-The native publication that selects the decision moves the pending charge in the
-same atomic operation. Terminal retirement releases the remaining charge. Namespace
-totals remain available for accounting. Adding an instance adds admission capacity.
-Each context retains its record and completion-credit bounds.
+New work counts against the limits of the instance that accepts it, even if
+the process restarts or another worker takes over its timers. A request waiting
+for a controller decision reserves room for an inbound leg or a refusal and
+counts toward the limit for the source address sipbridge saw. When a decision
+moves a request into a call or refusal, Redis updates the counters in the
+same operation. Retiring the context releases its slot.
 
-Initial INVITE credit retains eight maximum-size wire units. It budgets 22
-possible retained write records on TCP/TLS and 44 on UDP. Redis bounds actual
-growth on every publication. Native UDP timer retransmissions reuse the selected
-wire, so their local sends do not require a Redis write record per tick.
-Additional outbound fork branches fund their own bounded growth when first
-admitted. After the initial replay timer ends, a single confirmed leg with no
-outstanding write or lifecycle record can release its setup allowance and keep
-the reserved room for established-call completion.
+Outbound call legs and refusals generated before controller admission have
+their own limits. A reply sipbridge sends because admission is full uses only
+the latter limit. Adding an instance adds its own slots. Redis still tracks
+the namespace totals and enforces the per-context record and byte limits.
+
+An admitted initial INVITE reserves 688 KiB on TCP or TLS and 864 KiB on UDP
+for work it may still need to finish. That covers eight maximum-size SIP messages
+and up to 22 records that track sends on TCP or TLS, or 44 on UDP. Sipbridge
+checks state growth when it saves a change. A UDP timer can resend the saved
+response using the existing write record. Each additional outbound fork branch
+gets its own allowance when it is accepted. Once the initial replay timer
+ends, an eligible confirmed leg with no outstanding setup writes or lifecycle
+events can give back its setup allowance and keep the room needed to finish
+the call.
 
 Quiet records retain compact facts and their necessary owned bytes. They must not keep a large packet or decoded-record buffer alive through a small Go substring/slice. Share a required immutable output's wire within its bounded procedure; do not duplicate it in a rich public-result DTO merely for storage.
 
@@ -250,7 +251,7 @@ If CANCEL arrives while credentials are being looked up for a committed initial 
 
 For a fresh UAS INVITE, publish an unbound UAS context, UUID request identity, selected InviteServer procedure and original wire, server transaction selector, original TimerTrying and direct-decision cutoff together before the single application presentation. The SDK's 200 ms Trying timer and the bounded decision race on the same context revision. While the direct decision remains unbound, Trying may select and retain 100 but cannot physically emit it. A deferred status-zero decision binds the validated current application, records its accepted receipt and emits that held 100 once; an immediate final replaces an unsent 100. For an established re-INVITE, its own Trying deadline likewise retains an unsent 100 until its decision is accepted; status-zero emits that held response through the exact dialog/procedure owners, while a final, timeout or CANCEL replaces it without a socket write. If Trying fires after status-zero, it stages the response directly. An expired unbound initial presentation selects its exact initial InviteServer and original decision deadline, stages native 503 and its physical duty atomically, marks the unbound context ended with its fixed first-end retirement cutoff, and consumes neither an application command sequence nor an upstream lease. It creates no result or lifecycle event; the no-result output retains exact initial-procedure and final-response provenance for settlement and terminal cleanup. A held unsent 100 is replaced by that final; an already bound or changed procedure conflicts. Its output, transaction and any later ACK retain the ordinary native deadlines and uncertainty rules. Missing or expired presentation follows the same native 503 transition as Memory. A direct final returns ACCEPTED after committing native intent; later application Respond commands consume their sequence under current authority and return their result only from recorded physical completion or their original deadline. Provisional and final response quotas remain bounded.
 
-The initial InviteServer's admitted pooled contribution funds its own bounded Respond continuations, as in Memory. Enforce the existing total and provisional/final emission limits and actual record and namespace capacity; excess growth may be refused. Independently admitted procedures fund their own work.
+The initial InviteServer's admitted pooled contribution funds its own bounded Respond continuations, as in Memory. Check total, provisional and final emissions against their limits. Each write must fit the context’s record and byte limits. Independently admitted procedures fund their own work.
 Respond selection fences the live application, policy and current delivery. Once committed, the selected SIP response uses native RESPONSE authority on its admitted flow and does not require that application lease to remain live at physical reservation.
 
 At a UAS dialog's original ACK timeout, apply the native dialog timeout without hiding an already selected local BYE. When no local BYE exists, stage the transitioned dialog, actual noninitial client procedure and selector, exact native output, F deadline and physical cutoff atomically on the retained completion flow, using the admitted call contribution without a live application lease. When an exact retained local BYE already owns that dialog's termination, validate its selected wire, native transaction association and existing owners, preserve that BYE and its original output, result and F/K duties, and consume only the ACK-timeout transition in the same revision/assignment publication. Do not create a second BYE or infer delivery from its presence. A UAS timeout does not require local ACK proof; a UAC losing-fork cleanup still requires its positive ACK proof. A matched local BYE final or its native F termination publishes the SDK's dialog timer cancellations in the same revision- and assignment-fenced publication as the ended dialog. Remove each canceled shared dialog timer member; Timer2xx remains a process-local derivative and needs no shared index. An ended dialog must not leave an indexed ACK deadline whose native timer is already inactive. Preserve the actual BYE, physical evidence, result and original transaction cutoffs; cancellation grants no delivery inference.
@@ -281,7 +282,7 @@ A call context retains only its actual initial INVITE procedure references (at m
 
 The same context owns sorted, unique references to its actual noninitial procedures. Initial and noninitial procedures together stay within the existing native-procedure cap; neither list overlaps the other or the dialog references. Add and remove a reference with the actual procedure in the same publication, retaining it while that procedure's output, waiter or credit obligations remain. A deferred INFO or re-INVITE can be live with no timer, so timer absence never proves native quiescence. Owner-loss and terminal handling select bounded batches from these actual references and run the corresponding native termination/refusal before removing them, keeping one real indexed termination duty through finite stages. An empty noninitial list is an independent prerequisite for the narrower quiescent retirement helper. No separate count, history registry, Redis set or polling loop is needed.
 
-Those already-reachable procedures and dialogs retain sorted, unique references to their actual outstanding physical-output metadata. Add each reference atomically with its exact output intent, metadata and initial cutoff; remove it only with deletion of that metadata after its proof and native dependencies release. An initial INVITE procedure owns its responses; the dialog owns later ACK and in-dialog outputs. These are ownership references, not historical attempts or a second output index. The procedure bound is its existing emission limit; a dialog's bound is the existing total native procedure/emission limit, with ordinary record and namespace capacity checks still applying. Quiet owners with no outstanding outputs retain no references. Validation and traversal are linear in the actual references and do not reconstruct SIP messages.
+Those already-reachable procedures and dialogs retain sorted, unique references to their actual outstanding physical-output metadata. Add each reference atomically with its exact output intent, metadata and initial cutoff; remove it only with deletion of that metadata after its proof and native dependencies release. An initial INVITE procedure owns its responses; the dialog owns later ACK and in-dialog outputs. These are ownership references, not historical attempts or a second output index. The procedure bound is its existing emission limit; a dialog's bound is the existing total native procedure/emission limit, with the usual per-context record and byte limits. Quiet owners with no outstanding outputs retain no references. Validation and traversal are linear in the actual references and do not reconstruct SIP messages.
 
 At a call output's original physical cutoff, reconcile its exact state once. A selected STARTED becomes UNKNOWN without authorizing another attempt. An unchanged UNKNOWN may remove its expired scheduling duty only after the same revision-fenced publication proves its exact metadata remains referenced by the reachable owner. It stays pinned and cannot poll, infer a physical outcome or grant a retry. A late definite completion re-arms the exact original output duty before native settlement. Actual call-end and terminal duties follow the retained ownership links, so removing the expired scheduling head cannot orphan that uncertainty.
 
@@ -339,7 +340,26 @@ A successful initial UAC ACK completion selects its exact output proof, current 
 
 Each initial INVITE client procedure counts actual staged non-2xx ACK outputs for its one immutable native ACK identity. Each dialog separately counts actual staged outputs for its current local INVITE ACK identity; replacing that local INVITE resets the dialog counter in the same publication. Each counter is bounded by the existing per-identity transmission limit, increments only for an actually published output and survives physical proof cleanup. Suppressed or uncertain attempts do not increment it.
 
-Before an outgoing initial INVITE can be written, its original procedure admits one existing server-INVITE completion unit as pooled headroom for a single successful-fork continuation, including ACK and cleanup work. Initial admission does not reserve sixteen such units for hypothetical forks. The existing limit of sixteen actual fork dialogs remains; their actual encoded growth and all required records, indexes and outputs pass the unchanged atomic capacity check. This pooled headroom is a heuristic, not a guarantee that every possible future expansion fits. Initial records are charged separately, and both per-context and namespace quotas include the retained records and remaining headroom. Actual forks spend that shared contribution without speculative records or a contribution-transfer ledger. The original INVITE anchor and its contribution remain through the actual call and terminal-retirement lifetime: native transaction termination or Timer B, D or M alone cannot discard a later successful-final obligation. Each other admitted procedure independently funds its actual selected records and required future output, timer, lifecycle and waiter duties. Release a contribution only after its exact duties, proofs and references close. Native deadlines and actual receipt cutoffs index remaining work; terminal removal and credit closure are atomic. Do not add a history registry, periodic retirement poll or per-retransmission Redis work. STARTED or UNKNOWN never grants another attempt or proves WRITTEN/NOT_WRITTEN. Only the independently superseded provisional-response rule above permits discarding active-call output uncertainty; it grants no exception for successful finals, ACK, forks or required NOTIFY.
+Before sending an outgoing initial INVITE, sipbridge reserves room for its first
+dialog to finish setup, send its ACK and clean up if needed. Each additional
+fork gets more room when its dialog first appears, up to sixteen dialogs in
+all. Each update checks the actual records, indexes, outputs and reserved
+bytes together. Saving them and updating the reservation happen in one
+Redis operation.
+
+Keep the original INVITE and the room it still needs until its duties end.
+A later successful response can still require an ACK after timer B, D or M
+fires. Each additional procedure reserves room for its own records, writes,
+timers, events and command results. Release room as the associated work,
+write evidence and references clear. Use the original SIP deadlines and
+command result cutoffs to schedule that work. The context and its remaining
+reservation are released together when it retires.
+
+A STARTED or UNKNOWN write leaves the outcome open and cannot authorize
+another attempt. The rule above for superseded provisional responses is the
+only exception that allows discarding that uncertainty while the call is
+active. Successful finals, ACKs, forks and required NOTIFYs keep their
+existing write evidence.
 
 ```mermaid
 flowchart LR
@@ -504,12 +524,12 @@ A namespace previously written by the checkpoint engine is not readable by this 
 ### Re-INVITE ACK layout upgrade and rollback
 
 Redis deployments need a coordinated cutover to a new namespace for the
-re-INVITE ACK layout. Previous-layout state is not migrated; retained calls are
-lost. The retained schema digest alone does not establish field/authority
-compatibility: message-bearing `ACKNOWLEDGED` events now reference a re-INVITE
-procedure and own separate frozen ACK message records. The layout identifier,
-profile and logical authority change to prevent older workers from repeatedly
-fencing on these records.
+re-INVITE ACK layout and the per-instance limits. Calls from the old namespace
+end at the cutover. The Redis profile checks both the schema digest and the
+layout identifier. A change in either changes the state authority sipbridge
+reports to controllers. Message-bearing `ACKNOWLEDGED` events now reference
+a re-INVITE procedure and keep a separate copy of the ACK. The per-instance
+limits add counters tied to the instance that first accepted the work.
 
 1. Withdraw admission and drain the old deployment, then stop every old-layout
    worker before starting the replacement deployment.

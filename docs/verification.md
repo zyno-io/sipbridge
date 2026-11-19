@@ -28,7 +28,7 @@ its tests use separate namespaces. Do not point failure-injection tests at produ
 | Pinned native reducers | `sh scripts/test-native.sh` | Native branch regressions in a disposable copy, including generated TLS certificates; pinned tree stays immutable. |
 | Independent TLS wire fixture | `go build -race -o bin/sipbridge-fixture ./cmd/sipbridge-fixture` then `python3 test/run.py`; Python/OpenSSL | Real two-ingress TLS/library wire behavior and source/binary hashes. Separate resident stdio fixture, not service Redis execution. |
 | Service binary | `go build -o bin/sipbridge ./cmd/sipbridge` | Service builds; image CI additionally verifies version/receipt/digest. |
-| Two-legged call capacity | `SIPBRIDGE_CAPACITY_WIRE=1 SIPBRIDGE_STATE_TEST_REDIS=127.0.0.1:6379 go test ./cmd/sipbridge -run '^TestBinaryRedisTwoLeggedCallCapacity$' -v` | Production service path with fixture controllers and 512 simultaneous two-legged TLS calls per instance. Runs one instance, then two instances sharing Redis. Checks the wire 503 and outbound admission with the pending quota filled, records Redis allocation and credit, and exercises replacement and teardown. |
+| Two-legged call capacity | [Call capacity test](#call-capacity-test) | Verifies 512 simultaneous two-legged TLS calls per instance with Redis and a test controller. |
 
 Memory state, shared backend contracts and default-memory service startup run
 without Redis. The shared contract suite runs both adapters when the disposable
@@ -69,11 +69,30 @@ fault tests make no exactly-once or rollback-survival guarantee.
 
 ## Performance and load
 
-The two-legged wire check measures simultaneous call capacity with a fixture
-controller. Run it on a merge request with the optional `test:call-capacity`
-job. Production traffic mixes, latency, CPU and soak behavior require separate
-qualification. The private codec benchmark compares complete storage codec layers
-on synthetic records:
+### Call capacity test
+
+Run the optional `test:call-capacity` job on a merge request, or use a
+disposable local Redis with this command.
+
+```sh
+SIPBRIDGE_CAPACITY_WIRE=1 SIPBRIDGE_STATE_TEST_REDIS=127.0.0.1:6379 \
+  go test ./cmd/sipbridge -run '^TestBinaryRedisTwoLeggedCallCapacity$' -v
+```
+
+The test holds 512 two-legged TLS calls on one sipbridge instance, then holds
+512 on each of two instances sharing Redis. It checks that a new caller gets
+`503` when the limit for waiting requests is full, while a call already
+accepted can still open its outbound leg. It also replaces and hangs up
+calls. The log shows how much Redis memory the call records use and how much
+room is still reserved for future writes.
+
+Use separate tests for production traffic mixes, latency under load, CPU use
+and long-running calls.
+
+### Storage benchmark
+
+The private codec benchmark compares complete storage codec layers on
+synthetic records.
 
 ```bash
 go test ./internal/engine -run '^$' -bench '^BenchmarkRetainedRecordCodec$' -benchtime=300ms -count=3

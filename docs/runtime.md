@@ -48,9 +48,9 @@ challenge policies still close control and report only fixed rejection categorie
 Redis retains raw private protobuf only. Its root is
 `<prefix>:<namespace>:<generation>:` (default prefix `sipstate:v1`). The immutable
 profile binds that root, identity key, descriptors, native interpretation and
-bounds. Each shared context has a 32 MiB admitted accounting ceiling.
-The serving backend limits fresh work per admitting instance. The Redis
-namespace counts total logical bytes and contexts for accounting.
+bounds. Each context can use up to 32 MiB for stored state and reserved room
+to finish its work. Each instance applies its own limits to new work.
+Redis tracks total contexts and accounted bytes across the namespace.
 `SIPBRIDGE_STATE_PARTITIONS` is obsolete and fails startup when supplied.
 Worker/core scheduling uses actual indexed obligations without partition scans.
 
@@ -85,10 +85,10 @@ phone SUBSCRIBE/NOTIFY lifecycle in the existing resident FSM on their accepting
 process. Initial INVITE and every call operation, including call-NOTIFY, remain
 in Redis; other standalone client operations also remain in Redis. No context
 moves between domains and neither stores another authoritative copy. Local phone
-admission uses resident accounting and the phone domain's 131,072-context
-and 1 GiB bounds per accepting process. Redis namespace accounting covers
-shared work only. Registration
-policy, durable business binding/tickets and BLF/MWI content remain controller-owned.
+state has its own limits on each accepting process, with up to 131,072 inbound
+contexts and 1 GiB for stored state and reserved room to finish work.
+Redis totals cover the shared state. The controller owns registration policy,
+durable registration bindings and tickets, and BLF/MWI content.
 A retired local REGISTER transaction is not required to originate a later call
 through its still-valid durable registration binding and physical flow.
 
@@ -153,10 +153,10 @@ or enters checkpoint read/reduce/CAS execution.
 
 Memory's process-local authority, native retention, deadline heap and failure
 behavior are defined in [Resident Memory core](memory-core.md).
-`SIPBRIDGE_MEMORY_MAX_GROUPS` limits resident inbound and outbound contexts
-independently (default 128 each), and
-`SIPBRIDGE_MEMORY_MAX_BYTES` limits accounted resident bytes plus admitted
-completion headroom (default 1 GiB). Admission also reserves finite output slots.
+`SIPBRIDGE_MEMORY_MAX_GROUPS` sets the limit for each direction, with 128
+inbound contexts and 128 outbound contexts by default.
+`SIPBRIDGE_MEMORY_MAX_BYTES` limits stored state plus room reserved to finish
+accepted work, with a default of 1 GiB. Admission also reserves output slots.
 The former encoded per-group reservation does not apply. These bounds are not an
 RSS promise; runtime metadata and transient transport/codec values add overhead.
 The encoded `state.MemoryStore` remains an explicit checkpoint test fixture.

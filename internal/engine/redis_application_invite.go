@@ -101,6 +101,16 @@ func publishRedisApplicationInvite(ctx context.Context, store *rediscore.Store, 
 	}
 	policy := proto.Clone(command.Admission).(*pb.CommandAdmission)
 	policy.ExpiresAtMs = min(policy.ExpiresAtMs, uint64(deadline.UnixMilli()))
+	id, err := redisApplicationByeID(capture.fingerprint[:])
+	if err != nil {
+		return zero, err
+	}
+	request := command.GetDialogRequest()
+	// Check the dialog rule before preparing to replace any prior output.
+	next, tx, effects, err := nativePrepareDialogRequest(native, portable.DialogInput{Kind: portable.DialogLocalRequest, Now: now.UnixMilli(), Method: sip.RequestMethod(request.Method), Branch: sip.RFC3261BranchMagicCookie + id, Body: request.Body, Headers: stateHeaders(request.Headers), Offer: len(request.Body) > 0}, now.UnixMilli())
+	if err != nil {
+		return publishRedisApplicationByeRefusal(ctx, store, selected, current, lease, command, capture, operation, policy, executor, deadline, err)
+	}
 	previousDialog, err := readPrivateDialogRecord(lookup.View.Records[field])
 	if err != nil {
 		return zero, err
@@ -123,10 +133,6 @@ func publishRedisApplicationInvite(ctx context.Context, store *rediscore.Store, 
 		return zero, err
 	}
 	dialog.Metadata.Outputs = previousDialog.Outputs
-	id, err := redisApplicationByeID(capture.fingerprint[:])
-	if err != nil {
-		return zero, err
-	}
 	prefix := "app-invite-"
 	procField, wireField, outputField := "r:"+prefix+id, "r:"+prefix+"origin-"+id, "r:"+prefix+"output-"+id
 	absent, err := store.Read(ctx, selected.Identity, procField, wireField, outputField)
@@ -138,11 +144,6 @@ func publishRedisApplicationInvite(ctx context.Context, store *rediscore.Store, 
 	}
 	if len(absent.Records[procField])+len(absent.Records[wireField])+len(absent.Records[outputField]) != 0 {
 		return zero, rediscore.ErrConflict
-	}
-	request := command.GetDialogRequest()
-	next, tx, effects, err := nativePrepareDialogRequest(native, portable.DialogInput{Kind: portable.DialogLocalRequest, Now: now.UnixMilli(), Method: sip.RequestMethod(request.Method), Branch: sip.RFC3261BranchMagicCookie + id, Body: request.Body, Headers: stateHeaders(request.Headers), Offer: len(request.Body) > 0}, now.UnixMilli())
-	if err != nil {
-		return publishRedisApplicationByeRefusal(ctx, store, selected, current, lease, command, capture, operation, policy, executor, deadline, err)
 	}
 	flow := current.Flow
 	if policy.SelectedFlow != nil {

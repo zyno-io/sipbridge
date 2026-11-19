@@ -398,6 +398,19 @@ func TestResidentInitialWinnerACKSurvivesLocalInviteReplacement(t *testing.T) {
 		errorCh <- err
 	}()
 	nextWire := <-writes
+	glare := proto.Clone(command).(*pb.Command)
+	glare.Sequence++
+	for range 2 {
+		refused, err := e.commandResidentClient(ctx, peer, glare, "glare", time.Now().Add(5*time.Second))
+		if err != nil || refused.GetCertainty() != pb.OperationResult_NOT_ACCEPTED || refused.GetSipStatus() != 491 || refused.GetError() != "SIP 491: INVITE procedure pending" {
+			t.Fatal("overlapping re-INVITE did not return its SIP refusal", refused, err)
+		}
+	}
+	select {
+	case wire := <-writes:
+		t.Fatalf("refused re-INVITE sent %q", wire)
+	default:
+	}
 	c.mu.Lock()
 	prior := c.transactions[initialKey]
 	if prior == nil || prior.successfulACK == nil {

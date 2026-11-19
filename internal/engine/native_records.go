@@ -498,7 +498,7 @@ func validNativeResult(v *nativepb.Result) bool {
 	if v.Pending && (v.Certainty != pb.OperationResult_UNKNOWN || v.SipStatus != 0 || v.Error != "" || v.Request != "" || v.Response != "" || v.ServerRequestId != "" || v.RetirementProof != nil) {
 		return false
 	}
-	if v.Certainty == pb.OperationResult_NOT_ACCEPTED && (v.Pending || v.SipStatus != 0 || v.Output != "" || v.Request != "" || v.Response != "" || v.RetirementProof != nil) {
+	if v.Certainty == pb.OperationResult_NOT_ACCEPTED && (v.Pending || v.SipStatus != 0 && (v.SipStatus < 300 || v.SipStatus > 699) || v.Output != "" || v.Request != "" || v.Response != "" || v.RetirementProof != nil) {
 		return false
 	}
 	_, ok := pb.OperationResult_Certainty_name[int32(v.Certainty)]

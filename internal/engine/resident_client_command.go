@@ -118,7 +118,7 @@ func (e *ResidentMemory) commandResidentClient(ctx context.Context, peer *contro
 			c.snapshot.Ended = true
 			e.scheduleResidentContextRetirementLocked(c)
 		}
-		finishResidentCommandLocked(c, receipt, &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: err.Error()})
+		finishResidentCommandLocked(c, receipt, commandRefusal(err))
 		result := residentCommandResultLocked(c, receipt)
 		if receipt.originalPending && receipt.registered {
 			c.receiptPins--
@@ -258,7 +258,7 @@ func (e *ResidentMemory) commandResidentExistingClient(ctx context.Context, peer
 	if err != nil {
 		c.mu.Unlock()
 		if errors.Is(err, errResidentSubscriptionOwnerPending) {
-			return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: err.Error()}, nil
+			return commandRefusal(err), nil
 		}
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func (e *ResidentMemory) commandResidentExistingClient(ctx context.Context, peer
 		return awaitResidentReplay(ctx, c, receipt)
 	}
 	refuse := func(err error) (*pb.OperationResult, error) {
-		finishResidentCommandLocked(c, receipt, &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: err.Error()})
+		finishResidentCommandLocked(c, receipt, commandRefusal(err))
 		result := residentCommandResultLocked(c, receipt)
 		if receipt.originalPending && receipt.registered {
 			c.receiptPins--

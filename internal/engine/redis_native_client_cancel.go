@@ -58,7 +58,7 @@ func (e *redisNative) commandClientCancel(parent context.Context, peer *control.
 			continue
 		}
 		if errors.Is(x, errStatePolicyAdmission) || errors.Is(x, rediscore.ErrCapacity) {
-			return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: x.Error()}, nil
+			return commandRefusal(x), nil
 		}
 		return nil, x
 	}

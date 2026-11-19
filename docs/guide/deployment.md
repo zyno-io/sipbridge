@@ -110,14 +110,15 @@ rollback once a newer one has written to the namespace.
 Upgrade the whole group in one maintenance step: drain and stop every old
 instance in the namespace and confirm none is left before starting the new
 ones. If the upgrade changes the Redis storage format, use an empty namespace
-or set a fresh `SIPBRIDGE_STATE_GENERATION`. This applies to the upgrade that
-adds per-instance call limits and changes how sipbridge stores re-INVITE ACKs.
+or set a fresh `SIPBRIDGE_STATE_GENERATION`. This applies to changes such as
+per-instance call limits, re-INVITE ACK storage and SIP status in command
+refusals.
 Calls still using the old namespace end when you switch.
 
 After starting the new group, check controller readiness, re-registration,
 subscriptions and NOTIFY delivery. Make the stop/start boundary explicit in
 your deployment tooling when using `OnDelete`. See the
-[cutover and rollback steps](../redis-core.md#re-invite-ack-layout-upgrade-and-rollback).
+[cutover and rollback steps](../redis-core.md#command-refusal-status-layout-upgrade-and-rollback).
 
 ## Rollback
 

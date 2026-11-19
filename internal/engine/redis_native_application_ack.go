@@ -68,7 +68,7 @@ func (e *redisNative) commandApplicationAnswerACK(parent context.Context, peer *
 			continue
 		}
 		if errors.Is(x, errStatePolicyAdmission) || errors.Is(x, rediscore.ErrCapacity) {
-			return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: x.Error()}, nil
+			return commandRefusal(x), nil
 		}
 		return nil, x
 	}

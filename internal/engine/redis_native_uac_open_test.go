@@ -18,6 +18,7 @@ import (
 	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/nativepb"
@@ -709,6 +710,26 @@ func testRedisNativeOpenUACCommand(t *testing.T, cancelLookup int) {
 	case <-ctx.Done():
 		t.Fatal("re-INVITE output missing")
 	}
+	glare := proto.Clone(reinvite).(*pb.Command)
+	glare.Sequence++
+	writeControllerEnvelope(t, ctx, ws, &pb.Envelope{SessionId: hello.SessionId, CorrelationId: "glare", RemainingBudgetMs: 2000, Payload: &pb.Envelope_Command{Command: glare}})
+	for {
+		reply := readControllerEnvelope(t, ctx, ws)
+		if ping := reply.GetPing(); ping != nil {
+			writeControllerEnvelope(t, ctx, ws, &pb.Envelope{SessionId: hello.SessionId, CorrelationId: reply.CorrelationId, Payload: &pb.Envelope_Pong{Pong: ping}})
+			continue
+		}
+		refused := reply.GetResult()
+		if reply.CorrelationId != "glare" || refused.GetCertainty() != pb.OperationResult_NOT_ACCEPTED || refused.GetSipStatus() != 491 || refused.GetError() != "SIP 491: INVITE procedure pending" {
+			t.Fatal("overlapping re-INVITE did not return its SIP refusal", reply)
+		}
+		break
+	}
+	select {
+	case wire := <-written:
+		t.Fatalf("refused re-INVITE sent %q", wire)
+	default:
+	}
 	// The previous accepted transaction remains independently responsible for
 	// retransmitting its exact ACK while its original M is live.
 	if handled, e := engine.tryUACResponseCompletion(ctx, flow, final, nil); e != nil || !handled {
@@ -798,7 +819,7 @@ func testRedisNativeOpenUACCommand(t *testing.T, cancelLookup int) {
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
-	bye := &pb.Command{Context: result.Snapshot.Context, Sequence: 5, Admission: &pb.CommandAdmission{DirectoryEpoch: "directory", ExpiresAtMs: uint64(time.Now().Add(2 * time.Second).UnixMilli()), SelectedFlow: flow}, Action: &pb.Command_DialogRequest{DialogRequest: &pb.DialogRequest{Method: "BYE"}}}
+	bye := &pb.Command{Context: result.Snapshot.Context, Sequence: glare.Sequence + 1, Admission: &pb.CommandAdmission{DirectoryEpoch: "directory", ExpiresAtMs: uint64(time.Now().Add(2 * time.Second).UnixMilli()), SelectedFlow: flow}, Action: &pb.Command_DialogRequest{DialogRequest: &pb.DialogRequest{Method: "BYE"}}}
 	writeControllerEnvelope(t, ctx, ws, &pb.Envelope{SessionId: hello.SessionId, CorrelationId: "application-bye", RemainingBudgetMs: 2000, Payload: &pb.Envelope_Command{Command: bye}})
 	var byeWire []byte
 	select {

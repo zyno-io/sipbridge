@@ -263,7 +263,7 @@ func publishRedisApplicationByeRefusal(ctx context.Context, store *rediscore.Sto
 	if selected == nil || selected.View == nil || current == nil || command == nil || policy == nil || cause == nil {
 		return zero, errNativeRecord
 	}
-	result := &nativepb.Result{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: residentCommandError(cause.Error()), CutoffMs: deadline.UnixMilli(), Sequence: command.Sequence, OperationId: operation, Fingerprint: capture.fingerprint[:], DecidingLeaseTerm: lease.Term}
+	result := &nativepb.Result{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: residentCommandError(cause.Error()), SipStatus: commandRefusalStatus(cause), CutoffMs: deadline.UnixMilli(), Sequence: command.Sequence, OperationId: operation, Fingerprint: capture.fingerprint[:], DecidingLeaseTerm: lease.Term}
 	value, err := encodeNativeResult(result)
 	if err != nil {
 		return zero, err

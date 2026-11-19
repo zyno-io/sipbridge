@@ -19,7 +19,7 @@ func publishRedisInviteRespondRefusal(ctx context.Context, store *rediscore.Stor
 	if store == nil || selected == nil || selected.View == nil || current == nil || policy == nil || command == nil || failure == nil || ctx.Err() != nil || !time.Now().Before(deadline) {
 		return zero, errNativeRecord
 	}
-	result := &nativepb.Result{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: residentCommandError(failure.Error()), CutoffMs: deadline.UnixMilli(), Sequence: command.Sequence, OperationId: operation, Fingerprint: capture.fingerprint[:], DecidingLeaseTerm: lease.Term}
+	result := &nativepb.Result{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: residentCommandError(failure.Error()), SipStatus: commandRefusalStatus(failure), CutoffMs: deadline.UnixMilli(), Sequence: command.Sequence, OperationId: operation, Fingerprint: capture.fingerprint[:], DecidingLeaseTerm: lease.Term}
 	resultBytes, err := encodeNativeResult(result)
 	if err != nil {
 		return zero, err

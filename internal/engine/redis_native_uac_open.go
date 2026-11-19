@@ -39,7 +39,7 @@ func (e *redisNative) commandOpenUAC(parent context.Context, peer *control.Peer,
 	ref := &pb.ContextRef{Owner: proto.Clone(e.cfg.Process).(*pb.ProcessRef), Id: cmd.Context.Id, State: &pb.StateRef{Authority: authority, GroupId: cmd.Context.Id, Incarnation: incarnation, CallId: callID}}
 	snapshot := &pb.ContextSnapshot{Context: ref, Application: application, ApplicationLeaseTerm: witness.Term, Executor: e.cfg.Process, Kind: pb.ContextSnapshot_UAC, CallId: callID, Transport: uacTransport(open)}
 	if err = validateNativeCommandPolicy(snapshot, cmd, operation, time.Now(), deadline); err != nil {
-		return refuse(err.Error())
+		return commandRefusal(err), nil
 	}
 	ctx, cancel, store, err := e.operation(parent, deadline)
 	if err != nil {
@@ -77,7 +77,7 @@ func (e *redisNative) commandOpenUAC(parent context.Context, peer *control.Peer,
 		flow, err = e.cfg.OpenNetwork(openCtx, open.Uri, network)
 		stop()
 		if err != nil {
-			return refuse(err.Error())
+			return commandRefusal(err), nil
 		}
 	}
 	if ctx.Err() != nil || !time.Now().Before(deadline) {
@@ -95,7 +95,7 @@ func (e *redisNative) commandOpenUAC(parent context.Context, peer *control.Peer,
 		result, err = admitRedisUACQualification(ctx, store, input)
 	}
 	if errors.Is(err, rediscore.ErrCapacity) || errors.Is(err, errStatePolicyAdmission) {
-		return refuse(err.Error())
+		return commandRefusal(err), nil
 	}
 	if errors.Is(err, rediscore.ErrConflict) {
 		return &pb.OperationResult{Certainty: pb.OperationResult_UNKNOWN, Error: "outbound context unavailable"}, nil

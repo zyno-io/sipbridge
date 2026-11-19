@@ -333,8 +333,9 @@ func refuseRedisClientCancel(ctx context.Context, store *rediscore.Store, select
 	if !time.Now().Before(until) || ctx.Err() != nil {
 		return nil, rediscore.ErrExpired
 	}
-	reason := residentCommandError(cause.Error())
-	receipt, err := encodeNativeResult(&nativepb.Result{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: reason, CutoffMs: deadline.UnixMilli(), Sequence: command.Sequence, OperationId: operation, Fingerprint: capture.fingerprint[:], DecidingLeaseTerm: lease.Term})
+	refusal := commandRefusal(cause)
+	refusal.Error = residentCommandError(refusal.Error)
+	receipt, err := encodeNativeResult(&nativepb.Result{Certainty: refusal.Certainty, Error: refusal.Error, SipStatus: refusal.SipStatus, CutoffMs: deadline.UnixMilli(), Sequence: command.Sequence, OperationId: operation, Fingerprint: capture.fingerprint[:], DecidingLeaseTerm: lease.Term})
 	if err != nil {
 		return nil, err
 	}
@@ -365,5 +366,6 @@ func refuseRedisClientCancel(ctx context.Context, store *rediscore.Store, select
 	if err != nil {
 		return nil, err
 	}
-	return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: reason, Snapshot: snapshot}, nil
+	refusal.Snapshot = snapshot
+	return refusal, nil
 }

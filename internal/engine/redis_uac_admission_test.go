@@ -99,6 +99,7 @@ func TestRedisUACQualificationInitialAdmission(t *testing.T) {
 	t.Run("late-fork-after-compaction-and-M", func(t *testing.T) { testRedisUACQualificationInitialAdmission(t, false, false, false, true, false, 7) })
 	t.Run("compacted-original-late-ack", func(t *testing.T) { testRedisUACQualificationInitialAdmission(t, false, false, false, true, false, 6) })
 	t.Run("cancelled-first-success", func(t *testing.T) { testRedisUACQualificationInitialAdmission(t, false, false, false, true, false, 8) })
+	t.Run("cancelled-late-offer-runtime", func(t *testing.T) { testRedisUACQualificationInitialAdmission(t, false, false, false, true, false, 72) })
 	t.Run("owner-lost-first-success", func(t *testing.T) { testRedisUACQualificationInitialAdmission(t, false, false, false, true, false, 9) })
 	t.Run("owner-lost-early-ack-replay", func(t *testing.T) { testRedisUACQualificationInitialAdmission(t, false, false, false, true, false, 70) })
 	t.Run("terminated-first-success", func(t *testing.T) { testRedisUACQualificationInitialAdmission(t, false, false, false, true, false, 10) })
@@ -680,7 +681,13 @@ func testRedisUACQualificationInitialAdmission(t *testing.T, written, preserveCo
 			t.Fatal(e)
 		}
 		makeResponse := func(status int) portable.Message {
-			built, e := portable.BuildResponseWithHeaders(origin, status, "Ringing", nil, "remote-tag", "sip:phone@192.0.2.1:5060;transport=udp", nil)
+			var body []byte
+			var headers []portable.Header
+			if successCase == 72 && status == 200 {
+				body = []byte(nativeUnwantedOffer)
+				headers = []portable.Header{{Name: "Content-Type", Value: "application/sdp"}}
+			}
+			built, e := portable.BuildResponseWithHeaders(origin, status, "Ringing", body, "remote-tag", "sip:phone@192.0.2.1:5060;transport=udp", headers)
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -690,7 +697,7 @@ func testRedisUACQualificationInitialAdmission(t *testing.T, written, preserveCo
 			}
 			return m
 		}
-		if successCase == 8 || successCase == 9 || successCase == 10 || successCase == 24 || successCase == 70 {
+		if successCase == 8 || successCase == 9 || successCase == 10 || successCase == 24 || successCase == 70 || successCase == 72 {
 			if handled, e := receiveRedisUACProvisional(ctx, store, flow, makeResponse(180), key, input.ExecutorTimer, time.Now().Add(time.Second)); e != nil || !handled {
 				t.Fatal("pre-cancellation provisional", e)
 			}
@@ -703,7 +710,7 @@ func testRedisUACQualificationInitialAdmission(t *testing.T, written, preserveCo
 				t.Fatal("pre-cancellation provisional debt", e)
 			}
 			provisionalField, provisionalWire := before.Events[0], before.LastResponse
-			if successCase == 8 || successCase == 10 || successCase == 24 {
+			if successCase == 8 || successCase == 10 || successCase == 24 || successCase == 72 {
 				p, e := decodeNativeProcedure(base.View.Records[record.InitialProcedures[0]])
 				if e != nil {
 					t.Fatal(e)
@@ -799,13 +806,20 @@ func testRedisUACQualificationInitialAdmission(t *testing.T, written, preserveCo
 			if ack == nil || !meta.CleanupAfterAck || meta.Result != "" {
 				t.Fatal("missing native cleanup ACK")
 			}
-			if successCase == 24 {
+			if successCase == 24 || successCase == 72 {
 				runtime := &redisNative{worker: workerID, cfg: Config{Process: worker, StateIdentityKey: key}}
 				runtime.cfg.WriteCommitted = func(ctx context.Context, write *pb.FlowWrite) *pb.DeliveryResult {
 					reserved, reserveErr := (nativeRedisWriter{store: store}).Reserve(ctx, write)
 					if reserveErr != nil || reserved == nil || len(reserved.Wire) == 0 {
 						t.Errorf("reserve: %v", reserveErr)
 						return nil
+					}
+					if successCase == 72 && bytes.HasPrefix(reserved.Wire, []byte("ACK ")) {
+						ack := portable.RestoreMessage(reserved.Wire, flow.Transport, "", "")
+						body, x := ack.Body()
+						if x != nil || !bytes.Contains(body, []byte("m=audio 0 RTP/AVP 0\r\n")) || !bytes.Contains(body, []byte("m=video 0 RTP/AVP 31\r\n")) {
+							t.Errorf("native cleanup ACK lacks rejecting answer: %v", x)
+						}
 					}
 					return &pb.DeliveryResult{Effect: write.Effect, Outcome: pb.DeliveryResult_WRITTEN}
 				}

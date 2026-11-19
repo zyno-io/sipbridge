@@ -915,6 +915,31 @@ or terminal setup, retains branch ACK/cleanup BYE without replacing the winner o
 ending its snapshot. Repeated success replays cached ACK, never another logical BYE.
 Re-INVITE/BYE completion updates its exact directional dialog.
 
+An unwanted initial 2xx with a late SDP offer requires a native rejecting
+answer in its ACK. This covers cancelled setup and losing branches in both
+serving runtimes; it never selects a winner, emits ANSWERED or asks the
+controller for media. A normal winning late offer still waits for the
+application's answer. Project only the offered timing and media descriptions
+into a bounded rejection: use a distinct local origin, preserve media order,
+type and transport, and set every media port to zero. Do not copy ICE, DTLS,
+BUNDLE or other offer-only attributes. An unrecognizable offer uses a minimal
+all-rejected SDP fallback as best-effort protocol closure, not a claim that
+malformed SDP was successfully negotiated. No media allocation is made.
+
+Stage that answer through the existing native local ACK transition. Its exact
+cached ACK and normal physical evidence own replay and retirement; no new
+command, event, queue or persistent record is created. Generate cleanup BYE
+only after the directional ACK is proven WRITTEN, as below.
+
+```mermaid
+flowchart LR
+    A[Unwanted late-offer 2xx] --> B[Reject media in native ACK]
+    B --> C{Exact ACK write evidence}
+    C -- WRITTEN --> D[Existing cleanup BYE]
+    C -- Unknown or not written --> E[Retain existing ACK obligation]
+    A --> F[Duplicate 2xx reuses exact ACK]
+```
+
 UAC cleanup BYE cannot authorize/reserve delivery until the exact directional ACK
 procedure is proven WRITTEN. A later identical native ACK retransmission can prove it
 while an earlier attempt remains UNKNOWN. An expired unstarted BYE can re-emit its same

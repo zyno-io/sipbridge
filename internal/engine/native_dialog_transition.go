@@ -119,11 +119,21 @@ func nativeReceiveInitialInviteDialog(origin, response portable.Message, previou
 		if effect.Kind == portable.Send {
 			ackEffects = append(ackEffects, effect)
 		}
-		if effect.Kind == portable.NeedACK && dialog.Offer != portable.RemoteOfferInACK {
+		if effect.Kind == portable.NeedACK && (dialog.Offer != portable.RemoteOfferInACK || cancel) {
 			if ackBranch == nil {
 				return nativeInitialInviteDialogCandidate{}, errors.New("ACK branch supplier required")
 			}
-			dialog, ackEffects, err = portable.StepDialog(dialog, portable.DialogInput{Kind: portable.DialogLocalACK, Now: nowMS, Branch: ackBranch(), Answer: true})
+			branch := ackBranch()
+			input := portable.DialogInput{Kind: portable.DialogLocalACK, Now: nowMS, Branch: branch, Answer: true}
+			if dialog.Offer == portable.RemoteOfferInACK {
+				offer, bodyErr := response.Body()
+				if bodyErr != nil {
+					return nativeInitialInviteDialogCandidate{}, bodyErr
+				}
+				input.Body = nativeRejectedSDP(offer, branch)
+				input.Headers = []portable.Header{{Name: "Content-Type", Value: "application/sdp"}}
+			}
+			dialog, ackEffects, err = portable.StepDialog(dialog, input)
 			if err != nil {
 				return nativeInitialInviteDialogCandidate{}, err
 			}

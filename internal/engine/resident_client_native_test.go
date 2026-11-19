@@ -142,6 +142,14 @@ func TestResidentClientNonInviteResponseCompletesExactReceipt(t *testing.T) {
 }
 
 func TestResidentLosingForkWaitsForWrittenACK(t *testing.T) {
+	testResidentLosingForkWaitsForWrittenACK(t, false)
+}
+
+func TestResidentLosingLateOfferWaitsForWrittenACK(t *testing.T) {
+	testResidentLosingForkWaitsForWrittenACK(t, true)
+}
+
+func testResidentLosingForkWaitsForWrittenACK(t *testing.T, lateOffer bool) {
 	e, c, _ := residentSubscriptionFixture(t)
 	e.maxBytes = 64 << 20
 	e.contexts = map[string]*residentContext{c.snapshot.Context.Id: c}
@@ -167,7 +175,13 @@ func TestResidentLosingForkWaitsForWrittenACK(t *testing.T) {
 	}
 	c.transactions[tx.native.Key] = tx
 	for _, remoteTag := range []string{"winner", "loser"} {
-		response, err := portable.BuildResponseWithHeaders(tx.native.Origin, 200, "OK", nil, remoteTag, "sip:phone@example.test", nil)
+		var body []byte
+		var headers []portable.Header
+		if lateOffer && remoteTag == "loser" {
+			body = []byte(nativeUnwantedOffer)
+			headers = []portable.Header{{Name: "Content-Type", Value: "application/sdp"}}
+		}
+		response, err := portable.BuildResponseWithHeaders(tx.native.Origin, 200, "OK", body, remoteTag, "sip:phone@example.test", headers)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -204,6 +218,10 @@ func TestResidentLosingForkWaitsForWrittenACK(t *testing.T) {
 		follow, handled, err := e.residentClientOutputCompletedLocked(c, output, &pb.DeliveryResult{Outcome: pb.DeliveryResult_UNKNOWN})
 		if err != nil || !handled || len(follow) != 0 {
 			t.Fatal("unknown ACK authorized BYE", err)
+		}
+		follow, handled, err = e.residentClientOutputCompletedLocked(c, output, &pb.DeliveryResult{Outcome: pb.DeliveryResult_NOT_WRITTEN})
+		if err != nil || !handled || len(follow) != 0 {
+			t.Fatal("not-written ACK authorized BYE", err)
 		}
 		dialog := c.dialogs[output.dialog]
 		priorPhase := dialog.native.Phase

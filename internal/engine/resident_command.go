@@ -85,7 +85,11 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 			e.closeResidentBudgetLocked(c, requiredNotify)
 			requiredNotify = nil
 		}
-		finishResidentCommandLocked(c, receipt, &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: err.Error()})
+		refusal := &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: err.Error()}
+		if direct == nil {
+			refusal.SipStatus = commandRefusalStatus(err)
+		}
+		finishResidentCommandLocked(c, receipt, refusal)
 		result := residentCommandResultLocked(c, receipt)
 		if receipt.originalPending && receipt.registered {
 			c.receiptPins--

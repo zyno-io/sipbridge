@@ -121,7 +121,13 @@ The current result slot is identified by the context's command sequence. A super
 
 A single-output command result may retain the exact metadata-field reference to the output that still owns its physical-result lifetime. This backlink permits a successor of another command kind to select that exact owner without scanning procedures or following a later procedure command pointer. Keep it through UNKNOWN; clear or transfer it atomically with metadata deletion or replacement and the corresponding result-expiry re-drive. A native replay cannot silently attach a fresh attempt to an older ordinary command receipt. This private reference is absent once the result no longer has that output dependency; multi-output commands retain their separately defined acceptance/completion semantics.
 
-A retained NOT_ACCEPTED receipt proves that this operation created no SIP output or SIP protocol transition. It has no pending outcome, SIP status, output/message reference or retirement proof; its bounded error and originating request identity may explain the refusal. It may expire at its original waiter cutoff without searching for a physical owner. This does not prove that another operation on the same context had no effect.
+A retained `NOT_ACCEPTED` receipt records that this operation created no SIP
+output or protocol transition. For a command refused by a SIP rule, it
+stores the rule's status in the existing `sip_status` field. Its status is zero
+for other refusals. The receipt may include a bounded error and the originating
+request identity. It has no pending outcome, output or message references, or
+retirement proof. The original waiter cutoff controls expiry. Other operations
+on the same context have their own outcomes.
 
 A pending result's cutoff is its immutable original command deadline. A shorter physical authorization cannot replace it. The live waiter maps that cutoff through its verified monotonic worker-lease anchor without retaining another timestamp or waiter identity.
 
@@ -546,6 +552,18 @@ limits add counters tied to the instance that first accepted the work.
    pre-cutover state or point the old build at the new-layout namespace.
 
 Memory runtime is unaffected by this Redis namespace cutover requirement.
+
+### Command refusal status layout upgrade and rollback
+
+Redis now keeps the SIP status for commands refused by a SIP rule. Earlier
+builds reject a refusal record with a nonzero status. The field numbers and
+schema digest stay the same, and the new layout changes the Redis profile and
+the state authority reported to controllers.
+
+Drain and stop the old workers, then use a fresh, empty namespace for the
+upgrade. Calls still using the old namespace end when you switch. Follow the
+same stop and start order and use another empty namespace to roll back.
+See the [Redis cutover steps](#re-invite-ack-layout-upgrade-and-rollback).
 
 ## Peer re-INVITE ACK observations
 

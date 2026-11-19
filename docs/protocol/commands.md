@@ -127,7 +127,7 @@ Every `result` has a `certainty`. Base your control flow on it, and use the
 
 | Value | Meaning | What to do |
 | --- | --- | --- |
-| `NOT_ACCEPTED` | Refused. Nothing was sent for this command. | Fix the cause; follow the sequence rules above. |
+| `NOT_ACCEPTED` | The command sent no SIP message. If a SIP rule caused the refusal, `sipStatus` gives its code, such as `491` when an INVITE is already pending on the dialog. For other refusals, `sipStatus` is `0`. | Use `sipStatus` to handle a SIP refusal. Follow the sequence rules above. |
 | `ACCEPTED` | Started; the final SIP outcome comes later. | Wait for a `dialogEvent` or a later result. |
 | `COMPLETED` | Finished; `sipStatus`, `request`, `response` and `snapshot` may be included. | Carry on. |
 | `UNKNOWN` | sipbridge cannot tell whether the command took effect. | Do not repeat it. `inspect` the context. |

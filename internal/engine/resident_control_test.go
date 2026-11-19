@@ -168,7 +168,7 @@ func TestResidentControlNonRegisterResponseAndExactReplay(t *testing.T) {
 	invalid.GetRespond().RequestId = "missing-request"
 	writeControllerEnvelope(t, ctx, connection, &pb.Envelope{SessionId: session, CorrelationId: "refused-two", RemainingBudgetMs: 2000, Payload: &pb.Envelope_Command{Command: invalid}})
 	refused := readControllerEnvelope(t, ctx, connection).GetResult()
-	if refused == nil || refused.Certainty != pb.OperationResult_NOT_ACCEPTED || refused.GetSnapshot().GetCommandSequence() != 2 || count.Load() != 1 {
+	if refused == nil || refused.Certainty != pb.OperationResult_NOT_ACCEPTED || refused.SipStatus != 0 || refused.GetSnapshot().GetCommandSequence() != 2 || count.Load() != 1 {
 		t.Fatal("semantic refusal lost sequence disposition or changed output", refused)
 	}
 }

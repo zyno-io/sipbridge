@@ -899,6 +899,11 @@ failure policy and preserves real SIP status/reason when known.
 
 ### Command outcomes and response authority
 
+A command refused by the SIP protocol reducer returns `NOT_ACCEPTED` with
+the rule's status in `sipStatus`, for example `491` when an INVITE is already
+pending. Other command refusals have status zero. Treat the error text as a
+diagnostic and branch on the certainty and status.
+
 With negotiated `sip.command-budget.v1`, commands can carry up to 40 seconds,
 covering native 32-second waits and bounded connection setup. Ordinary RPCs and
 individual socket delivery remain two seconds; heartbeat runs independently.

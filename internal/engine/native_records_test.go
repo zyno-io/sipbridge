@@ -477,17 +477,21 @@ func TestNativeOutputOwnershipReferences(t *testing.T) {
 
 func TestNativeRefusalHasNoPhysicalObligations(t *testing.T) {
 	refusal := &nativepb.Result{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "declined", CutoffMs: 1000, Sequence: 1, OperationId: "refused", Fingerprint: bytes.Repeat([]byte{7}, 32), DecidingLeaseTerm: "term", ServerRequestId: "request"}
-	data, err := encodeNativeResult(refusal)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := decodeNativeResult(data)
-	if err != nil || !proto.Equal(decoded, refusal) {
-		t.Fatal("bounded refusal identity changed", err)
+	for _, status := range []uint32{0, 491} {
+		refusal.SipStatus = status
+		data, err := encodeNativeResult(refusal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := decodeNativeResult(data)
+		if err != nil || !proto.Equal(decoded, refusal) {
+			t.Fatal("bounded refusal identity or status changed", err)
+		}
 	}
 	for i, mutate := range []func(*nativepb.Result){
 		func(v *nativepb.Result) { v.Pending = true },
 		func(v *nativepb.Result) { v.SipStatus = 200 },
+		func(v *nativepb.Result) { v.SipStatus = 700 },
 		func(v *nativepb.Result) { v.Output = "r:output" },
 		func(v *nativepb.Result) { v.Request = "r:request" },
 		func(v *nativepb.Result) { v.Response = "r:response" },
@@ -495,15 +499,15 @@ func TestNativeRefusalHasNoPhysicalObligations(t *testing.T) {
 	} {
 		bad := proto.Clone(refusal).(*nativepb.Result)
 		mutate(bad)
-		if _, err = encodeNativeResult(bad); err == nil {
-			t.Fatalf("refusal with physical obligation %d encoded", i)
+		if _, err := encodeNativeResult(bad); err == nil {
+			t.Fatalf("invalid refusal %d encoded", i)
 		}
 		encoded, err := storagecodec.Marshal(storagecodec.NativeResult, bad)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if _, err = decodeNativeResult(encoded); err == nil {
-			t.Fatalf("stored refusal with physical obligation %d decoded", i)
+			t.Fatalf("invalid stored refusal %d decoded", i)
 		}
 	}
 }

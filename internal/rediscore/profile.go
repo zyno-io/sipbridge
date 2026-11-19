@@ -79,7 +79,7 @@ func BindProfile(cfg ProfileConfig) (ProfileBinding, error) {
 	tuple = append(tuple, selectedSchemaDigest[:]...)
 	// Change this layout identifier when native keys, projections or their
 	// accounting/authority interpretation change incompatibly.
-	text("context-hash-record-deadlines-worker-heads-ready-cutoff-owner-terms-application-admission-raw-selectors-worker-reacquire-output-proof-dependencies-delivery-register-obsolete-pooled-credit-application-witness-finished-notify-obsolete-superseded-provisional-original-result-pinned-sub-dialog-invite-disconnect-v1")
+	text("context-hash-record-deadlines-worker-heads-ready-cutoff-owner-terms-application-admission-raw-selectors-worker-reacquire-output-proof-dependencies-delivery-register-obsolete-pooled-credit-application-witness-finished-notify-obsolete-superseded-provisional-original-result-pinned-sub-dialog-invite-disconnect-peer-reinvite-ack-v1")
 	for _, kind := range []byte{storagecodec.SelectedMessage, storagecodec.NativeContext, storagecodec.NativeProcedure, storagecodec.NativeDialog,
 		storagecodec.NativeSubscription, storagecodec.NativeResult, storagecodec.NativeLifecycle, storagecodec.NativeOutput} {
 		tuple = append(tuple, kind)

@@ -55,6 +55,7 @@ func storageProjectionFixture(t testing.TB, kind string) stateEngineEffect {
 		value.Envelope.GetDialogEvent().Kind = pb.DialogEvent_FAILED
 		value.Envelope.GetDialogEvent().OperationId = "operation"
 		value.Envelope.GetDialogEvent().Error = "fixture failure"
+		value.Envelope.GetDialogEvent().InviteCseq = 42
 	}
 	return value
 }
@@ -100,7 +101,7 @@ func TestEffectStorageProjectionCoversCanonicalMetadataFields(t *testing.T) {
 		// requests never populate it or put its proposal in durable effects.
 		{&pb.RequestPresented{}, "snapshot,request_id,message,flow,flow_adoption"},
 		{&pb.EgressRequest{}, "snapshot,message,return_flow,authorization"},
-		{&pb.DialogEvent{}, "kind,snapshot,message,operation_id,error"},
+		{&pb.DialogEvent{}, "kind,snapshot,message,operation_id,error,invite_cseq"},
 	} {
 		fields := sample.value.ProtoReflect().Descriptor().Fields()
 		var actual string

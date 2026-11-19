@@ -859,6 +859,13 @@ export interface DialogEvent {
     message?: SipMessage | undefined;
     operationId: string;
     error: string;
+    /**
+     * Only with sip.reinvite-ack.v1: message-bearing ACKNOWLEDGED for an accepted
+     * peer re-INVITE ACK. Message presence distinguishes it from an initial ACK;
+     * invite_cseq is the correlation value and may be zero.
+     * Initial ACKNOWLEDGED remains snapshot-only and leaves this field zero.
+     */
+    inviteCseq: number;
 }
 
 export enum DialogEvent_Kind {
@@ -3341,7 +3348,12 @@ export const DialogEvent: MessageFns<DialogEvent> = {
                 : isSet(object.operation_id)
                   ? globalThis.String(object.operation_id)
                   : '',
-            error: isSet(object.error) ? globalThis.String(object.error) : ''
+            error: isSet(object.error) ? globalThis.String(object.error) : '',
+            inviteCseq: isSet(object.inviteCseq)
+                ? globalThis.Number(object.inviteCseq)
+                : isSet(object.invite_cseq)
+                  ? globalThis.Number(object.invite_cseq)
+                  : 0
         };
     },
 
@@ -3361,6 +3373,9 @@ export const DialogEvent: MessageFns<DialogEvent> = {
         }
         if (message.error !== '') {
             obj.error = message.error;
+        }
+        if (message.inviteCseq !== 0) {
+            obj.inviteCseq = message.inviteCseq;
         }
         return obj;
     }

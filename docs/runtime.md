@@ -63,6 +63,21 @@ The binary runtime never decodes or migrates checkpoint records. A namespace
 written by checkpoint workers requires draining and stopping them and resetting
 only the allowed native root before its compatible binary profile starts.
 
+## Peer re-INVITE ACK delivery
+
+Both serving runtimes expose accepted peer re-INVITE ACKs only to controllers
+that negotiated `sip.reinvite-ack.v1`, using the message-bearing
+`ACKNOWLEDGED` lifecycle event specified in
+[Protocol](../PROTOCOL.md#peer-re-invite-acknowledgement). Message presence
+distinguishes a re-INVITE ACK from an initial ACK; `inviteCseq` is the correlation
+value and may be zero. The pinned reducer
+continues to own ACK acceptance, duplicate suppression and 2xx/ACK timer closure.
+Only a completed late offer updates remote SDP from the ACK. Initial ACK
+signaling keeps its existing snapshot-only event and `initialAck` meaning; its
+late-offer snapshot now includes the ACK answer for all controllers.
+Lifecycle acknowledgement, original term/authority fences and the two-minute
+cutoff apply; neither runtime adds a request presentation or historical ACK log.
+
 ## Native ownership domains
 
 Explicit Redis selection keeps inbound REGISTER server transactions and the whole

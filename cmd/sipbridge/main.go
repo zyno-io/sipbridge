@@ -174,7 +174,7 @@ func run() error {
 	var stateNative nativeRuntime
 	var ingress *engine.Ingress
 	capabilities := []string{engine.Capability, control.CommandBudgetCapability, engine.DialogContinuityCapability,
-		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability}
+		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ReinviteAckCapability}
 	capabilities = append(capabilities, control.RequestDecisionCapability)
 	if authPolicy != nil {
 		capabilities = append(capabilities, engine.LocalChallengeCapability)

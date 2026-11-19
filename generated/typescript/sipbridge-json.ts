@@ -1396,6 +1396,10 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             error: {
                 kind: 'string'
+            },
+            inviteCseq: {
+                kind: 'uint32',
+                alias: 'invite_cseq'
             }
         },
         oneofs: []

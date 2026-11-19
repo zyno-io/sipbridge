@@ -42,7 +42,10 @@ func residentControlFixture(t *testing.T, direct ...bool) (*ResidentMemory, *con
 	if len(direct) > 0 && direct[0] {
 		capabilities = append(capabilities, control.CommandBudgetCapability, control.DialogContinuityCapability, control.RequestDecisionCapability)
 	}
-	server, err := control.NewServer(control.Config{Process: process, Authenticator: auth, AllowPlain: true, StateAuthority: authority, Capabilities: capabilities,
+	if len(direct) > 1 && direct[1] {
+		capabilities = append(capabilities, control.ReinviteAckCapability)
+	}
+	server, err := control.NewServer(control.Config{Process: process, Authenticator: auth, AllowPlain: true, StateAuthority: authority, Capabilities: append(append([]string(nil), capabilities...), control.ReinviteAckCapability),
 		OnApplicationLease: func(ctx context.Context, app *pb.ProcessRef, term string) (*pb.ApplicationLease, error) {
 			return e.ApplicationLease(ctx, app, term)
 		},

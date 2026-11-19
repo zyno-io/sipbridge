@@ -62,6 +62,7 @@ claim admission so an incompatible controller cannot fence a compatible one.
 | `sip.controller-reattach.v1` | Checkpoint fixtures only; neither serving runtime advertises it. Optional token/principal-bound recovery of a stable owner by a new holder, with generation fencing and bounded owner-scoped context listing. |
 | `sip.command-admission.v1` | Command-time policy/delivery admission for Respond, OpenUac and DialogRequest. |
 | `sip.command-budget.v1` | Commands may carry the 40-second budget; ordinary RPC/write limits remain separate. |
+| `sip.reinvite-ack.v1` | Deliver accepted peer re-INVITE ACKs as `ACKNOWLEDGED` with the full ACK message and `inviteCseq` correlation value (which may be zero). Optional; initial ACK signaling is unchanged. |
 | `sip.dialog-continuity.v1` | Explicit native validation of same-transport replacement-flow attempts. |
 | `sip.request-decision.v1` | Request notification/decision/commit contract below, required by both serving runtimes together with its dependency set. |
 
@@ -677,6 +678,54 @@ permission to repeat the decision elsewhere. A phone may need a fresh transactio
 or subscription. Once committed, required NOTIFY and post-OK INVITE/ACK/fork/
 ACK-before-BYE duties remain native even if the controller disappears. Subsequent
 business NOTIFYs and call commands retain the existing command contract.
+
+### Peer re-INVITE acknowledgement
+
+With negotiated `sip.reinvite-ack.v1`, `dialogEvent.kind` is
+`ACKNOWLEDGED`, with a message, for each natively
+accepted non-initial successful-INVITE ACK. `dialogEvent.message` contains the ACK's
+headers, body and exact wire. For `ACKNOWLEDGED`, message presence identifies a re-INVITE ACK; initial ACKs never
+carry a message. `dialogEvent.inviteCseq` (the SIP CSeq number, which may be zero)
+correlates it with the answered re-INVITE.
+`snapshot.context` and the directional dialog identity (`dialogId`, `callId`,
+`localTag`, `remoteTag`) identify the leg. `operationId` is empty because this is
+peer-initiated work. An ACK without a body also produces this event. After an
+early-offer re-INVITE, an ACK body is delivered as-is and does not update
+`snapshot.remoteSdp`. Native validation still requires an SDP answer when the successful response supplied a late offer; only that accepted
+completion updates `snapshot.remoteSdp` from the ACK answer.
+
+The initial ACK retains its existing snapshot-only `ACKNOWLEDGED` event and
+`initialAck` transition, with no message and zero/absent `inviteCseq`, whether or
+not this capability is negotiated. A re-INVITE ACK never changes `initialAck`.
+Controllers without the capability receive no new ACK events. Current remote SDP is updated independently
+of capability negotiation. This is a behavior change visible to all controllers:
+the initial late-offer `ACKNOWLEDGED` snapshot now carries the ACK answer in
+`remoteSdp`, where it previously remained empty. Re-INVITE events identify the
+accepted fork and carry that fork’s SDP without replacing the selected dialog’s
+current SDP.
+
+A native duplicate ACK creates no new event. The event uses ordinary lifecycle
+term/authority fences, a stable envelope `correlationId`, the existing two-minute
+delivery cutoff and bounded retry backoff. Reply with `result.certainty` equal to
+`ACCEPTED` or `COMPLETED`, with no error, to acknowledge delivery. Lost replies
+can retry the same event, so controllers deduplicate that correlation ID; there
+is no exactly-once control transport guarantee or replay to a later owner term.
+
+Redis creates this bounded delivery debt without consulting a worker-local
+controller session. At delivery, a session lacking the capability or matching
+original term causes the event and its frozen message to be discarded without
+retry. An unavailable session uses the ordinary bounded retries and cutoff.
+Redis layout and logical authority are incompatible with builds preceding this
+capability, despite the unchanged retained schema digest. Redis deployments need
+a coordinated cutover to a new namespace: previous-layout state is not migrated
+and retained calls are lost. Rollback likewise requires stopping all new-layout
+workers and starting the previous build on a fresh namespace, losing retained
+calls again; do not reuse stale pre-cutover state. See the
+[Redis cutover procedure](docs/redis-core.md#cutover). Memory runtime is unaffected
+by this Redis layout change.
+
+For a B2BUA late offer, relay the ACK answer using `DialogRequest` with method
+`ACK`, the received body and permitted content headers on the opposite dialog.
 
 ### Call adapter boundary
 

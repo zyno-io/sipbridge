@@ -146,7 +146,7 @@ func stateEffectForStorage(value stateEngineEffect) stateEngineEffect {
 		message = egress.Message
 	case *pb.Envelope_DialogEvent:
 		event := payload.DialogEvent
-		retained := &pb.DialogEvent{Kind: event.Kind, Snapshot: event.Snapshot, OperationId: event.OperationId, Error: event.Error}
+		retained := &pb.DialogEvent{Kind: event.Kind, Snapshot: event.Snapshot, OperationId: event.OperationId, Error: event.Error, InviteCseq: event.InviteCseq}
 		retained.ProtoReflect().SetUnknown(event.ProtoReflect().GetUnknown())
 		envelope.Payload = &pb.Envelope_DialogEvent{DialogEvent: retained}
 		message = event.Message

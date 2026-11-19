@@ -50,7 +50,15 @@ func TestRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T) {
 	})
 }
 
-func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method sip.RequestMethod, cancelCase, tryingCase, ackTimeoutCase bool, ownerCase int) {
+func TestRedisPeerACKLifecycleRetention(t *testing.T) {
+	for _, outcome := range []string{"accepted", "expired", "without-local-session", "no-capability", "changed-term", "fork-late", "fork-early"} {
+		t.Run(outcome, func(t *testing.T) {
+			testRedisDialogRequestAdmissionDefersDialogMutation(t, sip.INFO, false, false, false, 0, outcome)
+		})
+	}
+}
+
+func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method sip.RequestMethod, cancelCase, tryingCase, ackTimeoutCase bool, ownerCase int, ackEvent ...string) {
 	address := os.Getenv("SIPBRIDGE_CORE_TEST_REDIS")
 	if address == "" {
 		t.Skip("isolated Redis fixture required")
@@ -607,7 +615,7 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 		t.Fatal("INFO write changed decision certainty", err)
 	}
 	var offer []byte
-	if method == sip.INFO {
+	if method == sip.INFO && (len(ackEvent) == 0 || ackEvent[0] == "fork-early") {
 		offer = []byte("v=0\r\ns=hold\r\n")
 	}
 	invite, err := portable.BuildDialogRequest(peer, sip.INVITE, 14, offer, "z9hG4bK-pending-invite")
@@ -967,7 +975,35 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	if err != nil {
 		t.Fatal(err)
 	}
-	ack, err := portable.BuildDialogRequest(peer, sip.ACK, 14, nil, "z9hG4bK-reinvite-ack")
+	ackBody := []byte(nil)
+	if len(ackEvent) > 0 {
+		ackBody = peerACKAnswer
+		if ackEvent[0] == "fork-early" {
+			ackBody = []byte("opaque early-offer ACK body")
+		}
+		if strings.HasPrefix(ackEvent[0], "fork-") {
+			view, e := remoteStore.Read(ctx, id, "r:context")
+			if e != nil {
+				t.Fatal(e)
+			}
+			selectedLeg, e := decodeNativeContext(view.Records["r:context"])
+			if e != nil {
+				t.Fatal(e)
+			}
+			// Another fork is selected while this admitted dialog is awaiting ACK.
+			selectedLeg.RemoteTag = "selected-other-fork"
+			selectedLeg.LocalSdp, selectedLeg.RemoteSdp = []byte("selected local SDP"), []byte("selected remote SDP")
+			data, e := encodeNativeContext(selectedLeg)
+			if e != nil {
+				t.Fatal(e)
+			}
+			_, e = remoteStore.Commit(ctx, rediscore.Publication{Identity: id, Revision: view.Revision, Deadline: time.Now().Add(time.Second), SpendReservation: true, Changes: []rediscore.Change{{Field: "r:context", Value: data}}})
+			if e != nil {
+				t.Fatal(e)
+			}
+		}
+	}
+	ack, err := portable.BuildDialogRequest(peer, sip.ACK, 14, ackBody, "z9hG4bK-reinvite-ack")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1003,8 +1039,10 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	if selectedACK.ProcedureField != "r:procedure-"+inviteID {
 		t.Fatal("ACK associated with wrong INVITE")
 	}
-	if err = publishRedisCallDialogACK(ctx, remoteStore, selectedACK, flow, key, rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}, time.Now().Add(time.Second)); err != nil {
-		t.Fatal("commit re-INVITE ACK", err)
+	// This receiving worker has no local control session. Shared debt must still
+	// be created by the production matching path for delivery on its executor.
+	if handled, e := matchRedisCallCompletion(ctx, remoteStore, executor, flow, ack, key, rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}, time.Now().Add(time.Second)); e != nil || !handled {
+		t.Fatal("commit re-INVITE ACK without local controller", handled, e)
 	}
 	acked, err := remoteStore.Read(ctx, selectedACK.Identity, "r:dialog")
 	if err != nil {
@@ -1013,6 +1051,10 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	ackedDialog, err := readPrivateDialogRecord(acked.Records["r:dialog"])
 	if err != nil || ackedDialog.Native.RemoteInvite.State != string(portable.InviteAcked) {
 		t.Fatal("re-INVITE ACK not applied", err)
+	}
+	if len(ackEvent) > 0 {
+		assertRedisPeerACKRetention(t, ctx, remoteStore, client, root, selectedACK.Identity, "r:procedure-"+inviteID, "r:dialog", ack, ackEvent[0])
+		return
 	}
 	if ownerCase == 3 {
 		view, e := remoteStore.Read(ctx, id, "r:context", "r:subscription")

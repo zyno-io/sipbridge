@@ -278,5 +278,15 @@
         "name": "invalid inventory limit",
         "valid": false,
         "json": "{\"correlationId\":\"list\",\"controllerContexts\":{\"limit\":-1}}"
+    },
+    {
+        "name": "peer re-INVITE ACK answer",
+        "valid": true,
+        "json": "{\"correlationId\":\"event-ack\",\"dialogEvent\":{\"kind\":\"ACKNOWLEDGED\",\"inviteCseq\":42,\"message\":{\"method\":\"ACK\",\"body\":\"dj0wDQo=\",\"headers\":[{\"name\":\"CSeq\",\"value\":\"42 ACK\"},{\"name\":\"Content-Type\",\"value\":\"application/sdp\"}]}}}"
+    },
+    {
+        "name": "invalid re-INVITE CSeq",
+        "valid": false,
+        "json": "{\"correlationId\":\"event-ack\",\"dialogEvent\":{\"kind\":\"ACKNOWLEDGED\",\"inviteCseq\":-1}}"
     }
 ]

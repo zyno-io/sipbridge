@@ -19,6 +19,7 @@ import (
 	"sipbridge/internal/nativepb"
 	"sipbridge/internal/rediscore"
 	"sipbridge/internal/selectedmessage"
+	"sipbridge/internal/storagecodec"
 )
 
 // selectedCallCompletion is an unpublished native candidate. Its caller owns
@@ -157,7 +158,18 @@ func publishRedisCallDialogACK(ctx context.Context, store *rediscore.Store, sele
 	current := proto.Clone(selected.Context).(*nativepb.Context)
 	ownerLost := selected.Identity.Owner == "" && selected.Identity.Term == "" && current.Ended
 	contextChanged := false
-	if !current.InitialAck && current.LocalTag == selected.Candidate.Dialog.LocalTag && current.RemoteTag == selected.Candidate.Dialog.RemoteTag {
+	if selected.Dialog.Native.Offer == portable.LocalOfferInACK && current.LocalTag == selected.Candidate.Dialog.LocalTag && current.RemoteTag == selected.Candidate.Dialog.RemoteTag {
+		if current.Revision >= 1<<53-1 {
+			return errNativeRecord
+		}
+		current.RemoteSdp, err = selected.Candidate.Dialog.RemoteInvite.ACK.Body()
+		if err != nil {
+			return err
+		}
+		current.Revision++
+		contextChanged = true
+	}
+	if selected.Candidate.Dialog.RemoteInvite.Initial && !current.InitialAck && current.LocalTag == selected.Candidate.Dialog.LocalTag && current.RemoteTag == selected.Candidate.Dialog.RemoteTag {
 		if current.Revision >= 1<<53-1 {
 			return errNativeRecord
 		}
@@ -178,6 +190,59 @@ func publishRedisCallDialogACK(ctx context.Context, store *rediscore.Store, sele
 			changes = append(changes, rediscore.Change{Field: "r:event-" + eventID, Value: event})
 			timers = append(timers, rediscore.TimerChange{Member: "event-" + eventID, Due: now})
 		}
+	}
+	if !selected.Candidate.Dialog.RemoteInvite.Initial && !ownerLost {
+		if !slices.Contains(current.NoninitialProcedures, selected.ProcedureField) || current.Revision >= 1<<53-1 {
+			return errNativeRecord
+		}
+		current.Revision++
+		contextChanged = true
+		snapshot, e := nativeProjectSnapshot(current, &selected.Candidate.Dialog, nil, nil)
+		if e != nil {
+			return e
+		}
+		if current.LocalTag != selected.Candidate.Dialog.LocalTag || current.RemoteTag != selected.Candidate.Dialog.RemoteTag {
+			// Project media from the accepted fork without changing the selected leg.
+			invite := selected.Candidate.Dialog.RemoteInvite
+			snapshot.LocalSdp, e = invite.Final.Body()
+			if e == nil {
+				if selected.Dialog.Native.Offer == portable.LocalOfferInACK {
+					snapshot.RemoteSdp, e = invite.ACK.Body()
+				} else {
+					snapshot.RemoteSdp, e = invite.Request.Body()
+				}
+			}
+			if e != nil {
+				return e
+			}
+		}
+		now := time.Now()
+		eventID := uuid.NewString()
+		eventField := "r:event-" + eventID
+		messageField := "r:event-ack-" + eventID
+		selectors, e := nativeMessageSelectors(*selected.Candidate.Dialog.RemoteInvite.ACK, false)
+		if e != nil {
+			return e
+		}
+		event, e := encodeNativeLifecycle(&nativepb.Lifecycle{Kind: pb.DialogEvent_ACKNOWLEDGED, Snapshot: snapshot,
+			Root: selected.ProcedureField, Message: messageField, Selectors: selectors,
+			DeadlineMs: now.Add(2 * time.Minute).UnixMilli(), NextMs: now.UnixMilli()})
+		if e != nil {
+			return e
+		}
+		procedure, e := readPrivateProcedureRecord(selected.ProcedureBytes)
+		if e != nil {
+			return e
+		}
+		procedure.Events = append(procedure.Events, eventField)
+		slices.Sort(procedure.Events)
+		procedureData, e := marshalNativeRecord(storagecodec.NativeProcedure, procedure)
+		if e != nil || !validNativeProcedureMetadata(procedure) {
+			return errNativeRecord
+		}
+		changes[2].Value = procedureData
+		changes = append(changes, rediscore.Change{Field: eventField, Value: event}, rediscore.Change{Field: messageField, Value: ackData})
+		timers = append(timers, rediscore.TimerChange{Member: "event-" + eventID, Due: now})
 	}
 	var outputs []rediscore.OutputIntent
 	var selectors []rediscore.SelectorChange

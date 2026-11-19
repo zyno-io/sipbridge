@@ -126,14 +126,56 @@ func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb
 				c.mu.Unlock()
 				return true, stepErr
 			}
-			var event *residentEvent
-			for _, effect := range effects {
-				if effect.Kind == portable.Acknowledged && !c.snapshot.InitialAck && dialogKey == c.selectedDialog {
-					event, stepErr = e.stageResidentEventLocked(c, pb.DialogEvent_ACKNOWLEDGED, nil, "", time.Now().Add(2*time.Minute), dialog.budget)
-					break
+			snapshot := proto.Clone(c.snapshot).(*pb.ContextSnapshot)
+			initial := next.RemoteInvite.Initial && !snapshot.InitialAck && dialogKey == c.selectedDialog
+			notify := !next.RemoteInvite.Initial && !c.ownerLost && supportsReinviteACK(e.control, snapshot.Application, snapshot.ApplicationLeaseTerm)
+			if initial {
+				snapshot.InitialAck = true
+			}
+			lateOffer := dialog.native.Offer == portable.LocalOfferInACK && dialogKey == c.selectedDialog
+			if lateOffer {
+				snapshot.RemoteSdp, stepErr = message.Body()
+			}
+			if initial || notify || lateOffer {
+				snapshot.Revision++
+			}
+			contextDelta := residentSnapshotBytes(snapshot) - residentSnapshotBytes(c.snapshot)
+			var contextGrowth residentClientGrowth
+			if stepErr == nil {
+				contextGrowth, stepErr = e.prepareResidentClientGrowth(c, c.budget, contextDelta)
+			}
+			notification := snapshot
+			if notify && dialogKey != c.selectedDialog {
+				// A lifecycle observation names the exact accepted direction,
+				// even when the context's current projection selects another fork.
+				notification = proto.Clone(snapshot).(*pb.ContextSnapshot)
+				notification.DialogId = sip.DialogIDMake(next.CallID, next.LocalTag, next.RemoteTag)
+				notification.LocalTag, notification.RemoteTag = next.LocalTag, next.RemoteTag
+				notification.LocalUri, notification.RemoteUri = next.LocalURI, next.RemoteURI
+				notification.RemoteTarget = next.Target
+				notification.LocalSdp, stepErr = next.RemoteInvite.Final.Body()
+				if stepErr == nil {
+					if dialog.native.Offer == portable.LocalOfferInACK {
+						notification.RemoteSdp, stepErr = message.Body()
+					} else {
+						notification.RemoteSdp, stepErr = next.RemoteInvite.Request.Body()
+					}
 				}
 			}
+			var event *residentEvent
+			if stepErr == nil {
+				previous := c.snapshot
+				c.snapshot = notification
+				if initial {
+					event, stepErr = e.stageResidentEventLocked(c, pb.DialogEvent_ACKNOWLEDGED, nil, "", time.Now().Add(2*time.Minute), dialog.budget)
+				} else if notify {
+					event, stepErr = e.stageResidentEventNativeLocked(c, pb.DialogEvent_ACKNOWLEDGED, received, message, "", time.Now().Add(2*time.Minute), tx.budget)
+				}
+				c.snapshot = previous
+			}
+
 			if stepErr != nil {
+				e.rollbackResidentClientGrowth(c, contextGrowth)
 				if delta > 0 {
 					_ = e.refundResidentBudgetLocked(c, dialog.budget, delta, borrowed)
 				}
@@ -148,6 +190,7 @@ func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb
 			writes, stepErr := e.stageResidentOutputsLocked(c, tx, effects, nil, "", time.Now().Add(2*time.Second))
 			tx.budget = originalBudget
 			if stepErr != nil {
+				e.rollbackResidentClientGrowth(c, contextGrowth)
 				if event != nil {
 					e.releaseResidentEventLocked(c, event)
 				}
@@ -174,13 +217,12 @@ func (e *ResidentMemory) TryNativeCompletionParsed(ctx context.Context, flow *pb
 			dialog.completionBorrowed += flowBorrowed
 			dialog.completionFlow = proto.Clone(flow).(*pb.FlowRef)
 			dialog.native = next
-			if event != nil {
-				c.snapshot.InitialAck = true
+			e.commitResidentClientGrowth(c, contextGrowth, &c.borrowed)
+			c.snapshot = snapshot
+			if initial || notify || lateOffer {
 				c.revision++
-				c.snapshot.Revision++
-				event.message.Snapshot.InitialAck = true
-				event.message.Snapshot.Revision = c.snapshot.Revision
 			}
+
 			_ = e.scheduleResidentDialogLocked(c, dialogKey, effects)
 			if c.ownerLost {
 				cleanup, cleanupErr := e.residentOwnerByeLocked(c, dialogKey, dialog, false)

@@ -135,7 +135,7 @@ Setting either variable with `SIPBRIDGE_STATE_BACKEND=redis` fails startup.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SIPBRIDGE_MEMORY_MAX_GROUPS` | `128` | Maximum contexts (calls, subscriptions, transactions) held at once, 1 to 1,048,576. |
+| `SIPBRIDGE_MEMORY_MAX_GROUPS` | `128` | Limits inbound and outbound contexts separately. Accepts 1 to 1,048,576. |
 | `SIPBRIDGE_MEMORY_MAX_BYTES` | `1073741824` (1 GiB) | Bytes of retained state plus room reserved for work already accepted, at least 8 MiB. The Go runtime adds its own overhead. See [Capacity](./state-backends.md#capacity). |
 
 ### Redis only

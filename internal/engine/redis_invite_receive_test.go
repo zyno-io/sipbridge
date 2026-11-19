@@ -124,7 +124,7 @@ func TestRedisInviteReceivePublishesOneBoundedPendingProcedure(t *testing.T) {
 		t.Fatal("initial INVITE associations changed", err)
 	}
 	procedure, err := decodeNativeProcedure(view.Records["r:procedure-"+requestID])
-	if err != nil || procedure.Native.Family != portable.InviteServer || !procedure.Metadata.DecisionPending || procedure.Metadata.CreditContribution != uint64(residentServerInviteBudget) {
+	if err != nil || procedure.Native.Family != portable.InviteServer || !procedure.Metadata.DecisionPending || procedure.Metadata.CreditContribution != uint64(redisInviteCompletionCredit(flow.Transport)) {
 		t.Fatal("wrong INVITE procedure", err)
 	}
 	if !procedure.Native.Timers[portable.TimerTrying].Active {

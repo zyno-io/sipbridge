@@ -228,6 +228,9 @@ func publishRedisInitialServerCancel(ctx context.Context, store *rediscore.Store
 	publication := rediscore.Publication{Identity: selected.selected.Identity, Revision: selected.selected.View.Revision, Deadline: until, SpendReservation: true, Changes: changes, NewOutputs: outputs,
 		Selectors: []rediscore.SelectorChange{{Selector: nativeSelector(rediscore.SelectorServerTransaction, selected.nextCancel.Key), Record: selected.cancelField}},
 		Timers:    &rediscore.TimerMutation{Expected: selected.selected.View.Timer, Target: target, Changes: timers}}
+	if inviteResponse && !inDialog {
+		publication.Admission.Class = rediscore.AdmissionRefusal
+	}
 	_, err = store.Commit(ctx, publication)
 	if errors.Is(err, rediscore.ErrExpired) && selected.selected.View.Timer != (rediscore.TimerAssignment{}) && selected.selected.View.Timer != executor && ctx.Err() == nil && time.Now().Before(until) {
 		publication.Timers.Target = executor

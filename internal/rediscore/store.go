@@ -48,6 +48,7 @@ type Config struct {
 	PrimaryRunID         string
 	NamespaceMaxContexts int64
 	NamespaceMaxBytes    int64
+	InstanceAdmission    bool
 }
 
 type Store struct {
@@ -58,6 +59,7 @@ type Store struct {
 	primary           string
 	namespaceContexts int64
 	namespaceBytes    int64
+	instanceAdmission bool
 }
 
 func New(client *redis.Client, cfg Config) (*Store, error) {
@@ -72,7 +74,7 @@ func New(client *redis.Client, cfg Config) (*Store, error) {
 		cfg.RecordBudget <= 0 || cfg.RecordBudget > maxExactInteger || cfg.NamespaceMaxContexts < 1 || cfg.NamespaceMaxContexts > maxExactInteger || cfg.NamespaceMaxBytes < 1 || cfg.NamespaceMaxBytes > maxExactInteger || !validPrimary(cfg.PrimaryRunID) {
 		return nil, ErrAuthority
 	}
-	return &Store{client: client, root: cfg.Root, profile: bytes.Clone(cfg.Profile), maxBytes: cfg.RecordBudget, primary: cfg.PrimaryRunID, namespaceContexts: cfg.NamespaceMaxContexts, namespaceBytes: cfg.NamespaceMaxBytes}, nil
+	return &Store{client: client, root: cfg.Root, profile: bytes.Clone(cfg.Profile), maxBytes: cfg.RecordBudget, primary: cfg.PrimaryRunID, namespaceContexts: cfg.NamespaceMaxContexts, namespaceBytes: cfg.NamespaceMaxBytes, instanceAdmission: cfg.InstanceAdmission}, nil
 }
 
 // Identity is a logical context and application authority, never a socket or
@@ -286,9 +288,10 @@ type Publication struct {
 	Create   bool
 	// Terminal is explicit native proof that all duties end in this publication.
 	// Its final records, indexes and remaining credit must be empty.
-	Terminal bool
-	Deadline time.Time
-	Reserved int64
+	Terminal  bool
+	Deadline  time.Time
+	Reserved  int64
+	Admission Admission
 	// CreditDelta admits or closes pooled native completion credit. The caller
 	// fences each obligation and independently funds new work before any compound
 	// publication spends credit for an already admitted completion.
@@ -319,6 +322,12 @@ func (s *Store) Commit(ctx context.Context, p Publication) (uint64, error) {
 		return 0, ErrConflict
 	}
 	if p.Timers != nil && !p.Timers.valid() {
+		return 0, ErrConflict
+	}
+	admission := p.Admission
+	if !s.instanceAdmission {
+		admission = Admission{}
+	} else if !admission.valid(p.Create) || p.Terminal && admission != (Admission{}) {
 		return 0, ErrConflict
 	}
 	if p.SpendReservation && (p.Create || p.Reserved != 0) {
@@ -488,7 +497,7 @@ func (s *Store) Commit(ctx context.Context, p Publication) (uint64, error) {
 		}
 		udpWorker = p.UDPHint.Worker
 	}
-	args = append(args, mode, targetOwner, targetTerm, spend, terminal, p.CreditDelta, s.namespaceContexts, s.namespaceBytes, resultField, hint, udpWorker, udpHint, s.primary)
+	args = append(args, admission.Instance, string(admission.Class), admission.Source, mode, targetOwner, targetTerm, spend, terminal, p.CreditDelta, s.namespaceContexts, s.namespaceBytes, resultField, hint, udpWorker, udpHint, s.primary)
 	result, err := commitScript.Run(ctx, s.client, keys, args...).Slice()
 	if err != nil {
 		return 0, fmt.Errorf("%w: %w", ErrUnknown, err)
@@ -664,11 +673,11 @@ local timerBase=outputBase+15*outputCount; local hasTimers=ARGV[timerBase]
 if hasTimers~='0' and hasTimers~='1' then return fail('CORRUPT') end
 local timerCount=hasTimers=='1' and number(ARGV[timerBase+8]) or 0
 if not timerCount or timerCount>128 or (hasTimers=='1' and timerCount==0) or #KEYS~=4+outputCount+(hasTimers=='1' and 6 or 0) then return fail('CORRUPT') end
-local selectorBase=timerBase+(hasTimers=='1' and 9+3*timerCount or 1);local selectorCount=number(ARGV[selectorBase]);if not selectorCount or selectorCount>128 or #ARGV~=selectorBase+3*selectorCount+13 then return fail('CORRUPT') end
+local selectorBase=timerBase+(hasTimers=='1' and 9+3*timerCount or 1);local selectorCount=number(ARGV[selectorBase]);if not selectorCount or selectorCount>128 or #ARGV~=selectorBase+3*selectorCount+16 then return fail('CORRUPT') end
 local clock=redis.call('TIME'); local now=tonumber(clock[1])*1000+math.floor(tonumber(clock[2])/1000)
 if deadline<=now then return fail('EXPIRED') end
 local total=number(v[5]); local seen={}; local pending={}; local inputBytes=0
-local records=creating and 0 or redis.call('HLEN',KEYS[2])-7-redis.call('HEXISTS',KEYS[2],'credit_limit')
+local records=creating and 0 or redis.call('HLEN',KEYS[2])-7-redis.call('HEXISTS',KEYS[2],'credit_limit')-redis.call('HEXISTS',KEYS[2],'admission')
 local indexes=creating and 0 or number(redis.call('HGET',KEYS[2],'index_bytes'));if not indexes then return fail('CORRUPT') end
 if records<0 or records>4096 then return fail('CORRUPT') end
 for i=1,count do
@@ -791,7 +800,7 @@ if resultField~='' and not redis.acl_check_cmd('PUBLISH',resultChannel,resultHin
 local udpWorker=ARGV[#ARGV-2];local udpHint=ARGV[#ARGV-1];local udpChannel=root..'core:wake:'..udpWorker
 if (udpWorker=='')~=(udpHint=='') or (udpWorker~='' and (not ref(udpWorker) or #udpWorker>190 or udpWorker=='results' or #udpHint>585)) then return fail('CORRUPT') end
 if udpWorker~='' and not redis.acl_check_cmd('PUBLISH',udpChannel,udpHint) then return refuse('AUTHORITY','udp-wake-acl') end
-local ns;ns,problem=nsPlan(KEYS[#KEYS],KEYS[2],creating,terminal,ARGV[2],nextOwner,nextTerm,next,total,reserved,indexes,number(ARGV[#ARGV-6]),number(ARGV[#ARGV-5]),spend=='1',creditDelta,false,maximum);if problem then return refuse(problem,'namespace') end
+local ns;ns,problem=nsPlan(KEYS[#KEYS],KEYS[2],creating,terminal,ARGV[2],nextOwner,nextTerm,next,total,reserved,indexes,number(ARGV[#ARGV-6]),number(ARGV[#ARGV-5]),spend=='1',creditDelta,false,maximum,ARGV[#ARGV-15],ARGV[#ARGV-14],ARGV[#ARGV-13]);if problem then return refuse(problem,'namespace') end
 if total+number(ns.reserved)>maximum then return fail('CAPACITY') end
 if not redis.acl_check_cmd('HSET',KEYS[2],'incarnation',ARGV[2],'owner',nextOwner,'term',nextTerm,'revision',next,'bytes',string.format('%.0f',total),'reserved',ns.reserved) then return refuse('AUTHORITY','context-acl') end
 for i=1,count do local pos=11+(i-1)*3; if ARGV[pos+1]=='set' then redis.call('HSET',KEYS[2],ARGV[pos],ARGV[pos+2]) else redis.call('HDEL',KEYS[2],ARGV[pos]) end end

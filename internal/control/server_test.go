@@ -316,7 +316,10 @@ func TestInvalidControlFrames(t *testing.T) {
 
 func TestTLSAuthorizationAndReload(t *testing.T) {
 	p := newPKI(t)
-	s, address := testServer(t, p, 8)
+	s, address := testServer(t, p, 8, func(cfg *Config) {
+		// Keep the original session alive while the fixture rotates files and probes TLS.
+		cfg.HeartbeatTimeout = 5 * time.Second
+	})
 	c, err := p.dial(address)
 	if err != nil {
 		t.Fatal(err)

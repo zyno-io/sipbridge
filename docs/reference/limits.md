@@ -53,17 +53,23 @@ allocated up front. The exact rules are in
 
 | Resource | Default | Setting |
 | --- | --- | --- |
-| Memory: contexts | 128 | `SIPBRIDGE_MEMORY_MAX_GROUPS` (1 to 1,048,576) |
-| Memory: retained bytes plus reserved completion room | 1 GiB | `SIPBRIDGE_MEMORY_MAX_BYTES` (at least 8 MiB) |
-| Memory: controller processes with a lease | 1,024 | fixed |
-| Redis: shared contexts per namespace | 131,072 | fixed |
-| Redis: stored bytes per namespace | 1 GiB | fixed |
-| Redis: stored bytes per context | 32 MiB | fixed |
-| Redis: local registrations and subscriptions per instance | Same numbers as the namespace limits | fixed |
-| Redis: controller processes admitted at once | 1,024 | fixed |
+| Inbound and outbound contexts in Memory | 128 each | `SIPBRIDGE_MEMORY_MAX_GROUPS` (1 to 1,048,576) |
+| Memory state plus room to finish accepted work | 1 GiB | `SIPBRIDGE_MEMORY_MAX_BYTES` (at least 8 MiB) |
+| Controller processes with a lease in Memory | 1,024 | fixed |
+| Requests waiting for a controller decision per instance | 128 total, 32 per observed source address | fixed |
+| Waiting requests plus retained refusals from the controller path per instance | 1,024 when admitting new requests | fixed |
+| Retained refusals sipbridge generated before controller admission, per instance | 1,024 | fixed |
+| Memory records kept to recognize duplicate refused requests | 4,096 | fixed |
+| Inbound and outbound call legs with Redis, per instance | 1,024 each | fixed |
+| Outgoing requests outside a call with Redis, per instance | 512 | fixed |
+| Redis records plus reserved room per context | 32 MiB | fixed |
+| Local registrations in progress and subscriptions with Redis, per instance | 131,072 inbound contexts, 1 GiB | fixed |
+| Controller processes admitted at once with Redis, per namespace | 1,024 | fixed |
 
-These are admission limits: work beyond them is refused, and nothing already
-accepted is evicted. They are not promises about total memory use.
+Requests waiting for a decision count toward the inbound limit, so there is
+room to keep them if the controller accepts. These limits govern new work.
+Allow extra memory for the Go runtime, network buffers and Redis overhead.
+See [State Backends](../guide/state-backends.md).
 
 ## Controller leases
 

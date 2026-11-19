@@ -371,7 +371,12 @@ func receiveRedisUACAdditionalSuccess(ctx context.Context, store *rediscore.Stor
 			timers = append(timers, rediscore.TimerChange{Member: "out-" + strings.TrimPrefix(outputField, "r:"), Due: until})
 		}
 	}
+	var credit int64
 	if prior == nil {
+		if len(current.Dialogs) > 0 {
+			credit = redisAdditionalForkCredit
+			root.CreditContribution += uint64(credit)
+		}
 		current.Dialogs = append(current.Dialogs, dialogField)
 		slices.Sort(current.Dialogs)
 	}
@@ -395,7 +400,7 @@ func receiveRedisUACAdditionalSuccess(ctx context.Context, store *rediscore.Stor
 		}
 		changes = append(changes, rediscore.Change{Field: rootField, Value: data})
 	}
-	publication := rediscore.Publication{Identity: identity, Revision: revision, Deadline: deadline, SpendReservation: true, Changes: changes, NewOutputs: outputs}
+	publication := rediscore.Publication{Identity: identity, Revision: revision, Deadline: deadline, CreditDelta: credit, SpendReservation: true, Changes: changes, NewOutputs: outputs}
 	if prior == nil {
 		publication.Selectors = []rediscore.SelectorChange{{Selector: selectors[1], Record: dialogField}}
 	}

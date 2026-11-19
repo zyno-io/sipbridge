@@ -35,7 +35,7 @@ func (cfg *stateSettings) binaryConnectionConfig() rediscore.ConnectionConfig {
 	return rediscore.ConnectionConfig{Redis: cfg.Redis, Profile: rediscore.ProfileConfig{
 		Root:    cfg.Prefix + ":" + cfg.Namespace + ":" + cfg.Generation + ":",
 		Service: cfg.Namespace, Generation: cfg.Generation, IdentityKey: cfg.NamespaceKey,
-		RecordBudget: 32 << 20,
+		RecordBudget: 32 << 20, InstanceAdmission: true,
 	}}
 }
 

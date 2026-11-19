@@ -86,7 +86,7 @@ func (e *redisNative) commandOpenUAC(parent context.Context, peer *control.Peer,
 	if !validPolicyFlow(flow) || flow.Transport != uacTransport(open) {
 		return refuse("network flow unavailable")
 	}
-	input := redisUACQualification{Key: e.cfg.StateIdentityKey, Context: ref, Authority: authority, Application: application, Executor: e.cfg.Process, Lease: witness, Flow: flow, Command: cmd, Operation: operation, Advertisement: nativeSIPAdvertisement{contactURI: e.cfg.ContactURI, address: e.cfg.AdvertiseAddress, plainAddress: e.cfg.PlainAdvertiseAddress}, ExecutorTimer: rediscore.TimerAssignment{Worker: e.worker, Epoch: e.cfg.Process.Epoch, Term: e.cfg.Process.Epoch}, Credit: uint64(residentServerInviteBudget), Deadline: deadline}
+	input := redisUACQualification{Key: e.cfg.StateIdentityKey, Context: ref, Authority: authority, Application: application, Executor: e.cfg.Process, Lease: witness, Flow: flow, Command: cmd, Operation: operation, Advertisement: nativeSIPAdvertisement{contactURI: e.cfg.ContactURI, address: e.cfg.AdvertiseAddress, plainAddress: e.cfg.PlainAdvertiseAddress}, ExecutorTimer: rediscore.TimerAssignment{Worker: e.worker, Epoch: e.cfg.Process.Epoch, Term: e.cfg.Process.Epoch}, Credit: uint64(redisInviteCompletionCredit(flow.Transport)), Deadline: deadline}
 	var result *pb.OperationResult
 	if redisStandaloneMethod(open.Method) {
 		input.Credit = uint64(residentSmallBudget)

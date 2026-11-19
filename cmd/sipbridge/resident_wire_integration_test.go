@@ -310,32 +310,37 @@ presented:
 	}
 }
 
+func readResidentWire(t *testing.T, reader *bufio.Reader) []byte {
+	t.Helper()
+	var header strings.Builder
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		header.WriteString(line)
+		if line == "\r\n" {
+			break
+		}
+	}
+	length := 0
+	for _, line := range strings.Split(header.String(), "\r\n") {
+		name, value, ok := strings.Cut(line, ":")
+		if ok && strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
+			length, _ = strconv.Atoi(strings.TrimSpace(value))
+		}
+	}
+	body := make([]byte, length)
+	if _, err := io.ReadFull(reader, body); err != nil {
+		t.Fatal(err)
+	}
+	return append([]byte(header.String()), body...)
+}
+
 func readResidentFinal(t *testing.T, reader *bufio.Reader, seq uint32) []byte {
 	t.Helper()
 	for {
-		var header strings.Builder
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				t.Fatal(err)
-			}
-			header.WriteString(line)
-			if line == "\r\n" {
-				break
-			}
-		}
-		length := 0
-		for _, line := range strings.Split(header.String(), "\r\n") {
-			name, value, ok := strings.Cut(line, ":")
-			if ok && strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
-				length, _ = strconv.Atoi(strings.TrimSpace(value))
-			}
-		}
-		body := make([]byte, length)
-		if _, err := io.ReadFull(reader, body); err != nil {
-			t.Fatal(err)
-		}
-		wire := append([]byte(header.String()), body...)
+		wire := readResidentWire(t, reader)
 		parsed, err := sip.ParseMessage(wire)
 		if err != nil {
 			t.Fatal(err)

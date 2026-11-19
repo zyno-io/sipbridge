@@ -32,7 +32,7 @@ func nativeFixtureConfiguration(get func(string) string, readFile func(string) (
 	if err != nil || len(key) < 32 || len(key) > 256 {
 		return rediscore.ConnectionConfig{}, errors.New("fixture identity key must be base64 of 32 to 256 bytes")
 	}
-	config := rediscore.ConnectionConfig{Profile: rediscore.ProfileConfig{Root: prefix + ":" + namespace + ":" + generation + ":", Service: namespace, Generation: generation, IdentityKey: key, RecordBudget: 32 << 20}, Redis: redisclient.Options{Address: get("SIPBRIDGE_REDIS_ADDRESS"), SentinelMaster: get("SIPBRIDGE_REDIS_MASTER"), Username: get("SIPBRIDGE_REDIS_USERNAME"), Password: get("SIPBRIDGE_REDIS_PASSWORD"), SentinelUsername: get("SIPBRIDGE_REDIS_SENTINEL_USERNAME"), SentinelPassword: get("SIPBRIDGE_REDIS_SENTINEL_PASSWORD")}}
+	config := rediscore.ConnectionConfig{Profile: rediscore.ProfileConfig{Root: prefix + ":" + namespace + ":" + generation + ":", Service: namespace, Generation: generation, IdentityKey: key, RecordBudget: 32 << 20, InstanceAdmission: true}, Redis: redisclient.Options{Address: get("SIPBRIDGE_REDIS_ADDRESS"), SentinelMaster: get("SIPBRIDGE_REDIS_MASTER"), Username: get("SIPBRIDGE_REDIS_USERNAME"), Password: get("SIPBRIDGE_REDIS_PASSWORD"), SentinelUsername: get("SIPBRIDGE_REDIS_SENTINEL_USERNAME"), SentinelPassword: get("SIPBRIDGE_REDIS_SENTINEL_PASSWORD")}}
 	if raw := get("SIPBRIDGE_REDIS_SENTINELS"); raw != "" {
 		for _, address := range strings.Split(raw, ",") {
 			config.Redis.SentinelAddresses = append(config.Redis.SentinelAddresses, strings.TrimSpace(address))

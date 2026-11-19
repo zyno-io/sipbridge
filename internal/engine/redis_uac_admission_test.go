@@ -21,6 +21,28 @@ import (
 	"sipbridge/internal/storagecodec"
 )
 
+func reportRedisContextFootprint(t *testing.T, ctx context.Context, client *redis.Client, key, transport, phase string) {
+	t.Helper()
+	if !testing.Verbose() {
+		return
+	}
+	fields, err := client.HGetAll(ctx, key).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocation, err := client.MemoryUsage(ctx, key).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempts := 0
+	for field := range fields {
+		if strings.HasPrefix(field, "o:") && strings.HasSuffix(field, ":a") {
+			attempts++
+		}
+	}
+	t.Logf("%s %s: %s selected record bytes, %s completion credit, %d Redis context-hash bytes, %d physical attempts", transport, phase, fields["bytes"], fields["reserved"], allocation, attempts)
+}
+
 func TestRedisUACQualificationInitialAdmission(t *testing.T) {
 	t.Run("not-written-and-unknown", func(t *testing.T) { testRedisUACQualificationInitialAdmission(t, false, false, false, false, false, 0) })
 	t.Run("written", func(t *testing.T) { testRedisUACQualificationInitialAdmission(t, true, false, false, false, false, 0) })
@@ -1014,6 +1036,7 @@ func testRedisUACQualificationInitialAdmission(t *testing.T, written, preserveCo
 				t.Fatalf("first winner: %v", e)
 			}
 			assertFinalSupersedesProvisional()
+			reportRedisContextFootprint(t, ctx, client, root+"core:context:uac", flow.Transport, "selected successful final")
 			winner, e := store.ObserveContext(ctx, "uac", "incarnation", "r:context", record.InitialProcedures[0], "r:result-1", firstContext.Dialogs[0])
 			if e != nil {
 				t.Fatal(e)
@@ -1265,6 +1288,7 @@ func testRedisUACQualificationInitialAdmission(t *testing.T, written, preserveCo
 					if e != nil || !handled {
 						t.Fatalf("losing fork: %v", e)
 					}
+					reportRedisContextFootprint(t, ctx, client, root+"core:context:uac", flow.Transport, "losing fork")
 					loserState, e := store.ObserveContext(ctx, "uac", "incarnation", "r:context", record.InitialProcedures[0])
 					if e != nil {
 						t.Fatal(e)
@@ -1526,6 +1550,7 @@ func testRedisUACQualificationInitialAdmission(t *testing.T, written, preserveCo
 				if e != nil || proofStill.State != rediscore.OutputUnknown {
 					t.Fatal("uncertain winner ACK lost proof", e)
 				}
+				reportRedisContextFootprint(t, ctx, client, root+"core:context:uac", flow.Transport, "unknown winner ACK")
 				if successCase == 11 {
 					testWinningAckUnknownTerminal(t, ctx, client, store, root, input, workerID, origin, final, out, outField)
 					return

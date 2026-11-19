@@ -28,34 +28,39 @@ type ResidentMemory struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 
-	mu                sync.Mutex
-	closed            bool
-	contexts          map[string]*residentContext
-	transactions      map[string]*residentContext
-	dialogs           map[string]*residentContext
-	admissions        map[string]residentAdmission
-	admissionByWire   map[[32]byte]string
-	admissionCounts   map[string]int
-	admissionSerial   uint64
-	deadlines         residentDeadlines
-	deadlineWake      chan struct{}
-	reserved          int64
-	bytes             int64
-	maxBytes          int64
-	maxContexts       int
-	owners            map[string]map[*residentContext]struct{}
-	leases            map[string]*residentLease
-	subscriptionFlows map[string]map[*residentContext]struct{}
-	work              chan struct{}
-	ingressWork       chan struct{}
-	eventWork         chan struct{}
-	callbackMetrics   callbackStatistics
-	wg                sync.WaitGroup
+	mu                  sync.Mutex
+	closed              bool
+	contexts            map[string]*residentContext
+	transactions        map[string]*residentContext
+	dialogs             map[string]*residentContext
+	admissions          map[string]residentAdmission
+	admissionByWire     map[[32]byte]string
+	admissionCounts     map[string]int
+	classCounts         [residentNativeRefusal + 1]int
+	pendingSources      map[string]int
+	refusalDispositions map[string]residentRefusalDisposition
+	admissionSerial     uint64
+	deadlines           residentDeadlines
+	deadlineWake        chan struct{}
+	reserved            int64
+	bytes               int64
+	maxBytes            int64
+	maxContexts         int
+	owners              map[string]map[*residentContext]struct{}
+	leases              map[string]*residentLease
+	subscriptionFlows   map[string]map[*residentContext]struct{}
+	work                chan struct{}
+	ingressWork         chan struct{}
+	eventWork           chan struct{}
+	callbackMetrics     callbackStatistics
+	wg                  sync.WaitGroup
 }
 
 // residentContext owns only the records for one application context, rather
 // than an aggregate of every context sharing a Call-ID.
 type residentContext struct {
+	admissionClass        residentAdmissionClass
+	admissionSource       string
 	applicationCapability *control.ApplicationCapability
 	receiptPins           int
 	reservedOutputs       int
@@ -92,6 +97,7 @@ type residentContext struct {
 
 type residentAdmission struct {
 	callID   string
+	source   string
 	wireHash [32]byte
 	expires  time.Time
 }

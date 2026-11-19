@@ -48,7 +48,10 @@ func (e *ResidentMemory) ReceiveRequestParsed(ctx context.Context, peer *control
 	if err != nil {
 		return err
 	}
-	route, err := e.locateResidentParsed(ctx, message.Wire, parsed, message.Selectors, true)
+	route, err := e.locateResidentParsed(ctx, message.Wire, parsed, message.Selectors, true, flow)
+	if errors.Is(err, errResidentRefusalDuplicate) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -121,6 +124,9 @@ func (e *ResidentMemory) clearResidentDecisionLocked(c *residentContext, tx *res
 		tx.charged += delta
 	}
 	e.mu.Lock()
+	if c.admissionClass == residentPending {
+		e.changeResidentAdmissionLocked(c, residentDecisionAdmission(tx))
+	}
 	e.deadlines.remove(residentDeadlineKey{kind: residentRequestDecisionDeadline, contextID: c.snapshot.Context.Id, record: tx.native.Key})
 	e.mu.Unlock()
 }
@@ -217,17 +223,11 @@ func (e *ResidentMemory) receiveResidentInitial(ctx context.Context, peer *contr
 		e.mu.Lock()
 		current, exists := e.admissions[in.Context.Id]
 		liveLease := e.leases[residentControllerKey(in.Application)]
-		valid = exists && current == admission && time.Now().Before(current.expires) && e.contexts[in.Context.Id] == nil && !e.closed && (!e.phoneDomain || time.Now().Before(until)) && (e.phoneDomain || liveLease != nil && liveLease.term == lease.Term && time.Now().Before(liveLease.expires))
+		valid = exists && current == admission && time.Now().Before(current.expires) && e.contexts[in.Context.Id] == nil && !e.closed && !e.residentSelectorOccupiedLocked(observed.Selectors) && (!e.phoneDomain || time.Now().Before(until)) && (e.phoneDomain || liveLease != nil && liveLease.term == lease.Term && time.Now().Before(liveLease.expires))
 		if valid {
-			delete(e.admissions, in.Context.Id)
-			e.admissionCounts[current.callID]--
-			if e.admissionCounts[current.callID] == 0 {
-				delete(e.admissionCounts, current.callID)
-			}
-			if e.admissionByWire[current.wireHash] == in.Context.Id {
-				delete(e.admissionByWire, current.wireHash)
-			}
-			e.deadlines.remove(residentDeadlineKey{kind: residentAdmissionDeadline, contextID: in.Context.Id})
+			e.releaseResidentAdmissionLocked(in.Context.Id, current, true)
+			candidate.admissionClass = residentPending
+			candidate.admissionSource = current.source
 			e.contexts[in.Context.Id] = candidate
 			e.indexResidentOwnerUnderEngineLock(candidate)
 			for _, selector := range observed.Selectors {

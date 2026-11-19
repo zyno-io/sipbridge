@@ -102,7 +102,7 @@ func (e *RedisNative) LocateRoute(ctx context.Context, message *pb.SipMessage) (
 		return nil, err
 	}
 	if phoneRequest(parsed) {
-		return e.phone.locateResidentParsed(ctx, message.Wire, parsed, observedMessageSelectors(parsed, false), true)
+		return e.phone.locateResidentParsed(ctx, message.Wire, parsed, observedMessageSelectors(parsed, false), true, nil)
 	}
 	return e.redisNative.locateRedisRouteParsed(ctx, message, parsed)
 }

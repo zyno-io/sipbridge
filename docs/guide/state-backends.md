@@ -42,15 +42,18 @@ Two settings bound how much work memory state admits:
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `SIPBRIDGE_MEMORY_MAX_GROUPS` | 128 | Maximum contexts (calls, subscriptions, transactions) at once |
+| `SIPBRIDGE_MEMORY_MAX_GROUPS` | 128 | Up to 128 inbound contexts and 128 outbound contexts |
 | `SIPBRIDGE_MEMORY_MAX_BYTES` | 1 GiB | Bytes of retained state plus room reserved for finishing work already accepted |
 
-When either limit is reached, new work is refused; nothing already accepted is
-evicted. These are admission limits, not a promise about the process's total
-memory use: the Go runtime and in-flight network buffers add overhead. Size
-the context limit for your peak of simultaneous calls, subscriptions and
-in-progress registrations, and watch the `zt_sipbridge_resident_*` metrics
-next to the process's real memory.
+A context holds SIP state for a call leg, a subscription or a transaction.
+When sipbridge connects an incoming call to another endpoint, it uses one
+inbound context and one outbound context. Leave room for subscriptions and
+registrations in progress as well.
+
+When new work would exceed a limit, sipbridge refuses it and keeps the work
+it has already accepted. The Go runtime and network buffers add to the
+process's memory use. Watch the `zt_sipbridge_resident_*` metrics alongside
+the process's memory use.
 
 A completed TCP or TLS REGISTER transaction is released as soon as its
 response is written and nothing else depends on it; sipbridge does not keep a
@@ -107,8 +110,8 @@ With Redis, sipbridge splits its work in two:
   its NOTIFYs, are kept in memory on the instance that accepted them, exactly
   as with memory state. They are not copied to Redis and cannot move to
   another instance; if that instance restarts, the phone has to register and
-  subscribe again. Each instance applies the namespace's capacity limits
-  (below) to its own local share as well.
+  subscribe again. Each instance has its own memory limits for this phone
+  state. See [State capacity](../reference/limits.md#state-capacity).
 
 Registrations themselves (who is registered where) are your controller's data
 in either case.
@@ -130,8 +133,23 @@ requests are refused with `501`.
   namespace, generation and prefix, and run the same sipbridge build. A build
   with a different storage format refuses to use the namespace; compare the
   output of `sipbridge --state-schema` when in doubt.
-- By default a namespace admits up to 131,072 shared contexts and 1 GiB of
-  stored data. These are admission limits, not memory Redis reserves up front.
+
+### Capacity with Redis
+
+Each instance has room for up to 1,024 inbound call legs and 1,024 outbound
+call legs. When one instance handles both legs of a call, it uses one slot
+in each limit. Adding an instance gives the deployment another set of
+slots, even when every instance uses the same Redis namespace. Size the Redis
+primary for the combined workload, including the data and indexes sipbridge
+needs to finish calls.
+
+Each instance can have up to 128 requests waiting for a controller decision,
+with up to 32 from any one source address it sees. When either limit fills,
+sipbridge can answer new requests with SIP `503` before asking the controller.
+Those replies have their own slots, leaving the controller's slots available
+as decisions finish. Calls already in progress keep their slots. An accepted
+call can still open its outbound leg if that side has room.
+See [State capacity](../reference/limits.md#state-capacity).
 
 ### Failure and recovery
 

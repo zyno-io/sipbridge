@@ -68,6 +68,10 @@ func (e *ResidentMemory) rejectParsed(ctx context.Context, flow *pb.FlowRef, mes
 	e.mu.Lock()
 	existing := e.contexts[id]
 	for _, selector := range selectors {
+		if err := e.observeResidentRefusalLocked(selector, message.Wire, flow, parsed); err != nil {
+			e.mu.Unlock()
+			return nil
+		}
 		if selected := e.transactions[selector]; selected != nil {
 			if e.phoneDomain && existing == nil {
 				existing = selected
@@ -168,14 +172,11 @@ func (e *ResidentMemory) rejectParsed(ctx context.Context, flow *pb.FlowRef, mes
 		return err
 	}
 	e.mu.Lock()
-	valid := !e.closed && len(e.contexts)+len(e.admissions) < e.maxContexts && e.contexts[id] == nil
-	for _, selector := range selectors {
-		if e.transactions[selector] != nil {
-			valid = false
-		}
-	}
+	valid := !e.closed && e.classCounts[residentNativeRefusal] < residentNativeRefusalLimit && e.contexts[id] == nil
+	valid = valid && !e.residentSelectorOccupiedLocked(selectors)
 	if valid {
 		e.contexts[id] = c
+		e.changeResidentAdmissionLocked(c, residentNativeRefusal)
 		for _, selector := range selectors {
 			e.transactions[selector] = c
 		}

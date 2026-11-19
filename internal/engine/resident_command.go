@@ -458,6 +458,11 @@ func (e *ResidentMemory) respondResident(ctx context.Context, peer *control.Peer
 		releaseResidentCommandLocked(c, previous)
 	}
 	tx.native = next
+	if response.Status >= 300 && original.ToTag == "" && c.admissionClass == residentInbound && c.subscription == nil && len(c.dialogs) == 0 {
+		e.mu.Lock()
+		e.changeResidentAdmissionLocked(c, residentRefusal)
+		e.mu.Unlock()
+	}
 	if response.Status >= 300 && c.subscription != nil && c.subscription.Pending == tx.native.Key {
 		c.subscription.Pending = ""
 	}

@@ -99,6 +99,11 @@ func commitRedisInviteFinal(ctx context.Context, store *rediscore.Store, key []b
 	var selectors []rediscore.SelectorChange
 	var changes []rediscore.Change
 	timers := []rediscore.TimerChange{{Member: "call-decision-" + id, Delete: true}}
+	if decision.Status >= 300 {
+		next.Ended = true
+		next.CallRetireAtMs = now.Add(2 * time.Minute).UnixMilli()
+		timers = append(timers, rediscore.TimerChange{Member: "call-retire", Due: time.UnixMilli(next.CallRetireAtMs)})
+	}
 	for _, effect := range native.Effects {
 		switch effect.Kind {
 		case portable.Send:
@@ -188,7 +193,11 @@ func commitRedisInviteFinal(ctx context.Context, store *rediscore.Store, key []b
 	}
 	changes = append(changes, rediscore.Change{Field: "r:context", Value: contextBytes}, rediscore.Change{Field: procedureField, Value: procedureBytes}, rediscore.Change{Field: metadata.CommandResult, Value: result})
 	timers = append(timers, rediscore.TimerChange{Member: "out-" + outputField[2:], Due: until})
-	_, err = store.Commit(ctx, rediscore.Publication{Identity: selected.Identity, Revision: selected.View.Revision, Deadline: until, Application: &lease, BindApplication: true, SpendReservation: true, Changes: changes, NewOutputs: []rediscore.OutputIntent{intent}, Selectors: selectors, Timers: &rediscore.TimerMutation{Expected: selected.View.Timer, Target: selected.View.Timer, Changes: timers}})
+	class := rediscore.AdmissionInbound
+	if decision.Status >= 300 {
+		class = rediscore.AdmissionRefusal
+	}
+	_, err = store.Commit(ctx, rediscore.Publication{Admission: rediscore.Admission{Class: class}, Identity: selected.Identity, Revision: selected.View.Revision, Deadline: until, Application: &lease, BindApplication: true, SpendReservation: true, Changes: changes, NewOutputs: []rediscore.OutputIntent{intent}, Selectors: selectors, Timers: &rediscore.TimerMutation{Expected: selected.View.Timer, Target: selected.View.Timer, Changes: timers}})
 	if err != nil {
 		return nil, err
 	}

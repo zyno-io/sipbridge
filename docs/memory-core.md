@@ -211,6 +211,17 @@ finals/ACK, SUBSCRIBE state and required NOTIFY completion are unchanged.
 
 ## What lives in memory
 
+A request waiting for a controller decision reserves room for either outcome.
+It counts toward the inbound limit and the limit for refusals after controller
+admission. The per-source limit uses the address sipbridge sees on the network.
+Outgoing work and refusals generated before controller admission each have
+their own limit. The latter includes a `503` sent when admission is full.
+
+A refusal keeps its transaction state and the evidence of whether its
+response was written until the SIP timers and write tracking have settled.
+If the refusal has no other work left, sipbridge can free the context and
+keep a small record to recognize retries through the original replay deadline.
+
 | Record | Retention |
 | --- | --- |
 | Transaction | Native phase, observed return flow, needed wire and original timers; remove after protocol/replay duties finish |

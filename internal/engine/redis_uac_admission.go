@@ -182,7 +182,11 @@ func admitRedisUACStart(ctx context.Context, store *rediscore.Store, in redisUAC
 			return nil, errNativeRecord
 		}
 	}
-	_, err = store.Commit(ctx, rediscore.Publication{Identity: rediscore.Identity{Context: in.Context.Id, Incarnation: in.Context.State.Incarnation, Owner: in.Lease.Application, Term: in.Lease.Term}, Create: true, Deadline: until, CreditDelta: int64(in.Credit), Application: &in.Lease, Changes: changes, NewOutputs: []rediscore.OutputIntent{intent}, Selectors: []rediscore.SelectorChange{{Selector: selectors[0], Record: procedureField}}, Timers: &rediscore.TimerMutation{Target: in.ExecutorTimer, Changes: timers}})
+	class := rediscore.AdmissionOutbound
+	if standalone {
+		class = rediscore.AdmissionStandalone
+	}
+	_, err = store.Commit(ctx, rediscore.Publication{Admission: redisInstanceAdmission(in.Key, in.Executor, class, ""), Identity: rediscore.Identity{Context: in.Context.Id, Incarnation: in.Context.State.Incarnation, Owner: in.Lease.Application, Term: in.Lease.Term}, Create: true, Deadline: until, CreditDelta: int64(in.Credit), Application: &in.Lease, Changes: changes, NewOutputs: []rediscore.OutputIntent{intent}, Selectors: []rediscore.SelectorChange{{Selector: selectors[0], Record: procedureField}}, Timers: &rediscore.TimerMutation{Target: in.ExecutorTimer, Changes: timers}})
 	if err != nil {
 		return nil, fmt.Errorf("initial UAC publication: %w", err)
 	}

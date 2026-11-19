@@ -54,8 +54,9 @@ Each of these is explained where it matters:
 
 - **Controller sessions carry calls.** When a controller's session closes,
   its calls end. See [Restarts and Disconnects](../guide/lifecycle.md).
-- **Memory state is lost on restart.** Default limits are 128 contexts and
-  1 GiB. See [State Backends](../guide/state-backends.md#capacity).
+- **Memory state is lost on restart.** The defaults are 128 inbound contexts,
+  128 outbound contexts and 1 GiB for both together.
+  See [State Backends](../guide/state-backends.md#capacity).
 - **Redis replication is asynchronous.** A failover can lose recent state and
   drop calls that depended on it. See
   [Failure and recovery](../guide/state-backends.md#failure-and-recovery).

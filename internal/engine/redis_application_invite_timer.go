@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -110,6 +111,7 @@ func fireRedisApplicationInviteDeadline(ctx context.Context, store *rediscore.St
 	if err != nil {
 		return err
 	}
+	var failure string
 	timers := []rediscore.TimerChange{{Member: due.Member, Delete: true}}
 	for _, effect := range effects {
 		switch effect.Kind {
@@ -121,7 +123,9 @@ func fireRedisApplicationInviteDeadline(ctx context.Context, store *rediscore.St
 			if effect.Timer != portable.TimerA {
 				timers = append(timers, rediscore.TimerChange{Member: prefix + id + "-" + string(effect.Timer), Due: time.UnixMilli(effect.Deadline.At)})
 			}
-		case portable.Ended, portable.Diagnostic:
+		case portable.Ended:
+			failure = effect.Error
+		case portable.Diagnostic:
 		default:
 			return errNativeRecord
 		}
@@ -145,8 +149,30 @@ func fireRedisApplicationInviteDeadline(ctx context.Context, store *rediscore.St
 	changes := append([]rediscore.Change{{Field: procedureField, Value: data}}, released...)
 	var hint *rediscore.ResultHint
 	if next.Phase == portable.Terminated {
-		if result.Pending && result.CutoffMs <= due.CheckedAtMS {
-			result.Pending, result.Certainty, result.Error, result.SipStatus = false, pb.OperationResult_UNKNOWN, "SIP delivery unavailable or uncertain", 0
+		written := false
+		if result.Pending && failure != "" && output != nil {
+			// Pending plus consumed proves WRITTEN. The output consumer records
+			// an unwritten outcome before acknowledging its proof.
+			written = procedure.Metadata.OutputConsumed
+			if !written {
+				ref, e := nativeOutputRef(output.Write)
+				if e != nil {
+					return e
+				}
+				proof, e := store.InspectOutput(ctx, ref)
+				if e != nil && !errors.Is(e, rediscore.ErrAbsent) {
+					return e
+				}
+				written = e == nil && proof.State == rediscore.OutputWritten
+			}
+		}
+		if result.Pending && (written || result.CutoffMs <= due.CheckedAtMS) {
+			result.Pending = false
+			if written {
+				result.Certainty, result.Error, result.Request = pb.OperationResult_COMPLETED, failure, originField
+			} else {
+				result.Certainty, result.Error = pb.OperationResult_UNKNOWN, "SIP delivery unavailable or uncertain"
+			}
 			value, e := encodeNativeResult(result)
 			if e != nil {
 				return e

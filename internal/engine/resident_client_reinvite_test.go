@@ -14,11 +14,15 @@ import (
 
 func TestResidentUASLocalReinviteLateOfferUsesLocalTransaction(t *testing.T) {
 	for _, transport := range []string{"tls", "udp"} {
-		t.Run(transport, func(t *testing.T) { testResidentUASLocalReinvite(t, transport) })
+		t.Run(transport, func(t *testing.T) { testResidentUASLocalReinvite(t, transport, false) })
 	}
 }
 
-func testResidentUASLocalReinvite(t *testing.T, transport string) {
+func TestResidentLocalReinviteTimeoutLeavesCallAvailableForBye(t *testing.T) {
+	testResidentUASLocalReinvite(t, "tls", true)
+}
+
+func testResidentUASLocalReinvite(t *testing.T, transport string, timeout bool) {
 	e, peer, conn, ctx, session, writes, _ := residentControlFixture(t)
 	incoming := stateTestRequest("INVITE", 1, "", "uas-local-reinvite")
 	if transport == "udp" {
@@ -105,6 +109,50 @@ func testResidentUASLocalReinvite(t *testing.T, transport string) {
 	}
 	localKey := current.localTransaction
 	c.mu.Unlock()
+	if timeout {
+		var due portable.Deadline
+		for limit := time.Now().Add(time.Second); ; time.Sleep(time.Millisecond) {
+			c.mu.Lock()
+			tx := c.transactions[localKey]
+			pending := false
+			for _, output := range c.outputs {
+				if output.transaction == localKey && output.method == "INVITE" && !output.settled {
+					pending = true
+					break
+				}
+			}
+			if !pending {
+				due = tx.native.Timers[portable.TimerB]
+				due.At = time.Now().Add(-time.Second).UnixMilli()
+				tx.native.Timers[portable.TimerB] = due
+			}
+			c.mu.Unlock()
+			if due.Active {
+				break
+			}
+			if !time.Now().Before(limit) {
+				t.Fatal("local re-INVITE write was not settled")
+			}
+		}
+		e.fireResidentDeadline(residentDeadline{key: residentDeadlineKey{kind: residentTransactionDeadline, contextID: route.Context.Id, record: localKey, timer: portable.TimerB}, generation: due.Generation})
+		select {
+		case result = <-localResult:
+			if result.GetCertainty() != pb.OperationResult_COMPLETED || result.GetSipStatus() != 0 || result.GetError() != "timeout" || result.GetResponse() != nil || !bytes.Equal(result.GetRequest().GetWire(), localWire) || !result.GetSnapshot().GetAnswered() || result.GetSnapshot().GetEnded() {
+				t.Fatal("local re-INVITE timeout did not complete on the live call", result)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("native timeout did not finish the original waiter")
+		}
+		if err = <-localError; err != nil {
+			t.Fatal(err)
+		}
+		bye := &pb.Command{Context: route.Context, Sequence: 3, Admission: localAdmission, Action: &pb.Command_DialogRequest{DialogRequest: &pb.DialogRequest{Method: "BYE"}}}
+		result, err = e.commandResidentClient(ctx, peer, bye, "bye-after-timeout", time.Now().Add(2*time.Second))
+		if err != nil || result.GetCertainty() != pb.OperationResult_ACCEPTED || result.GetRequest().GetMethod() != "BYE" {
+			t.Fatal("call could not send BYE after the re-INVITE timeout", result, err)
+		}
+		return
+	}
 	offer := []byte("v=0\r\no=peer 1 1 IN IP4 192.0.2.1\r\ns=-\r\nt=0 0\r\n")
 	final, err := portable.BuildResponseWithHeaders(portable.RestoreMessage(localWire, transport, "", ""), 200, "OK", offer, "remote-tag", "sip:alice@phone.example.test:5061;transport="+transport, []portable.Header{{Name: "Content-Type", Value: "application/sdp"}})
 	if err != nil {

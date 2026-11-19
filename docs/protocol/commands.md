@@ -141,6 +141,11 @@ When each command reports:
 | `dialogRequest` BYE | `ACCEPTED` with the request once the BYE has been written; may later become `COMPLETED` with the peer's answer. |
 | Other `dialogRequest`s, standalone `openUac` | `COMPLETED` when the peer's final response arrives or SIP times out; `UNKNOWN` if the request could not be written with certainty. |
 
+If a re-INVITE was written and its SIP timer runs out, the result is
+`COMPLETED` with `sipStatus` set to `0`. No final response came back. The
+existing call stays up and you can still send a BYE. A re-INVITE can also be
+refused with `491` while the previous INVITE's ACK is still being sent.
+
 ### Handling UNKNOWN
 
 `UNKNOWN` arises when something failed after the point where the command might

@@ -324,17 +324,20 @@ func (e *ResidentMemory) fireResidentDeadline(item residentDeadline) {
 				}
 			}
 		}
-		timeoutInitialInvite := false
-		if failure != "" && next.Family == portable.InviteClient && !c.snapshot.Answered && !c.snapshot.Ended && c.selectedDialog == "" {
+		timeoutInitialInvite, timeoutReinvite := false, false
+		if failure != "" && next.Family == portable.InviteClient {
 			origin, parseErr := next.Origin.Facts()
-			if parseErr == nil && origin.ToTag == "" {
-				timeoutInitialInvite = true
-				timeoutEvent, err = e.stageResidentEventLocked(c, pb.DialogEvent_FAILED, nil, "", time.Now().Add(2*time.Minute), tx.budget)
-				if err != nil {
-					e.abortResidentTransactionBytesLocked(c, tx, delta, borrowed)
-					c.mu.Unlock()
-					return
-				}
+			if parseErr == nil {
+				timeoutInitialInvite = origin.ToTag == "" && !c.snapshot.Answered && !c.snapshot.Ended && c.selectedDialog == ""
+				timeoutReinvite = origin.ToTag != "" && tx.inviteWritten
+			}
+		}
+		if timeoutInitialInvite {
+			timeoutEvent, err = e.stageResidentEventLocked(c, pb.DialogEvent_FAILED, nil, "", time.Now().Add(2*time.Minute), tx.budget)
+			if err != nil {
+				e.abortResidentTransactionBytesLocked(c, tx, delta, borrowed)
+				c.mu.Unlock()
+				return
 			}
 		}
 		writes, err := e.stageResidentOutputsLocked(c, tx, effects, nil, "", time.Time{})
@@ -378,7 +381,7 @@ func (e *ResidentMemory) fireResidentDeadline(item residentDeadline) {
 			e.scheduleResidentContextRetirementLocked(c)
 			e.scheduleResidentEventsLocked(c, []*residentEvent{timeoutEvent})
 		}
-		if failure != "" && (next.Family == portable.NonInviteClient || timeoutInitialInvite) && tx.command != nil {
+		if failure != "" && (next.Family == portable.NonInviteClient || timeoutInitialInvite || timeoutReinvite) && tx.command != nil {
 			finishResidentCommandMessageLocked(c, tx.command, pb.OperationResult_COMPLETED, 0, failure, next.Origin, portable.Message{})
 		}
 

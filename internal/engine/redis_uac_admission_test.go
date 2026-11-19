@@ -1019,7 +1019,7 @@ func testRedisUACQualificationInitialAdmission(t *testing.T, written, preserveCo
 		if successCase != 0 {
 			var body []byte
 			var headers []portable.Header
-			if successCase == 2 || successCase == 25 || successCase >= 44 && successCase <= 47 || successCase >= 52 && successCase <= 58 || successCase == 61 || successCase == 62 || successCase >= 64 && successCase <= 71 {
+			if successCase == 2 || successCase == 25 || successCase >= 44 && successCase <= 47 || successCase >= 52 && successCase <= 58 || successCase == 61 || successCase == 62 || successCase >= 64 && successCase <= 73 {
 				body = []byte("v=0\r\n")
 				headers = []portable.Header{{Name: "Content-Type", Value: "application/sdp"}}
 			}
@@ -1058,13 +1058,13 @@ func testRedisUACQualificationInitialAdmission(t *testing.T, written, preserveCo
 				t.Fatal("winner altered original result", e)
 			}
 			wantedACK := uint32(1)
-			if successCase == 2 || successCase == 25 || successCase >= 44 && successCase <= 47 || successCase >= 52 && successCase <= 58 || successCase == 61 || successCase == 62 || successCase >= 64 && successCase <= 71 {
+			if successCase == 2 || successCase == 25 || successCase >= 44 && successCase <= 47 || successCase >= 52 && successCase <= 58 || successCase == 61 || successCase == 62 || successCase >= 64 && successCase <= 73 {
 				wantedACK = 0
 			}
 			if winnerDialog.AckEmissions != wantedACK || len(winnerDialog.Outputs) != int(wantedACK) || len(winnerProc.Outputs) != 1+int(wantedACK) {
 				t.Fatal("winner ACK/late-offer state")
 			}
-			if (successCase == 2 || successCase == 25 || successCase >= 44 && successCase <= 47 || successCase >= 52 && successCase <= 58 || successCase == 61 || successCase == 62 || successCase >= 64 && successCase <= 71) && winnerDialog.LocalInvite.Ack != "" {
+			if (successCase == 2 || successCase == 25 || successCase >= 44 && successCase <= 47 || successCase >= 52 && successCase <= 58 || successCase == 61 || successCase == 62 || successCase >= 64 && successCase <= 73) && winnerDialog.LocalInvite.Ack != "" {
 				t.Fatal("late offer sent ACK before answer")
 			}
 			var answered *nativepb.Lifecycle
@@ -1089,7 +1089,7 @@ func testRedisUACQualificationInitialAdmission(t *testing.T, written, preserveCo
 				testRedisCompletedInviteCancel(t, ctx, store, input, firstContext.Dialogs[0], answeredField, successCase)
 				return
 			}
-			if successCase >= 44 && successCase <= 47 || successCase >= 53 && successCase <= 58 || successCase == 61 || successCase == 62 || successCase >= 64 && successCase <= 71 {
+			if successCase >= 44 && successCase <= 47 || successCase >= 53 && successCase <= 58 || successCase == 61 || successCase == 62 || successCase >= 64 && successCase <= 73 {
 				testRedisApplicationAnswerACK(t, ctx, store, input, firstContext.Dialogs[0], answeredField, successCase, client, root)
 				return
 			}

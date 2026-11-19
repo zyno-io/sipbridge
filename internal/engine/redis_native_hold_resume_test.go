@@ -337,7 +337,7 @@ func testRedisPreviousACKCompletionBeforeResume(t *testing.T, ctx context.Contex
 		}
 	} else {
 		refused := result("resume")
-		if refused.Certainty != pb.OperationResult_NOT_ACCEPTED || refused.SipStatus != 0 || !strings.Contains(refused.Error, errPreviousInviteACKPending.Error()) || refused.Snapshot.Ended {
+		if refused.Certainty != pb.OperationResult_NOT_ACCEPTED || refused.SipStatus != 491 || !strings.Contains(refused.Error, errPreviousInviteACKPending.Error()) || refused.Snapshot.Ended {
 			t.Fatal("unwritten ACK granted replacement")
 		}
 		retained, err := store.InspectOutput(ctx, ref)

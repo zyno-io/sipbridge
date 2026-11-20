@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"errors"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +12,32 @@ import (
 	"github.com/redis/go-redis/v9"
 	"sipbridge/internal/rediscore"
 )
+
+// Model occupied slots at the persisted membership boundary. The tested
+// callbacks must leave these siblings alone and never try to allocate one more.
+func fillRedisProcedureSlots(t *testing.T, ctx context.Context, store *rediscore.Store, id rediscore.Identity) []string {
+	t.Helper()
+	view, err := store.Read(ctx, id, "r:context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := decodeNativeContext(view.Records["r:context"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for len(current.InitialProcedures)+len(current.NoninitialProcedures) < stateNativeProcedures {
+		current.NoninitialProcedures = append(current.NoninitialProcedures, "r:occupied-"+strconv.Itoa(len(current.NoninitialProcedures)))
+	}
+	slices.Sort(current.NoninitialProcedures)
+	data, err := encodeNativeContext(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Commit(ctx, rediscore.Publication{Identity: id, Revision: view.Revision, Deadline: time.Now().Add(time.Second), SpendReservation: true, Changes: []rediscore.Change{{Field: "r:context", Value: data}}}); err != nil {
+		t.Fatal(err)
+	}
+	return current.NoninitialProcedures
+}
 
 func TestStaleRedisExpiredOwner(t *testing.T) {
 	store, client, id, _, _, _, root := nativeOutputFixture(t)

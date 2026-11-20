@@ -225,21 +225,23 @@ func dispatchRedisCleanupByeCutoff(ctx context.Context, store *rediscore.Store, 
 	if err != nil {
 		return err
 	}
-	parent, parentErr := store.LookupSelector(ctx, nativeSelector(rediscore.SelectorServerTransaction, dialog.Transaction))
-	if parentErr != nil && !errors.Is(parentErr, rediscore.ErrAbsent) {
-		return parentErr
-	}
-	if parentErr == nil {
-		if parent.Identity != due.Identity || parent.View.Revision != due.Revision || parent.View.Timer != due.Assignment {
-			return rediscore.ErrConflict
+	if dialog.Transaction != "" {
+		parent, parentErr := store.LookupSelector(ctx, nativeSelector(rediscore.SelectorServerTransaction, dialog.Transaction))
+		if parentErr != nil && !errors.Is(parentErr, rediscore.ErrAbsent) {
+			return parentErr
 		}
-		if slices.Contains(current.NoninitialProcedures, parent.Record) {
-			owner, e := readPrivateProcedureRecord(parent.View.Records[parent.Record])
-			if e != nil || owner.Native.Version != portable.Version || owner.Native.Family != string(portable.InviteServer) || owner.Native.Key != dialog.Transaction || dialog.RemoteInvite == nil || owner.Origin != dialog.RemoteInvite.Request || owner.LastResponse != dialog.RemoteInvite.FinalResponse {
-				return errNativeRecord
+		if parentErr == nil {
+			if parent.Identity != due.Identity || parent.View.Revision != due.Revision || parent.View.Timer != due.Assignment {
+				return rediscore.ErrConflict
 			}
-			if owner.Native.Phase == string(portable.Terminated) && len(owner.Events) == 0 && len(owner.Outputs) == 0 {
-				timers = append(timers, rediscore.TimerChange{Member: "call-proc-" + owner.RequestId, Due: time.UnixMilli(due.CheckedAtMS)})
+			if slices.Contains(current.NoninitialProcedures, parent.Record) {
+				owner, e := readPrivateProcedureRecord(parent.View.Records[parent.Record])
+				if e != nil || owner.Native.Version != portable.Version || owner.Native.Family != string(portable.InviteServer) || owner.Native.Key != dialog.Transaction || dialog.RemoteInvite == nil || owner.Origin != dialog.RemoteInvite.Request || owner.LastResponse != dialog.RemoteInvite.FinalResponse {
+					return errNativeRecord
+				}
+				if owner.Native.Phase == string(portable.Terminated) && len(owner.Events) == 0 && len(owner.Outputs) == 0 {
+					timers = append(timers, rediscore.TimerChange{Member: "call-proc-" + owner.RequestId, Due: time.UnixMilli(due.CheckedAtMS)})
+				}
 			}
 		}
 	}

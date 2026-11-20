@@ -119,11 +119,11 @@ func dispatchRedisCancelOutputCutoff(ctx context.Context, store *rediscore.Store
 				return errNativeRecord
 			}
 			j := procedure.Native.Timers.Values[string(portable.TimerJ)]
-			if j == nil || !j.Active || j.Generation == 0 || j.At <= due.CheckedAtMS {
-				// The separately indexed semantic J must terminate the native
-				// transaction before this physical owner can be retired.
-				return rediscore.ErrConflict
+			if j == nil || !j.Active || j.Generation == 0 || j.At <= due.DeadlineMS {
+				return errNativeRecord
 			}
+			// J sorts first at this score, including when both are already
+			// overdue. J will re-drive this output at its original cutoff.
 			_, err = store.Commit(ctx, rediscore.Publication{Identity: due.Identity, Revision: currentView.View.Revision, Deadline: deadline, SpendReservation: true,
 				Timers: &rediscore.TimerMutation{Expected: due.Assignment, Target: due.Assignment, RequireLease: true, Changes: []rediscore.TimerChange{{Member: due.Member, Due: time.UnixMilli(j.At)}}}})
 			return err

@@ -212,7 +212,7 @@
     "internal/rediscore/authority.go": "6cdf36946b6830ef00192eb8c94861609d9377568c9c9fad88b54b38502b95e0",
     "internal/rediscore/connection.go": "8fa14fa496c01d4d0d13337e8665b219a8b6170226168ff79b188f57fee4cddb",
     "internal/rediscore/coordinator.go": "f9ee639e8d266495fb09cdddfed5be853955ca7c642db2dea5b1b1886e3ea055",
-    "internal/rediscore/driver.go": "7b76a6001c6827412413127898882302b5dca2f4d886c04cb1fe3ee70fdfd90e",
+    "internal/rediscore/driver.go": "76417ff66e8843e9937916d0e2d211f70db2e9e55ae4554efccdde075605c4a7",
     "internal/rediscore/due.go": "6b4f0eded127faa1569439571af1e47da05c26210a8ab59b32756bf63d470931",
     "internal/rediscore/namespace.go": "9cc7eec2d7487da883f4bb711add61f8debc4b8dcb3682120c703e5f5efe9428",
     "internal/rediscore/output.go": "45abd59cda6d2d3746c09a898fe3fac69fc5ffe139e872a1336c03dd242d44e2",

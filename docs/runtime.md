@@ -1321,6 +1321,11 @@ native transaction, owner, CAS or exact-write authority.
 
 ## Network advertisement and observability
 
+`SENTRY_DSN` optionally enables Sentry-compatible reporting of fatal service
+errors and panics on the main goroutine. An unset or blank value leaves
+reporting disabled. An invalid DSN logs a warning and leaves the service
+running. Fatal reports get up to two seconds to flush before process exit.
+
 TLS builders use configured TLS public endpoint; UDP/TCP use public plain endpoint.
 Contact preserves user/URI parameters with selected host/port/actual transport; SIPS
 Contact templates become SIP for new plaintext contexts. A dialog-forming initial INVITE

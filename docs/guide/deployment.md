@@ -72,22 +72,16 @@ are staged, and each pod picks them up only when you delete it.
 
 sipbridge drains on `SIGTERM` (or interrupt):
 
-1. **Readiness is withdrawn.** `/sip-readyz` and `/sip-servingz` return `503`;
-   your load balancer must watch them. New connections, new outgoing
-   connections and new UDP peers are refused. Control sessions and state
-   access stay available.
-2. **Admitted work finishes.** Responses, ACKs, CANCELs and writes in progress
-   continue. New requests on existing connections get `503`. After
-   `--sip-withdrawal-grace` (default 5 seconds), connections with nothing
-   outstanding close.
-3. **Remaining connections close** at `--sip-drain-timeout` (default 40
-   seconds after the signal). Traffic does not extend it. Closing a socket does
-   not change what sipbridge has recorded about a call; a send that was in
-   progress keeps its real outcome, which may be `UNKNOWN`.
-4. **The process exits** after a short reporting tail of up to two seconds.
-   Set your platform's termination grace period above the drain timeout plus
-   that tail, for example 45 seconds for the defaults.
-5. **Check the replacement** (`/sip-servingz`, then `/sip-readyz` once a
+1. **Readiness is withdrawn.** `/sip-readyz` returns `503` immediately so the
+   load balancer can update its backends. Connections and SIP requests are
+   still served during `--sip-withdrawal-grace` (default 3 seconds).
+2. **Admitted work finishes.** After the grace window, the listeners and idle
+   streams close. Busy streams stay open for in-flight responses, ACKs,
+   CANCELs and writes, and close as soon as that work settles.
+3. **The process exits** by `--sip-drain-timeout` (default 65 seconds from the
+   signal). This includes any final reporting. Set the platform's termination
+   grace above this limit, for example 80 seconds for the defaults.
+4. **Check the replacement** (`/sip-servingz`, then `/sip-readyz` once a
    controller connects) before replacing the next instance.
 
 Phones still connected at the end have to reconnect. With memory state, they

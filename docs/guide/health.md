@@ -17,7 +17,7 @@ The endpoints are served over plain HTTP on the admin listener
 | Endpoint | `200` when | `503` body |
 | --- | --- | --- |
 | `/healthz` | The admin server is answering. | (never `503`) |
-| `/sip-servingz` | Listeners have started, shutdown (drain) has not begun, and the public TLS certificate is within its validity period. | `SIP listeners unavailable` |
+| `/sip-servingz` | Listeners are accepting new connections and the public TLS certificate is within its validity period. | `SIP listeners unavailable` |
 | `/sip-readyz` | At least one controller session is ready, the configured control credentials and public SIP TLS certificate are valid, and the state store passes its readiness checks, and (with `--require-auth-methods`) a current challenge policy is installed. | `signaling unavailable` or `authentication policy unavailable` |
 
 A controller session counts as ready when its most recent `status` message had
@@ -82,14 +82,12 @@ request for a dialog that sipbridge knows does not exist gets `481` instead.
 
 ## Shutdown
 
-`SIGTERM` or `SIGINT` starts a bounded drain. Both `/sip-servingz` and
-`/sip-readyz` return `503` at once, so load balancers stop sending new
-clients. New connections are refused, OPTIONS gets `503`, and new requests on
-existing connections are refused, while work already admitted (responses,
-ACKs, CANCELs, writes in progress) continues and control sessions stay open.
-Idle connections close after `--sip-withdrawal-grace` (default 5 seconds), and
-whatever is left closes at `--sip-drain-timeout` (default 40 seconds). Then the
-process exits.
+`SIGTERM` or `SIGINT` makes `/sip-readyz` return `503` immediately. The
+process continues to serve SIP, and `/sip-servingz` stays available, during
+`--sip-withdrawal-grace` (default 3 seconds). At the end of that window it
+closes its listeners and idle streams. Admitted work finishes on the
+remaining streams. `--sip-drain-timeout` bounds the process shutdown from
+the signal (default 65 seconds).
 
 With memory state, everything the process knew is gone afterwards. Treat a
 restart as planned maintenance and follow

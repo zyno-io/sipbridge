@@ -12,7 +12,7 @@ method is accepted, and unknown paths return `404`.
 | Path | Success | Failure | Notes |
 | --- | --- | --- | --- |
 | `/healthz` | `200`, empty body | none | Liveness. True whenever the admin server responds. |
-| `/sip-servingz` | `200`, empty body | `503 SIP listeners unavailable` | Listeners started, no drain in progress, public TLS certificate valid now. |
+| `/sip-servingz` | `200`, empty body | `503 SIP listeners unavailable` | Listeners accept connections, including during the withdrawal window, and the public TLS certificate is valid. |
 | `/sip-readyz` | `200`, empty body | `503 signaling unavailable`, `503 authentication policy unavailable` | See [Health and Readiness](../guide/health.md). |
 | `/metrics` | `200`, `text/plain; version=0.0.4` | none | Counters listed in [Observability](../guide/observability.md#metrics). |
 

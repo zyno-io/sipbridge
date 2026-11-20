@@ -813,17 +813,17 @@ the lease. Final completion/failure and NOTIFY 481 remove only that subscription
 
 ## Bounded SIP connection drain
 
-SIGTERM and interrupt withdraw SIP readiness before cancelling the runtime. New
-SIP listener connections, outbound network opens and UDP peer allocations are
-fenced immediately. Existing connections keep their readers, admitted completion,
-control sessions and Redis authority available during drain. The
-`--sip-withdrawal-grace` defaults to five seconds (zero through sixty seconds);
-`--sip-drain-timeout` defaults to forty seconds, must exceed withdrawal grace, and
-cannot exceed two minutes. These are measured from withdrawal, not renewed by
-traffic. Deployment termination grace must also allow a two-second completion
-reporting tail after the drain bound.
+SIGTERM and interrupt make `/sip-readyz` return 503 immediately. SIP ingress and
+egress continue normally during `--sip-withdrawal-grace` (three seconds by
+default, configurable from zero through sixty seconds). At the end of that
+window, the process closes the SIP stream listeners, makes `/sip-servingz`
+return 503, and fences new outbound network opens and UDP peer allocations.
+Control sessions and Redis authority remain available to finish admitted work.
+`--sip-drain-timeout` defaults to sixty-five seconds, must exceed withdrawal
+grace, and cannot exceed two minutes. Both timers start at readiness withdrawal.
 
 After withdrawal grace, idle streams close under their existing write lock.
+A pending committed write keeps only its own stream open.
 Small process-local, hashed transaction hints distinguish an outstanding response
 or INVITE ACK from completed transaction replay retention. They contain no SIP
 wire or authoritative protocol graph and grant no admission or write permission.
@@ -832,13 +832,15 @@ tracking conservatively holds a flow through the hard drain bound. Expiry and
 reclamation use traffic or drain events, not a healthy background polling loop.
 Pure L/M or application replay retention does not keep a settled socket open.
 
-Existing responses, ACK/CANCEL and already admitted writes may finish; fresh
-session starts on an existing connection are refused during withdrawal. The hard
-deadline closes remaining sockets, including incomplete setup, without rewriting
-logical dialog/subscription state or pretending uncertain writes did not start.
-Closing and writing share the exact-flow fence. Completion reporting remains
-available for at most two additional seconds; a missing report retains the
-existing UNKNOWN semantics. Incoming traffic after reconnection still requires
+On retained streams, responses, ACK/CANCEL, exact native replays and admitted
+writes can finish. Fresh inbound transactions on streams are refused after the
+withdrawal window.
+A stream closes as soon as its last pending transaction or write settles.
+Closing and writing share the exact-flow fence. After the last socket closes,
+completion reporting may use up to two seconds of the remaining shutdown budget.
+The process exits at the hard deadline and the OS closes any remaining sockets.
+A missing report retains the existing UNKNOWN semantics.
+Incoming traffic after reconnection still requires
 ordinary shared-state admission and accepted-flow checks. Drain does not recreate
 missing dialogs, transfer sockets, seal controller owners, or remove native
 post-200/ACK, subscription or replay deadlines. Worker timer takeover remains

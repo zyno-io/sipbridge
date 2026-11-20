@@ -10,14 +10,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
-	"github.com/getsentry/sentry-go"
 	"github.com/google/uuid"
 	"sipbridge/internal/buildinfo"
 	"sipbridge/internal/capture"
@@ -72,28 +70,18 @@ func run() (runErr error) {
 		fmt.Printf("sipbridge %s\n", buildinfo.Version)
 		return nil
 	}
-	if dsn := strings.TrimSpace(os.Getenv("SENTRY_DSN")); dsn != "" {
-		client, err := sentry.NewClient(sentry.ClientOptions{
-			Dsn:              dsn,
-			Release:          "sipbridge@" + buildinfo.Version,
-			AttachStacktrace: true,
-		})
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "invalid SENTRY_DSN, disabling Sentry reporting")
-		} else {
-			hub := sentry.NewHub(client, sentry.NewScope())
-			defer func() {
-				if value := recover(); value != nil {
-					hub.Recover(value)
-					hub.Flush(2 * time.Second)
-					panic(value)
-				}
-				if runErr != nil {
-					hub.CaptureException(runErr)
-					hub.Flush(2 * time.Second)
-				}
-			}()
-		}
+	hub := initSentry()
+	if hub != nil {
+		defer hub.Flush(2 * time.Second)
+		defer func() {
+			if value := recover(); value != nil {
+				hub.Recover(value)
+				panic(value)
+			}
+			if runErr != nil {
+				hub.CaptureException(runErr)
+			}
+		}()
 	}
 	drainOptions := engine.DrainOptions{WithdrawalGrace: *withdrawalGrace, Timeout: *drainTimeout}
 	if err := drainOptions.Validate(); err != nil {
@@ -267,11 +255,20 @@ func run() (runErr error) {
 	}
 	ingress = engine.NewIngress(process, server, *advertise, 4096, ingressOptions)
 	engineConfig := engine.Config{Process: process, AdvertiseAddress: *advertise, PlainAdvertiseAddress: plainAdvertisement, ContactURI: *contact, OpenNetwork: ingress.OpenNetwork, LiveFlow: ingress.LiveFlow, StateIdentityKey: stateConfig.NamespaceKey}
+	var enqueueDriverIncident func(rediscore.DriverDiagnostic)
+	if hub != nil && binaryConnection != nil {
+		var stopReporter func()
+		enqueueDriverIncident, stopReporter = startDriverIncidentReporter(hub)
+		defer stopReporter()
+	}
 	engineConfig.OnNativeDriverDiagnostic = func(d rediscore.DriverDiagnostic) {
 		_ = json.NewEncoder(os.Stdout).Encode(struct {
 			Event string `json:"event"`
 			rediscore.DriverDiagnostic
 		}{Event: "sipbridge-native-driver-fence", DriverDiagnostic: d})
+		if enqueueDriverIncident != nil {
+			enqueueDriverIncident(d)
+		}
 	}
 	engineConfig.WriteCommitted, engineConfig.InspectCommitted = ingress.WriteCommitted, ingress.InspectCommitted
 	engineConfig.WriteNativeRetry = ingress.WriteNativeRetry

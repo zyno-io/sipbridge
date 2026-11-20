@@ -1324,7 +1324,7 @@ native transaction, owner, CAS or exact-write authority.
 `SENTRY_DSN` optionally enables Sentry-compatible reporting of fatal service
 errors and panics on the main goroutine. An unset or blank value leaves
 reporting disabled. An invalid DSN logs a warning and leaves the service
-running. Fatal reports get up to two seconds to flush before process exit.
+running. Pending reports get up to two seconds to flush before process exit.
 
 TLS builders use configured TLS public endpoint; UDP/TCP use public plain endpoint.
 Contact preserves user/URI parameters with selected host/port/actual transport; SIPS
@@ -1366,6 +1366,12 @@ after an actual worker fence or bounded startup failure. Cancellation and author
 withdrawal precede the callback, which runs outside the driver mutex. Diagnostics
 contain no raw errors, keys, context, lease terms or message data; they do not add
 Redis reads, timers, retries, retained history or new authority.
+
+With Sentry enabled, worker fences classified as `corrupt` or `native-record`
+enqueue an incident without waiting for delivery. The background reporter
+sends only the fixed stage and category and emits at most one event per
+category per process per minute. A full queue drops new incidents. Startup
+diagnostics, lease expiry and Redis unavailability stay in local diagnostics.
 
 Optional SIP capture observes complete ingress frames and actual egress attempts as
 plaintext at process boundary, with real socket endpoints. CRLF is excluded; distinct

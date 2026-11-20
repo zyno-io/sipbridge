@@ -28,7 +28,7 @@ func TestDriverDiagnosticRedactsAndClassifies(t *testing.T) {
 	for _, tc := range cases {
 		var got DriverDiagnostic
 		d := &Driver{cfg: DriverConfig{NativeRecordError: native, OnDiagnostic: func(value DriverDiagnostic) { got = value }}}
-		d.diagnostic("renew", tc.err)
+		d.diagnostic("renew", tc.err, true)
 		encoded, err := json.Marshal(got)
 		if err != nil || got.Stage != "renew" || got.Category != tc.category || strings.Contains(string(encoded), "secret") || strings.Contains(string(encoded), "context") {
 			t.Fatalf("unsafe classification %s: %s, %v", tc.category, encoded, err)
@@ -41,7 +41,7 @@ func TestDriverDiagnosticRunsAfterFenceOutsideLock(t *testing.T) {
 	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var d *Driver
 	d = &Driver{cfg: DriverConfig{OnDiagnostic: func(event DriverDiagnostic) {
-		if d.Ready() == nil || event.Stage != "renew" || event.Category != "authority" {
+		if d.Ready() == nil || !event.WorkerFenced || event.Stage != "renew" || event.Category != "authority" {
 			t.Error("observer saw active authority or wrong event")
 		}
 		close(entered)

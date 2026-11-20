@@ -73,6 +73,18 @@ func TestDriverDiagnosticRunsAfterFenceOutsideLock(t *testing.T) {
 	}
 }
 
+func TestDriverDiagnosticDistinguishesUnpublishedWorker(t *testing.T) {
+	var event DriverDiagnostic
+	wake := &Wake{}
+	d := &Driver{wake: wake, cfg: DriverConfig{OnDiagnostic: func(value DriverDiagnostic) {
+		event = value
+	}}}
+	d.fenceDiagnostic(wake, "renew", ErrCorrupt)
+	if event.WorkerFenced || event.Stage != "renew" || event.Category != "corrupt" {
+		t.Fatalf("unexpected startup diagnostic: %+v", event)
+	}
+}
+
 func TestDriverDiagnosticIgnoresRepeatedAndStaleWake(t *testing.T) {
 	events := make(chan DriverDiagnostic, 3)
 	d := &Driver{cfg: DriverConfig{OnDiagnostic: func(event DriverDiagnostic) { events <- event }}}

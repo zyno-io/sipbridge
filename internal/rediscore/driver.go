@@ -112,12 +112,13 @@ func (d *Driver) fenceLocked() {
 func (d *Driver) fenceDiagnostic(wake *Wake, stage string, err error) {
 	d.mu.Lock()
 	selected := wake != nil && d.wake == wake
+	workerFenced := selected && d.store != nil
 	if selected {
 		d.fenceLocked()
 	}
 	d.mu.Unlock()
 	if selected {
-		d.diagnostic(stage, err, true)
+		d.diagnostic(stage, err, workerFenced)
 	}
 }
 

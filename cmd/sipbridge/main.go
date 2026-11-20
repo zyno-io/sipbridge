@@ -340,9 +340,10 @@ func run() (runErr error) {
 		w.WriteHeader(200)
 	})}
 	defer adminServer.Close()
+	serveErrors := make(chan error, 5)
 	go func() {
 		if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			cancel()
+			serveErrors <- fmt.Errorf("serve admin HTTP: %w", err)
 		}
 	}()
 	go func() {
@@ -359,7 +360,6 @@ func run() (runErr error) {
 			}
 		}
 	}()
-	errors := make(chan error, 4)
 	if *plain != "" {
 		udp, err := net.ListenPacket("udp", *plain)
 		if err != nil {
@@ -371,20 +371,18 @@ func run() (runErr error) {
 			return err
 		}
 		defer tcp.Close()
-		go func() { errors <- ingress.ServeUDP(ctx, udp) }()
-		go func() { errors <- ingress.Serve(ctx, tcp, nil) }()
+		go func() { serveErrors <- ingress.ServeUDP(ctx, udp) }()
+		go func() { serveErrors <- ingress.Serve(ctx, tcp, nil) }()
 	}
-	go func() { errors <- server.Serve(ctx, controlListener) }()
-	go func() { errors <- ingress.Serve(ctx, sipListener, publicTLS.Config()) }()
+	go func() { serveErrors <- server.Serve(ctx, controlListener) }()
+	go func() { serveErrors <- ingress.Serve(ctx, sipListener, publicTLS.Config()) }()
 	serving.Store(true)
 	defer serving.Store(false)
 	_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"event": "sipbridge-listening", "instance": process.InstanceId, "epoch": process.Epoch, "control": controlListener.Addr().String(), "sip": sipListener.Addr().String(), "profile": control.StateCapability, "stateBackend": stateConfig.Backend, "version": buildinfo.Version, "revision": buildinfo.Revision})
 	select {
-	case err := <-errors:
+	case err := <-serveErrors:
 		cancel()
 		return err
-	case <-ctx.Done():
-		return nil
 	case <-termination.Done():
 		withdrawing.Store(true)
 		// Keep the process deadline even if a socket, completion report or deferred cleanup stalls.

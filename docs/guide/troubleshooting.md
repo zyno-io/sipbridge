@@ -121,8 +121,8 @@ that a closed session ends that controller's calls.
 | `signaling unavailable` | Has a controller sent `status` with both `retainedReady` and `bindingsReady` true? Are both certificates within validity? Is Redis reachable (Redis mode)? Is the process draining? |
 | `authentication policy unavailable` | With `--require-auth-methods`, the controller must send a current `digestChallengePolicy` in `status`. |
 
-`/sip-servingz` returning `503` means the listeners are not up, the drain has
-started, or the public certificate is outside its validity period.
+`/sip-servingz` returns `503` before the listeners start, after the shutdown
+withdrawal window ends, or when the public certificate is outside its validity period.
 
 ## Decisions and commands are refused
 

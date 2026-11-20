@@ -96,7 +96,7 @@ to make room; when capacity is full, new work is refused.
 | Controller session drops; controller still running | Its calls end as described above. Phone connections, subscriptions and registrations stay. The controller reconnects with a higher `connectionAttempt` and handles new work. |
 | Controller process restarts | The same, plus anything the controller held in memory is gone. |
 | Controller rolled out with old and new processes overlapping | Each process keeps its own calls until its sessions close. Close an old process's sessions only once its calls have ended. |
-| sipbridge receives `SIGTERM` | Bounded drain: readiness goes to `503`, new connections are refused, admitted work finishes, then remaining connections close. See [Replacing a process](./deployment.md#replacing-a-process). |
+| sipbridge receives `SIGTERM` | Bounded drain: readiness goes to `503`, SIP continues during the withdrawal window, and then admitted work finishes within the shutdown deadline. See [Replacing a process](./deployment.md#replacing-a-process). |
 | sipbridge restarts, memory state | All its connections, calls, subscriptions and leases are gone. Phones reconnect and register again; calls are set up again. |
 | sipbridge restarts, Redis state | Its connections and local subscriptions are gone. Shared calls remain in Redis, and a phone that reconnects (to any instance) can continue its call while its controller's term is still live. |
 | Redis failover | State that survived continues; operations on lost state fail; new work proceeds. See [Failure and recovery](./state-backends.md#failure-and-recovery). |

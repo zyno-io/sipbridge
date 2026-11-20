@@ -225,6 +225,10 @@ func (i *Ingress) committedResult(parent context.Context, cmd *pb.FlowWrite) *pb
 	attempt := &physicalAttempt{until: startDeadline}
 	i.stateAttempts[key] = attempt
 	flow := i.flows[cmd.Flow.ConnectionId]
+	if flow != nil {
+		flow.drainWrites.Add(1)
+		defer flow.drainWrites.Add(-1)
+	}
 	i.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(parent, 2*time.Second)

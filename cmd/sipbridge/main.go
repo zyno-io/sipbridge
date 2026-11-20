@@ -59,8 +59,8 @@ func run() error {
 	allowRegister := flag.Bool("allow-register", true, "allow inbound REGISTER requests")
 	allowSubscribe := flag.Bool("allow-subscribe", true, "allow inbound SUBSCRIBE requests")
 	requiredAuth := flag.String("require-auth-methods", "", "locally challenge initial REGISTER, INVITE and/or SUBSCRIBE (comma separated)")
-	withdrawalGrace := flag.Duration("sip-withdrawal-grace", 5*time.Second, "SIP readiness withdrawal grace before idle streams close (0..60s)")
-	drainTimeout := flag.Duration("sip-drain-timeout", 40*time.Second, "total SIP transaction drain bound from withdrawal (greater than grace, at most 2m)")
+	withdrawalGrace := flag.Duration("sip-withdrawal-grace", 3*time.Second, "continue serving SIP after readiness withdrawal (0..60s)")
+	drainTimeout := flag.Duration("sip-drain-timeout", 65*time.Second, "total shutdown deadline from readiness withdrawal (greater than grace, at most 2m)")
 	flag.Parse()
 	if *stateSchema {
 		_, err := os.Stdout.Write(storagecodec.Receipt())
@@ -275,7 +275,7 @@ func run() error {
 		return err
 	}
 	defer sipListener.Close()
-	var serving atomic.Bool
+	var serving, withdrawing atomic.Bool
 	adminServer := &http.Server{Addr: *admin, ReadHeaderTimeout: 2 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/metrics" {
 			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
@@ -296,7 +296,7 @@ func run() error {
 			return
 		}
 		if r.URL.Path == "/sip-servingz" {
-			if !serving.Load() || ctx.Err() != nil || !publicTLS.Valid() {
+			if !serving.Load() || ingress.Draining() || ctx.Err() != nil || !publicTLS.Valid() {
 				http.Error(w, "SIP listeners unavailable", 503)
 				return
 			}
@@ -307,7 +307,7 @@ func run() error {
 			http.NotFound(w, r)
 			return
 		}
-		if !serving.Load() || ctx.Err() != nil || len(server.ReadyPeers()) == 0 || !server.CredentialsValid() || !publicTLS.Valid() || stateNative.Ready() != nil {
+		if withdrawing.Load() || !serving.Load() || ctx.Err() != nil || len(server.ReadyPeers()) == 0 || !server.CredentialsValid() || !publicTLS.Valid() || stateNative.Ready() != nil {
 			http.Error(w, "signaling unavailable", 503)
 			return
 		}
@@ -364,7 +364,9 @@ func run() error {
 	case <-ctx.Done():
 		return nil
 	case <-termination.Done():
-		serving.Store(false)
+		withdrawing.Store(true)
+		// Keep the process deadline even if a socket, completion report or deferred cleanup stalls.
+		time.AfterFunc(drainOptions.Timeout, func() { os.Exit(0) })
 		stopSignals()
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"event": "sipbridge-draining"})
 		err := ingress.Drain(ctx, drainOptions)

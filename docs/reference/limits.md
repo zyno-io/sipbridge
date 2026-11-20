@@ -85,9 +85,9 @@ See [State Backends](../guide/state-backends.md).
 
 | Timer | Default | Setting |
 | --- | --- | --- |
-| Grace before idle connections close | 5 seconds | `--sip-withdrawal-grace` (0 to 60 s) |
-| Total drain until remaining connections close | 40 seconds | `--sip-drain-timeout` (above the grace, at most 2 min) |
-| Completion reporting after the drain | Up to 2 seconds | fixed |
+| Grace before listeners and idle streams close | 3 seconds | `--sip-withdrawal-grace` (0 to 60 s) |
+| Total time until process exit | 65 seconds | `--sip-drain-timeout` (above the grace, at most 2 min) |
+| Final completion reporting within the shutdown deadline | Up to 2 seconds | fixed |
 | Drain tracking per connection / per process | 64 / 8,192 outstanding transactions | fixed |
 
 ## Credentials

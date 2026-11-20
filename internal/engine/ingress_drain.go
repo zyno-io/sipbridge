@@ -20,8 +20,7 @@ const (
 	drainHintLifetime = 2 * time.Minute
 )
 
-// DrainOptions bounds the entire withdrawal/transaction phase. Completion
-// reporting has a separate fixed two-second tail while the runtime stays alive.
+// DrainOptions bounds withdrawal, transaction drain and completion reporting.
 type DrainOptions struct{ WithdrawalGrace, Timeout time.Duration }
 
 func (o DrainOptions) Validate() error {
@@ -161,7 +160,7 @@ func (i *Ingress) beginDrainRoute(flow *physicalFlow, message state.LocalDrainOb
 	if flow.closed.Load() {
 		return false
 	}
-	if i.draining.Load() && message.Initial && !message.Ack && !message.Cancel {
+	if i.draining.Load() && message.Request && (flow.conn != nil || message.Initial) && !message.Ack && !message.Cancel {
 		if _, admitted := flow.drainHints[drainHintKey{message.Transaction, false}]; !admitted {
 			return false
 		}
@@ -178,8 +177,8 @@ func (i *Ingress) beginDrainRoute(flow *physicalFlow, message state.LocalDrainOb
 	return true
 }
 
-// A tagless request may be a replay of a completed INVITE whose local drain
-// hint is gone. Only native shared-state admission can decide that question.
+// A request may be a replay of a completed transaction whose local drain hint
+// is gone. Native state decides whether that exact transaction can be replayed.
 func (i *Ingress) beginDrainReplay(flow *physicalFlow) bool {
 	flow.write.Lock()
 	defer flow.write.Unlock()
@@ -230,13 +229,23 @@ func closeDrainConnection(conn net.Conn) {
 	_ = conn.Close()
 }
 
+// Draining reports whether the ingress has stopped admitting new SIP work.
+func (i *Ingress) Draining() bool { return i.draining.Load() }
+
 // Drain is invoked once after readiness withdrawal, before runtime cancellation.
-// It never waits for a logical dialog to end or changes stored protocol state.
+// Serve normally during withdrawal, then keep only unfinished SIP work open.
 func (i *Ingress) Drain(ctx context.Context, options DrainOptions) error {
 	if err := options.Validate(); err != nil {
 		return err
 	}
-	start := time.Now()
+	hard := time.Now().Add(options.Timeout)
+	withdrawal := time.NewTimer(options.WithdrawalGrace)
+	defer withdrawal.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-withdrawal.C:
+	}
 	i.mu.Lock()
 	if i.draining.Swap(true) {
 		i.mu.Unlock()
@@ -250,7 +259,6 @@ func (i *Ingress) Drain(ctx context.Context, options DrainOptions) error {
 	for _, listener := range listeners {
 		_ = listener.Close()
 	}
-	grace, hard := start.Add(options.WithdrawalGrace), start.Add(options.Timeout)
 	for {
 		now := time.Now()
 		forced := !now.Before(hard) || ctx.Err() != nil
@@ -262,9 +270,6 @@ func (i *Ingress) Drain(ctx context.Context, options DrainOptions) error {
 		udp := i.udp
 		i.mu.Unlock()
 		next := hard
-		if now.Before(grace) {
-			next = grace
-		}
 		busy := false
 		for _, flow := range flows {
 			if flow.closed.Load() {
@@ -289,8 +294,8 @@ func (i *Ingress) Drain(ctx context.Context, options DrainOptions) error {
 					next = until
 				}
 			}
-			idle := flow.conn != nil && flow.drainRoutes == 0 && len(flow.drainHints) == 0 && !flow.drainUnknown && i.drainReports.Load() == 0
-			if !now.Before(grace) && idle {
+			idle := flow.conn != nil && flow.drainRoutes == 0 && len(flow.drainHints) == 0 && !flow.drainUnknown && flow.drainWrites.Load() == 0
+			if idle {
 				flow.closed.Store(true)
 				closeDrainConnection(flow.conn)
 			} else {
@@ -298,7 +303,7 @@ func (i *Ingress) Drain(ctx context.Context, options DrainOptions) error {
 			}
 			flow.write.Unlock()
 		}
-		if forced || !busy && !now.Before(grace) {
+		if forced || !busy {
 			if udp != nil {
 				_ = udp.Close()
 			}
@@ -314,7 +319,7 @@ func (i *Ingress) Drain(ctx context.Context, options DrainOptions) error {
 	}
 	// Keep Redis/control and exact completion reporting alive after the last
 	// socket closes. This is bounded even when Redis is unavailable.
-	tail := time.NewTimer(2 * time.Second)
+	tail := time.NewTimer(min(2*time.Second, time.Until(hard)))
 	defer tail.Stop()
 	for i.drainReports.Load() > 0 {
 		select {

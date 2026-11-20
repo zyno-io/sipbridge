@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,37 +26,52 @@ type DriverConfig struct {
 	OnDiagnostic      func(DriverDiagnostic)
 }
 
-// DriverDiagnostic contains only bounded, non-sensitive diagnostic labels.
+// DriverDiagnostic carries bounded operation labels and opaque native references.
 type DriverDiagnostic struct {
-	Stage    string `json:"stage"`
-	Category string `json:"category"`
+	Stage       string `json:"stage"`
+	Category    string `json:"category"`
+	Context     string `json:"context,omitempty"`
+	Incarnation string `json:"incarnation,omitempty"`
+	Revision    string `json:"revision,omitempty"`
+	Work        string `json:"work,omitempty"`
+	Member      string `json:"member,omitempty"`
 }
 
 func (d *Driver) diagnostic(stage string, err error) {
-	if d.cfg.OnDiagnostic == nil {
-		return
-	}
-	category := "other"
+	d.report(DriverDiagnostic{Stage: stage, Category: d.diagnosticCategory(err)})
+}
+
+func (d *Driver) diagnosticCategory(err error) string {
 	var timeout net.Error
 	switch {
 	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &timeout) && timeout.Timeout():
-		category = "timeout"
+		return "timeout"
 	case errors.Is(err, ErrClock):
-		category = "clock"
+		return "clock"
 	case errors.Is(err, ErrCorrupt):
-		category = "corrupt"
+		return "corrupt"
 	case errors.Is(err, ErrAuthority):
-		category = "authority"
+		return "authority"
 	case errors.Is(err, ErrExpired):
-		category = "expired"
+		return "expired"
 	case errors.Is(err, ErrUnknown):
-		category = "unknown"
+		return "unknown"
+	case errors.Is(err, errCallbackPanic):
+		return "panic"
 	case errors.Is(err, storagecodec.ErrRecord), d.cfg.NativeRecordError != nil && errors.Is(err, d.cfg.NativeRecordError):
-		category = "native-record"
+		return "native-record"
+	default:
+		return "other"
+	}
+}
+
+func (d *Driver) report(event DriverDiagnostic) {
+	if d.cfg.OnDiagnostic == nil {
+		return
 	}
 	// An observer cannot undo a fence or crash the driver.
 	defer func() { _ = recover() }()
-	d.cfg.OnDiagnostic(DriverDiagnostic{Stage: stage, Category: category})
+	d.cfg.OnDiagnostic(event)
 }
 
 type Driver struct {
@@ -110,7 +126,7 @@ func callDriverWork(work func() error) (err error) {
 	return work()
 }
 
-func (d *Driver) isolate(ctx context.Context, store *Store, id Identity, revision uint64, output OutputRef, err error) {
+func (d *Driver) isolate(ctx context.Context, store *Store, id Identity, revision uint64, work, member string, output OutputRef, err error) {
 	if ctx.Err() != nil || !id.valid() || revision == 0 {
 		return
 	}
@@ -119,7 +135,11 @@ func (d *Driver) isolate(ctx context.Context, store *Store, id Identity, revisio
 		errors.Is(err, ErrExpired) || errors.Is(err, context.DeadlineExceeded)) {
 		return
 	}
-	if e := store.park(ctx, d.cfg.Worker, d.cfg.Epoch, id, revision, output); e != nil && !errors.Is(e, ErrConflict) && !errors.Is(e, ErrAbsent) {
+	e := store.park(ctx, d.cfg.Worker, d.cfg.Epoch, id, revision, output)
+	if e == nil {
+		d.report(DriverDiagnostic{Stage: "context-parked", Category: d.diagnosticCategory(err), Context: id.Context,
+			Incarnation: id.Incarnation, Revision: strconv.FormatUint(revision, 10), Work: work, Member: member})
+	} else if !errors.Is(e, ErrConflict) && !errors.Is(e, ErrAbsent) {
 		d.diagnostic("item-park", e)
 	}
 }
@@ -478,7 +498,7 @@ func (d *Driver) Run(parent context.Context) error {
 					jobs++
 					go func() {
 						e := callDriverWork(func() error { return d.cfg.Due(leaseCtx, jobStore, due) })
-						d.isolate(leaseCtx, jobStore, due.Identity, due.Revision, OutputRef{}, e)
+						d.isolate(leaseCtx, jobStore, due.Identity, due.Revision, "timer", due.Member, OutputRef{}, e)
 						results <- result{stage: "due", due: due, rank: next, err: e}
 					}()
 				}
@@ -535,12 +555,22 @@ func (d *Driver) Run(parent context.Context) error {
 						jobs++
 						go func() {
 							e := callDriverWork(func() error { return d.cfg.OwnerExpired(leaseCtx, jobStore, item) })
-							d.isolate(leaseCtx, jobStore, item.Identity, item.Revision, OutputRef{}, e)
+							d.isolate(leaseCtx, jobStore, item.Identity, item.Revision, "application-expiry", "", OutputRef{}, e)
 							results <- result{stage: "application", err: e}
 						}()
 					} else if ownerPass.scanDone {
 						ownerPass.advance(false)
 					}
+				} else if strings.HasPrefix(member, "p-") {
+					nativeBusy = true
+					jobs++
+					go func() {
+						event, e := jobStore.abandonParked(leaseCtx, d.cfg.Worker, d.cfg.Epoch, member[2:])
+						if e == nil && event.Context != "" {
+							d.report(event)
+						}
+						results <- result{stage: "abandon", err: e}
+					}()
 				}
 			}
 		}
@@ -566,7 +596,7 @@ func (d *Driver) Run(parent context.Context) error {
 					found = true
 					go func() {
 						e := callDriverWork(func() error { return d.cfg.ReadyOutput(leaseCtx, jobStore, item) })
-						d.isolate(leaseCtx, jobStore, item.identity, item.revision, item.Ref, e)
+						d.isolate(leaseCtx, jobStore, item.identity, item.revision, "output", item.Ref.ID, item.Ref, e)
 						results <- result{stage: "ready", ref: item.Ref, rank: item.rank, err: e}
 					}()
 					break
@@ -635,6 +665,8 @@ func (d *Driver) Run(parent context.Context) error {
 				} else {
 					ownerPass.advance(r.transfer.Drained || errors.Is(r.err, ErrAbsent))
 				}
+			case "abandon":
+				ownerPass.advance(r.err == nil || errors.Is(r.err, ErrAbsent))
 			}
 			renewAt = time.Time{}
 		}

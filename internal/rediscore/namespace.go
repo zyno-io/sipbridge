@@ -138,7 +138,7 @@ local function nsApply(p)
 end
 `
 
-var retireContextScript = redis.NewScript(commonScript + namespaceScript + applicationGuardScript + applicationBindingScript + `
+var retireContextScript = redis.NewScript(commonScript + namespaceScript + applicationGuardScript + applicationBindingScript + parkedScript + `
 local problem=guard();if problem then return fail(problem) end
 local v;v,problem=identity();if problem then return fail(problem) end
 if v[4]~=ARGV[5] then return fail('CONFLICT') end
@@ -147,10 +147,11 @@ if not due or due<=now then return fail('EXPIRED') end
 if not kind(KEYS[4],'zset') then return fail('CORRUPT') end
 local root=string.sub(KEYS[1],1,#KEYS[1]-#'core:profile');local context=ARGV[7]
 if not appRef(context) or KEYS[2]~=root..'core:context:'..context then return fail('CORRUPT') end
+if parked(root,context,v[1]) then return fail('PARKED') end
 local binding;binding,problem=bindingPrepare(root,context,v[2],v[3],'','',now,false);if problem then return fail(problem) end
 local expectedIndex=(v[2]~='' and #context or 0)
 if redis.call('HLEN',KEYS[2])~=7+redis.call('HEXISTS',KEYS[2],'admission') or v[5]~='0' or v[6]~='0' or number(redis.call('HGET',KEYS[2],'index_bytes'))~=expectedIndex or redis.call('ZCARD',KEYS[4])~=0 then return fail('CONFLICT') end
 local plan;plan,problem=nsPlan(KEYS[3],KEYS[2],false,true,v[1],v[2],v[3],v[4],0,0,0,maxContexts,maxBytes);if problem then return fail(problem) end
-if not redis.acl_check_cmd('DEL',KEYS[2],root..'core:parked:'..context) then return fail('AUTHORITY') end
-bindingApply(binding);redis.call('DEL',KEYS[2],root..'core:parked:'..context);nsApply(plan);return {'OK'}
+if not redis.acl_check_cmd('DEL',KEYS[2]) then return fail('AUTHORITY') end
+bindingApply(binding);redis.call('DEL',KEYS[2]);nsApply(plan);return {'OK'}
 `)

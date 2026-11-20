@@ -497,8 +497,25 @@ the current Redis primary and profile and retains all existing records, indexes
 and physical write evidence. New publications and reservations for the parked
 incarnation are refused, but physical completion of a previously reserved
 attempt can still report its exact outcome. An unknown write never authorizes
-another attempt. A parked context continues to use its normal admission slot
-and retained bytes until exact retirement or operator repair removes it.
+another attempt.
+
+Parking also schedules abandonment on the existing coordinator expiry index.
+The deadline allows a fixed two-minute grace after parking and after any
+already authorized physical output deadline. At expiry, the coordinator
+atomically drops the exact parked incarnation, releases its admission charge,
+and removes its selectors, deadlines, ready projections and application
+membership. It uses the bounded context hash and up to 512 binary reverse
+selectors, without decoding SIP records or scanning the namespace. This is
+local abandonment of a failed call. It produces no SIP output and assigns no
+outcome to an uncertain write. Any process-local retry must reach its original
+cutoff before the state is discarded. Other application commands continue to
+use their own original completion deadlines.
+
+The worker logs parking and successful abandonment as structured events on
+stderr, with the retained context and incarnation, revision, and the failed
+work when available. The log carries no SIP payload or credential data.
+The marker and expiry member are bounded maintenance metadata, with one of
+each per parked admission slot.
 
 Timer, ready-output, expired-application and expired-worker selection must
 advance past unusable entries in bounded pages. Keep the original index scores
@@ -509,7 +526,8 @@ renewal. A callback panic is contained to its exact selected operation.
 
 The Redis profile binds this behavior. Start these workers with a fresh state
 generation so older workers cannot select parked calls. The SIP Redis user
-requires `SSCAN` for bounded traversal of an expired application's owned set.
+requires `SSCAN` for bounded traversal of an expired application's owned set
+and `HKEYS` and `UNLINK` for inspecting and releasing one parked context.
 
 Lifecycle delivery has eight independent bounded application calls. Before launching one, reserve its next retry eligibility by advancing the existing event's `NextMs` in a definite fenced publication. The call deadline is captured before that publication and cannot exceed two seconds or the original event cutoff. Reserve the next existing backoff interval once; a failed reply uses that same interval. If the lane is full or the same event is already active, postpone only its eligibility by at most one second, without increasing its backoff. Already-expired debt is consumed even when the lane is full. These are scheduling changes to the existing event, not a claim, fresh-request queue or additional index. They move blocked event heads so native SIP deadlines can continue.
 

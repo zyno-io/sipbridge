@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -244,10 +245,14 @@ func run() error {
 	engineConfig := engine.Config{Process: process, AdvertiseAddress: *advertise, PlainAdvertiseAddress: plainAdvertisement, ContactURI: *contact, OpenNetwork: ingress.OpenNetwork, LiveFlow: ingress.LiveFlow, StateIdentityKey: stateConfig.NamespaceKey}
 	engineConfig.OnNativeDriverDiagnostic = func(d rediscore.DriverDiagnostic) {
 		event := "sipbridge-native-driver-fence"
-		if len(d.Stage) > len("item-") && d.Stage[:len("item-")] == "item-" {
+		stream := os.Stdout
+		switch {
+		case d.Stage == "context-parked", d.Stage == "context-abandoned":
+			event, stream = "sipbridge-native-"+d.Stage, os.Stderr
+		case strings.HasPrefix(d.Stage, "item-"):
 			event = "sipbridge-native-work-error"
 		}
-		_ = json.NewEncoder(os.Stdout).Encode(struct {
+		_ = json.NewEncoder(stream).Encode(struct {
 			Event string `json:"event"`
 			rediscore.DriverDiagnostic
 		}{Event: event, DriverDiagnostic: d})

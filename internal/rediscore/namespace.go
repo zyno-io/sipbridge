@@ -151,6 +151,6 @@ local binding;binding,problem=bindingPrepare(root,context,v[2],v[3],'','',now,fa
 local expectedIndex=(v[2]~='' and #context or 0)
 if redis.call('HLEN',KEYS[2])~=7+redis.call('HEXISTS',KEYS[2],'admission') or v[5]~='0' or v[6]~='0' or number(redis.call('HGET',KEYS[2],'index_bytes'))~=expectedIndex or redis.call('ZCARD',KEYS[4])~=0 then return fail('CONFLICT') end
 local plan;plan,problem=nsPlan(KEYS[3],KEYS[2],false,true,v[1],v[2],v[3],v[4],0,0,0,maxContexts,maxBytes);if problem then return fail(problem) end
-if not redis.acl_check_cmd('DEL',KEYS[2]) then return fail('AUTHORITY') end
-bindingApply(binding);redis.call('DEL',KEYS[2]);nsApply(plan);return {'OK'}
+if not redis.acl_check_cmd('DEL',KEYS[2],root..'core:parked:'..context) then return fail('AUTHORITY') end
+bindingApply(binding);redis.call('DEL',KEYS[2],root..'core:parked:'..context);nsApply(plan);return {'OK'}
 `)

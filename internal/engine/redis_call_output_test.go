@@ -256,7 +256,7 @@ func TestRedisNativeLatePhysicalProofDoesNotResumeFencedWork(t *testing.T) {
 	driver, err := rediscore.NewDriver(rediscore.DriverConfig{Connection: connection, Worker: ref.Worker, Epoch: ref.Epoch,
 		Due:          func(context.Context, *rediscore.Store, *rediscore.DueContext) error { return nil },
 		ReadyOutput:  func(context.Context, *rediscore.Store, rediscore.ReadyOutput) error { return nil },
-		OwnerExpired: func(context.Context, *rediscore.Store, string) error { return nil }})
+		OwnerExpired: func(context.Context, *rediscore.Store, rediscore.ExpiredApplicationContext) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

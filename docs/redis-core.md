@@ -478,7 +478,38 @@ Store one sorted-set entry for the earliest actual semantic deadline of each con
 
 The worker alternates eligible context-deadline and coordinator-expiry work in one native callback lane. Up to eight distinct physical-output callbacks run independently, so a slow socket does not hold unrelated deadlines or outputs. The worker reads only the bounded ready prefix needed to skip attempts already in flight. Renewal and lease fencing continue while callbacks run; a fenced generation finishes its cancelled callbacks before reacquisition.
 
-A callback whose exact selection disappeared or lost its revision race invalidates that selected work and refreshes the indexed head; it does not fence the healthy physical process or cancel unrelated writes. Primary, lease, profile, clock and datastore uncertainty retain their process-fencing behavior.
+A callback whose exact selection disappeared or lost its revision race refreshes
+the work selection without fencing the healthy physical process or canceling
+unrelated writes. Recheck the affected rank so an updated timer revision or the
+next pending attempt can run in the same pass. Yield after one retry of a
+changed revision of the same failing timer, or immediately for an unchanged
+selection. An uncertain operation leaves its existing proof in place.
+
+Separate worker authority from scheduled work. Renewing the worker lease must
+not depend on decoding an individual timer, ready output or owner hint. Only
+failure of the shared binding or its independent validation fences the worker.
+A failed SIP operation does not release the worker lease or its controller
+connections.
+
+A deterministic failure attributed to one selected native context may park that
+incarnation. Parking checks the exact observed revision and live worker under
+the current Redis primary and profile and retains all existing records, indexes
+and physical write evidence. New publications and reservations for the parked
+incarnation are refused, but physical completion of a previously reserved
+attempt can still report its exact outcome. An unknown write never authorizes
+another attempt. A parked context continues to use its normal admission slot
+and retained bytes until exact retirement or operator repair removes it.
+
+Timer, ready-output, expired-application and expired-worker selection must
+advance past unusable entries in bounded pages. Keep the original index scores
+and ownership membership intact. If a selection lacks trustworthy context
+identity, skip the raw entry without inventing an owner or outcome. After a
+pass with no usable work, wait for an invalidation or the next ordinary lease
+renewal. A callback panic is contained to its exact selected operation.
+
+The Redis profile binds this behavior. Start these workers with a fresh state
+generation so older workers cannot select parked calls. The SIP Redis user
+requires `SSCAN` for bounded traversal of an expired application's owned set.
 
 Lifecycle delivery has eight independent bounded application calls. Before launching one, reserve its next retry eligibility by advancing the existing event's `NextMs` in a definite fenced publication. The call deadline is captured before that publication and cannot exceed two seconds or the original event cutoff. Reserve the next existing backoff interval once; a failed reply uses that same interval. If the lane is full or the same event is already active, postpone only its eligibility by at most one second, without increasing its backoff. Already-expired debt is consumed even when the lane is full. These are scheduling changes to the existing event, not a claim, fresh-request queue or additional index. They move blocked event heads so native SIP deadlines can continue.
 

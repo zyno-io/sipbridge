@@ -243,10 +243,14 @@ func run() error {
 	ingress = engine.NewIngress(process, server, *advertise, 4096, ingressOptions)
 	engineConfig := engine.Config{Process: process, AdvertiseAddress: *advertise, PlainAdvertiseAddress: plainAdvertisement, ContactURI: *contact, OpenNetwork: ingress.OpenNetwork, LiveFlow: ingress.LiveFlow, StateIdentityKey: stateConfig.NamespaceKey}
 	engineConfig.OnNativeDriverDiagnostic = func(d rediscore.DriverDiagnostic) {
+		event := "sipbridge-native-driver-fence"
+		if len(d.Stage) > len("item-") && d.Stage[:len("item-")] == "item-" {
+			event = "sipbridge-native-work-error"
+		}
 		_ = json.NewEncoder(os.Stdout).Encode(struct {
 			Event string `json:"event"`
 			rediscore.DriverDiagnostic
-		}{Event: "sipbridge-native-driver-fence", DriverDiagnostic: d})
+		}{Event: event, DriverDiagnostic: d})
 	}
 	engineConfig.WriteCommitted, engineConfig.InspectCommitted = ingress.WriteCommitted, ingress.InspectCommitted
 	engineConfig.WriteNativeRetry = ingress.WriteNativeRetry

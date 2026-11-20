@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -448,10 +449,28 @@ func TestRedisServingPhoneRequiredNotifyUncertainty(t *testing.T) {
 }
 
 func TestRedisServingLocalRegisterRetirementAndUDPDuplicate(t *testing.T) {
-	for _, transport := range []string{"tls", "udp"} {
-		t.Run(transport, func(t *testing.T) {
+	for _, name := range []string{"tls", "udp", "tls-with-parked-call"} {
+		t.Run(name, func(t *testing.T) {
 			f := newPhoneServingFixture(t)
 			peer, ws, session := f.controller(t, &pb.ProcessRef{InstanceId: "controller", Epoch: uuid.NewString()}, 1)
+			transport := "tls"
+			if name == "udp" {
+				transport = "udp"
+			}
+			var originalLease context.Context
+			if name == "tls-with-parked-call" {
+				originalLease = parkPhoneFixtureCall(t, f, peer)
+			}
+			read := func() *pb.Envelope {
+				for {
+					envelope := readControllerEnvelope(t, f.ctx, ws)
+					ping := envelope.GetPing()
+					if ping == nil {
+						return envelope
+					}
+					writeControllerEnvelope(t, f.ctx, ws, &pb.Envelope{SessionId: session, CorrelationId: envelope.CorrelationId, Payload: &pb.Envelope_Pong{Pong: ping}})
+				}
+			}
 			flow := f.flow(transport)
 			message := stateTestRequest("REGISTER", 1, "", "local-register")
 			if transport == "udp" {
@@ -464,7 +483,7 @@ func TestRedisServingLocalRegisterRetirementAndUDPDuplicate(t *testing.T) {
 			if err := f.e.ReceiveRequest(f.ctx, peer, flow, message); err != nil {
 				t.Fatal(err)
 			}
-			request := readControllerEnvelope(t, f.ctx, ws).GetRequest()
+			request := read().GetRequest()
 			if request == nil {
 				t.Fatal("missing REGISTER presentation")
 			}
@@ -507,20 +526,31 @@ func TestRedisServingLocalRegisterRetirementAndUDPDuplicate(t *testing.T) {
 					Admission: &pb.CommandAdmission{DirectoryEpoch: "directory", ExpiresAtMs: uint64(time.Now().Add(2 * time.Second).UnixMilli()), SelectedFlow: flow},
 					Action:    &pb.Command_OpenUac{OpenUac: &pb.OpenUac{Uri: "sip:phone@example.test", Transport: "tls", Headers: []*pb.Header{{Name: "From", Value: "<sip:service@example.test>"}}}}}
 				writeControllerEnvelope(t, f.ctx, ws, &pb.Envelope{SessionId: session, CorrelationId: "outbound-after-register", RemainingBudgetMs: 2000, Payload: &pb.Envelope_Command{Command: open}})
-				opened := readControllerEnvelope(t, f.ctx, ws).GetResult()
+				opened := read().GetResult()
 				if opened == nil || opened.Certainty != pb.OperationResult_ACCEPTED || opened.Request.GetMethod() != "INVITE" || localPhoneID(opened.GetSnapshot().GetContext().GetId()) {
 					t.Fatal("retired local REGISTER blocked shared call", opened)
 				}
+				var invite phoneTestWrite
 				select {
-				case write := <-f.writes:
-					if !bytes.HasPrefix(write.wire, []byte("INVITE ")) {
-						t.Fatal("outbound call not sent")
-					}
+				case invite = <-f.writes:
 				case <-f.ctx.Done():
 					t.Fatal("outbound shared INVITE missing")
 				}
+				if !bytes.HasPrefix(invite.wire, []byte("INVITE ")) {
+					t.Fatal("outbound call not sent")
+				}
 				if f.client.Exists(f.ctx, f.root+"core:context:after-register").Val() != 1 {
 					t.Fatal("call was not solely shared")
+				}
+				if originalLease != nil {
+					completePhoneFixtureCall(t, f, flow, invite.wire, opened.Snapshot.Context)
+					_, live, _, err := f.e.driver.Current()
+					if err != nil || live != originalLease || originalLease.Err() != nil {
+						t.Fatal("unrelated work replaced the original worker binding", err)
+					}
+					if err := peer.ResumeApplicationLease(); err != nil {
+						t.Fatal("same controller session cannot renew", err)
+					}
 				}
 				return
 			}
@@ -555,6 +585,98 @@ func TestRedisServingLocalRegisterRetirementAndUDPDuplicate(t *testing.T) {
 				t.Fatal("duplicate extended original Timer J")
 			}
 		})
+	}
+}
+
+func parkPhoneFixtureCall(t *testing.T, f *phoneServingFixture, peer *control.Peer) context.Context {
+	t.Helper()
+	store, lease, until, err := f.e.driver.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := rediscore.Identity{Context: "bad-call", Incarnation: "fixture-incarnation"}
+	now := time.Now()
+	timer := rediscore.TimerAssignment{Worker: f.e.worker, Epoch: f.e.cfg.Process.Epoch, Term: f.e.cfg.Process.Epoch}
+	_, err = store.Commit(f.ctx, rediscore.Publication{Identity: id, Create: true, Deadline: now.Add(time.Second),
+		Changes: []rediscore.Change{{Field: "r:context", Value: []byte("invalid context frame")}},
+		Timers:  &rediscore.TimerMutation{Target: timer, Changes: []rediscore.TimerChange{{Member: "call-retire", Due: now.Add(-time.Second)}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An unrelated malformed projection also cannot veto an ordinary call
+	// publication just because it sorts before the new owner's wake hint.
+	if err = f.client.ZAdd(f.ctx, f.root+"core:owner-expiry", redis.Z{Score: float64(now.Add(-time.Minute).UnixMilli()), Member: "!bad-owner"}).Err(); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		parked, err := f.client.Exists(f.ctx, f.root+"core:parked:"+id.Context).Result()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parked == 1 && time.Now().After(until) {
+			break
+		}
+		select {
+		case <-time.After(10 * time.Millisecond):
+		case <-lease.Done():
+			t.Fatal("one malformed call fenced the worker")
+		case <-f.ctx.Done():
+			t.Fatal("native fault did not park across renewal")
+		}
+	}
+	if err := peer.ResumeApplicationLease(); err != nil {
+		t.Fatal("fault blocked renewal of the live controller", err)
+	}
+	return lease
+}
+
+func completePhoneFixtureCall(t *testing.T, f *phoneServingFixture, flow *pb.FlowRef, invite []byte, ref *pb.ContextRef) {
+	t.Helper()
+	origin := portable.RestoreMessage(invite, "tls", "", "")
+	final, err := portable.BuildResponseWithHeaders(origin, 200, "OK", nil, "phone-fixture-tag", "<sips:phone@192.0.2.12:50300>", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handled, err := f.e.TryNativeCompletion(f.ctx, flow, &pb.SipMessage{Wire: final.WireBytes()}); err != nil || !handled {
+		t.Fatal("healthy call's answer did not complete", handled, err)
+	}
+	waitWire := func(prefix string) {
+		t.Helper()
+		select {
+		case write := <-f.writes:
+			if !bytes.HasPrefix(write.wire, []byte(prefix)) {
+				t.Fatal("unexpected SIP message while completing healthy call")
+			}
+		case <-f.ctx.Done():
+			t.Fatal("missing SIP message while completing healthy call", prefix)
+		}
+	}
+	waitWire("ACK ")
+	peer, err := portable.NewDialog(portable.UAS, origin, final, portable.DefaultTimers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bye, err := portable.BuildDialogRequest(peer, "BYE", 2, nil, "z9hG4bK-healthy-peer-bye")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handled, err := f.e.TryNativeCompletion(f.ctx, flow, &pb.SipMessage{Wire: bye.WireBytes()}); err != nil || !handled {
+		t.Fatal("healthy call's BYE did not complete", handled, err)
+	}
+	waitWire("SIP/2.0 200")
+	for {
+		members, err := f.client.ZRange(f.ctx, f.root+"core:deadlines:"+ref.Id, 0, 15).Result()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(members, func(member string) bool { return strings.HasPrefix(member, "out-call-bye-output-") }) {
+			return
+		}
+		select {
+		case <-time.After(10 * time.Millisecond):
+		case <-f.ctx.Done():
+			t.Fatal("healthy BYE cutoff did not run")
+		}
 	}
 }
 

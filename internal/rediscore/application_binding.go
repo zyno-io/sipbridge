@@ -44,8 +44,7 @@ local function bindingPrepare(root, context, oldApp, oldTerm, newApp, newTerm, n
   if not redis.acl_check_cmd('SADD',owned,context) or not redis.acl_check_cmd('PERSIST',owner) or not redis.acl_check_cmd('PERSIST',current) or not redis.acl_check_cmd('ZADD',index,expires,member) then return nil,'AUTHORITY' end
   plan.indexDelta=plan.indexDelta+#context;plan.newOwner=owner;plan.newOwned=owned;plan.newCurrent=current;plan.newExpiry=expires
   local head=redis.call('ZRANGE',index,0,0,'WITHSCORES');local headDue=#head>0 and appNumber(head[2]) or nil
-  if #head>0 and (not headDue or not appRef(head[1])) then return nil,'CORRUPT' end
-  local earlier=#head==0 or expires<headDue
+  local earlier=not headDue or not appRef(head[1]) or expires<headDue
   if earlier then
    local coordinator=root..'core:coordinator';if not appKind(coordinator,'hash') then return nil,'CORRUPT' end
    local c=redis.call('HMGET',coordinator,'worker','epoch','expires_ms')

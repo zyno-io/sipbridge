@@ -5,8 +5,8 @@
   "sha256": {
     "cmd/sipbridge-state-inspect/main.go": "723d70e14e6cbba1109d243cdbea2aac26e7f623ca9e5599d313279d619ef271",
     "dependencies/sipgo.sha256": "07e761f123f1b6e823b6fce0f6e19aaafa04acee3a7908ce7c4228d407d0c984",
-    "internal/engine/ingress.go": "25d452ed67e9dfd69483fce55e113473481033f925547fc6026e9a496ee538b6",
-    "internal/engine/ingress_drain.go": "373cfc24ed609bbd8a3e2d9cd83cdf5a126f7079caed5d64b0548207877bcd93",
+    "internal/engine/ingress.go": "249f4bef479f82de8463835ff6a54b92b85111c4e9bc98c89ad6e8643baa59fe",
+    "internal/engine/ingress_drain.go": "609141a4935ac3456f3a22d38e5ddc5f40e03e8d6495138bcf081422c6c4ff0c",
     "internal/engine/native_client_cancel.go": "84440c43cd9d42ae481be611672fda87c2774410e10d90f525ced88deceb4273",
     "internal/engine/native_client_transition.go": "3971def345bdcda4caa59226c665f0ef63200948ebdd52b7a495defb0057a538",
     "internal/engine/native_command_refusal.go": "96231e64ce64bfe42e7d18e71c12dd75cd6ce6f85656c5562680d2cfb53449c6",

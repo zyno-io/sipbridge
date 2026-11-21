@@ -37,6 +37,16 @@ func redisDialogNonInvite(method sip.RequestMethod) bool {
 	return method == sip.INFO || method == sip.REFER || method == sip.UPDATE || method == sip.NOTIFY
 }
 
+func redisDialogServerFamily(method string) string {
+	if method == "INVITE" {
+		return string(portable.InviteServer)
+	}
+	if redisDialogNonInvite(sip.RequestMethod(method)) {
+		return string(portable.NonInviteServer)
+	}
+	return ""
+}
+
 func redisDialogResponseContact(advertise nativeSIPAdvertisement, dialog portable.Dialog, origin portable.Message, status uint32) (string, error) {
 	contact, _, err := advertise.resolve(origin.Transport())
 	if err != nil {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
-	"github.com/redis/go-redis/v9"
 	"sipbridge/internal/selectedmessage"
 )
 
@@ -35,7 +34,7 @@ func TestDriverRenewsWhileJobBlocksAndFencesBeforeReacquire(t *testing.T) {
 		<-release
 		once.Do(func() { close(exited) })
 		return nil
-	}, ReadyOutput: func(context.Context, *Store, ReadyOutput) error { return nil }, OwnerExpired: func(context.Context, *Store, string) error { return nil }, OnDiagnostic: func(event DriverDiagnostic) {
+	}, ReadyOutput: func(context.Context, *Store, ReadyOutput) error { return nil }, OwnerExpired: func(context.Context, *Store, ExpiredApplicationContext) error { return nil }, OnDiagnostic: func(event DriverDiagnostic) {
 		if d.Ready() == nil {
 			t.Error("diagnostic observed unfenced driver")
 		}
@@ -142,18 +141,29 @@ func TestDriverDispatchesExpiredApplicationHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = client.ZAdd(context.Background(), store.ownerExpiryKey(), redis.Z{Score: float64(time.Now().Add(-time.Second).UnixMilli()), Member: "a-term1"}).Err(); err != nil {
+	setup := context.Background()
+	lease, err := store.AcquireApplication(setup, "app1", "term1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := Identity{Context: "expired-call", Incarnation: "incarnation", Owner: "app1", Term: lease.Term}
+	if _, err = store.Commit(setup, Publication{Identity: id, Create: true, Deadline: time.Now().Add(time.Second), Application: &lease.ApplicationLeaseRef}); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.ExpireApplication(setup, lease.ApplicationLeaseRef); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if e := client.Del(context.Background(), store.workerKey("worker"), store.workerTimerKey("worker"), store.workerReadyKey("worker"), store.ownerExpiryKey(), store.coordinatorKey()).Err(); e != nil {
+		if e := client.Del(setup, store.workerKey("worker"), store.workerTimerKey("worker"), store.workerReadyKey("worker"), store.ownerExpiryKey(), store.coordinatorKey(), store.contextKey(id.Context), store.applicationKey(id.Owner), store.applicationOwnerKey(id.Term), store.applicationOwnedKey(id.Term)).Err(); e != nil {
 			t.Error(e)
 		}
 	})
 	observed := make(chan string, 1)
-	d, err := NewDriver(DriverConfig{Connection: conn, Worker: "worker", Epoch: "epoch", Due: func(context.Context, *Store, *DueContext) error { return nil }, ReadyOutput: func(context.Context, *Store, ReadyOutput) error { return nil }, OwnerExpired: func(ctx context.Context, _ *Store, term string) error {
+	d, err := NewDriver(DriverConfig{Connection: conn, Worker: "worker", Epoch: "epoch", Due: func(context.Context, *Store, *DueContext) error { return nil }, ReadyOutput: func(context.Context, *Store, ReadyOutput) error { return nil }, OwnerExpired: func(ctx context.Context, _ *Store, item ExpiredApplicationContext) error {
+		term := item.Identity.Term
 		observed <- term
-		return client.ZRem(ctx, store.ownerExpiryKey(), "a-"+term).Err()
+		_, err := store.Commit(ctx, Publication{Identity: item.Identity, Revision: item.Revision, Deadline: time.Now().Add(time.Second), ReleaseApplication: true})
+		return err
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +262,7 @@ func TestDriverPhysicalCallbacksDoNotBlockDueWork(t *testing.T) {
 		<-ctx.Done()
 		<-allowReturn
 		return ctx.Err()
-	}, OwnerExpired: func(context.Context, *Store, string) error { return nil }})
+	}, OwnerExpired: func(context.Context, *Store, ExpiredApplicationContext) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

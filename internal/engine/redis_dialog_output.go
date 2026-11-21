@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -58,11 +57,8 @@ func dispatchRedisDialogOutputCutoff(ctx context.Context, store *rediscore.Store
 	if sequence == 0 && output.Result != "" {
 		return errNativeRecord
 	}
-	family := string(portable.NonInviteServer)
-	if output.Method == "INVITE" {
-		family = string(portable.InviteServer)
-	}
-	if current.Context == nil || current.Context.State == nil || !proto.Equal(current.Context, output.Write.Effect.Context) || current.Kind != pb.ContextSnapshot_UAS && current.Kind != pb.ContextSnapshot_UAC || !slices.Contains(current.NoninitialProcedures, procedureField) || !slices.Contains(current.Dialogs, output.Dialog) || !slices.Contains(procedure.Outputs, outputField) || procedure.Native.Version != portable.Version || procedure.Native.Family != family || procedure.RequestId != id || !proto.Equal(procedure.Flow, output.Write.Flow) || output.Method != "INVITE" && !redisDialogNonInvite(sip.RequestMethod(output.Method)) || output.Procedure != procedureField || int64(output.Write.Permit.Authorization.DeadlineMs) != due.DeadlineMS || output.Result != "" && output.Result != "r:result-"+strconv.FormatUint(sequence, 10) {
+	family := redisDialogServerFamily(output.Method)
+	if current.Context == nil || current.Context.State == nil || !proto.Equal(current.Context, output.Write.Effect.Context) || current.Kind != pb.ContextSnapshot_UAS && current.Kind != pb.ContextSnapshot_UAC || !slices.Contains(current.NoninitialProcedures, procedureField) || !slices.Contains(current.Dialogs, output.Dialog) || !slices.Contains(procedure.Outputs, outputField) || procedure.Native.Version != portable.Version || family == "" || procedure.Native.Family != family || procedure.RequestId != id || !proto.Equal(procedure.Flow, output.Write.Flow) || output.Procedure != procedureField || int64(output.Write.Permit.Authorization.DeadlineMs) != due.DeadlineMS || output.Result != "" && output.Result != "r:result-"+strconv.FormatUint(sequence, 10) {
 		return errNativeRecord
 	}
 	ref, err := nativeOutputRef(output.Write)

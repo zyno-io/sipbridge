@@ -2,6 +2,7 @@ package rediscore
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -35,7 +36,7 @@ func TestDriverStaleNativeSelectionKeepsLiveGeneration(t *testing.T) {
 			finished <- e
 			return e
 		}, ReadyOutput: func(context.Context, *Store, ReadyOutput) error { return nil },
-		OwnerExpired: func(context.Context, *Store, string) error { return nil }})
+		OwnerExpired: func(context.Context, *Store, ExpiredApplicationContext) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,6 +75,8 @@ func TestDriverStaleNativeSelectionKeepsLiveGeneration(t *testing.T) {
 	}
 	select {
 	case second = <-observed:
+	case <-time.After(WorkerRenewInterval / 2):
+		t.Fatal("winning revision waited for lease renewal")
 	case <-ctx.Done():
 		t.Fatal("winning revision was not selected")
 	}
@@ -87,5 +90,63 @@ func TestDriverStaleNativeSelectionKeepsLiveGeneration(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("current duty did not finish")
+	}
+}
+
+func TestDriverYieldsAfterRepeatedTimerRevisionConflicts(t *testing.T) {
+	bad := Identity{Context: "bad", Incarnation: "bad-incarnation"}
+	good := Identity{Context: "good", Incarnation: "good-incarnation"}
+	published := make(chan struct{})
+	type completion struct {
+		conflicts int32
+		err       error
+	}
+	finished := make(chan completion, 1)
+	var conflicts atomic.Int32
+	fixture := startIsolationDriver(t, DriverConfig{
+		Due: func(ctx context.Context, store *Store, due *DueContext) error {
+			if due.Identity == bad {
+				select {
+				case <-published:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				_, err := store.Commit(ctx, Publication{Identity: due.Identity, Revision: due.Revision,
+					Deadline: time.Now().Add(time.Second), Changes: []Change{{Field: "r:context", Value: []byte{1}}}})
+				if err != nil {
+					return err
+				}
+				conflicts.Add(1)
+				return ErrConflict
+			}
+			_, err := store.Commit(ctx, Publication{Identity: due.Identity, Revision: due.Revision, Deadline: time.Now().Add(time.Second),
+				Timers: &TimerMutation{Expected: due.Assignment, Target: due.Assignment, RequireLease: true,
+					Changes: []TimerChange{{Member: due.Member, Delete: true}}}})
+			finished <- completion{conflicts.Load(), err}
+			return err
+		},
+		ReadyOutput:  func(context.Context, *Store, ReadyOutput) error { return nil },
+		OwnerExpired: func(context.Context, *Store, ExpiredApplicationContext) error { return nil },
+	})
+	now := time.Now()
+	for i, identity := range []Identity{bad, good} {
+		_, err := fixture.store.Commit(context.Background(), Publication{Identity: identity, Create: true, Deadline: now.Add(time.Second),
+			Timers: &TimerMutation{Target: TimerAssignment{Worker: "worker", Epoch: "epoch", Term: "epoch"},
+				Changes: []TimerChange{{Member: "duty", Due: now.Add(time.Duration(i-2) * time.Second)}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(published)
+	select {
+	case result := <-finished:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.conflicts != 2 {
+			t.Fatal("expected the original attempt and one immediate retry", result.conflicts)
+		}
+	case <-time.After(WorkerRenewInterval / 2):
+		t.Fatal("repeated revision conflicts delayed the unrelated due timer")
 	}
 }

@@ -104,21 +104,20 @@ func TestSelectedSchemaDigestBindsFieldsNotJustVersion(t *testing.T) {
 	}
 }
 
-// Status-bearing refusals require a new profile and authority without changing
-// the selected-record descriptor graph.
-func TestCommandRefusalStatusChangesBaselineProfile(t *testing.T) {
+// Workers must agree on call abandonment and reverse selector encoding.
+func TestParkedCallAbandonmentChangesBaselineProfile(t *testing.T) {
 	binding, err := BindProfile(profileFixture())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprintf("%x", binding.Value) == "8c63ab86e1989520fe5b3602fd1a5209f39ab3d0bb6ed1833a2fc9e0a9a09a6d" ||
-		binding.Authority.PrimaryId == "2279d8af6b2ad961491f9ffa37d23d326104cdac" {
-		t.Fatal("incompatible refusal layout retained the previous profile or authority")
+	if fmt.Sprintf("%x", binding.Value) == "96d1d72378690958fe4a6f0aadc0da6b55462b020bc303593ed77e72c97d1fd9" ||
+		binding.Authority.PrimaryId == "9d212cd50187f9a5fd94e4fd39c8a8e7e64c31bf" {
+		t.Fatal("automatic retirement retained the previous profile or authority")
 	}
 	for _, check := range []struct{ name, got, want string }{
 		{"selected schema digest", fmt.Sprintf("%x", selectedSchemaDigest), "3f9edbced4a0fdfe3930b3f96427170172d551e1fbd8df8a8fb76c04fc795cfc"},
-		{"profile", fmt.Sprintf("%x", binding.Value), "ee5efb1c6bf402718364075da23ab582363bee05e7745e7d980345244763662c"},
-		{"StateAuthority.PrimaryId", binding.Authority.PrimaryId, "45daf65f97ee12e037a2ade3124fc9868eb9b2dc"},
+		{"profile", fmt.Sprintf("%x", binding.Value), "304693bd2d2afcaf7ef7eb2aa6ed46adc09251b7f8204188fc1b8934dd4d7f92"},
+		{"StateAuthority.PrimaryId", binding.Authority.PrimaryId, "22c568c1c807b4d89859e9dd590640e6fdb8523e"},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s changed: got %s, want %s", check.name, check.got, check.want)

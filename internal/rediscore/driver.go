@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"sipbridge/internal/storagecodec"
 )
 
 // DriverConfig connects one physical process to the indexed native duties.
@@ -16,46 +19,54 @@ type DriverConfig struct {
 	Worker, Epoch     string
 	Due               func(context.Context, *Store, *DueContext) error
 	ReadyOutput       func(context.Context, *Store, ReadyOutput) error
-	OwnerExpired      func(context.Context, *Store, string) error
+	OwnerExpired      func(context.Context, *Store, ExpiredApplicationContext) error
 	ResultHint        func(ResultHint)
 	UDPHint           func(UDPHint)
 	NativeRecordError error
 	OnDiagnostic      func(DriverDiagnostic)
 }
 
-// DriverDiagnostic contains only bounded, non-sensitive diagnostic labels.
+// DriverDiagnostic carries bounded operation labels and opaque native references.
 type DriverDiagnostic struct {
+	WorkerFenced bool   `json:"-"`
 	Stage        string `json:"stage"`
 	Category     string `json:"category"`
+	Context      string `json:"context,omitempty"`
+	Incarnation  string `json:"incarnation,omitempty"`
+	Revision     string `json:"revision,omitempty"`
+	Work         string `json:"work,omitempty"`
+	Member       string `json:"member,omitempty"`
 	Pool         string `json:"pool,omitempty"`
 	Generation   string `json:"generation,omitempty"`
 	KeysRemoved  int64  `json:"keysRemoved,omitempty"`
-	WorkerFenced bool   `json:"-"`
 }
 
 func (d *Driver) diagnostic(stage string, err error, workerFenced bool) {
-	if d.cfg.OnDiagnostic == nil {
-		return
-	}
-	category := "other"
+	d.report(DriverDiagnostic{Stage: stage, Category: d.diagnosticCategory(err), WorkerFenced: workerFenced})
+}
+
+func (d *Driver) diagnosticCategory(err error) string {
 	var timeout net.Error
 	switch {
 	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &timeout) && timeout.Timeout():
-		category = "timeout"
+		return "timeout"
 	case errors.Is(err, ErrClock):
-		category = "clock"
+		return "clock"
 	case errors.Is(err, ErrCorrupt):
-		category = "corrupt"
+		return "corrupt"
 	case errors.Is(err, ErrAuthority):
-		category = "authority"
+		return "authority"
 	case errors.Is(err, ErrExpired):
-		category = "expired"
+		return "expired"
 	case errors.Is(err, ErrUnknown):
-		category = "unknown"
-	case d.cfg.NativeRecordError != nil && errors.Is(err, d.cfg.NativeRecordError):
-		category = "native-record"
+		return "unknown"
+	case errors.Is(err, errCallbackPanic):
+		return "panic"
+	case errors.Is(err, storagecodec.ErrRecord), d.cfg.NativeRecordError != nil && errors.Is(err, d.cfg.NativeRecordError):
+		return "native-record"
+	default:
+		return "other"
 	}
-	d.report(DriverDiagnostic{Stage: stage, Category: category, WorkerFenced: workerFenced})
 }
 
 func (d *Driver) report(event DriverDiagnostic) {
@@ -97,8 +108,61 @@ func (d *Driver) Current() (*Store, context.Context, time.Time, error) {
 	return d.store, d.leaseCtx, d.until, nil
 }
 func (d *Driver) Ready() error { _, _, _, err := d.Current(); return err }
+func laterTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
 func driverChooseDue(turn int, due, owner bool) bool {
 	return due && (!owner || turn == 0)
+}
+
+var errCallbackPanic = errors.New("native callback panic")
+
+func callDriverWork(work func() error) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errCallbackPanic
+		}
+	}()
+	return work()
+}
+
+func (d *Driver) isolate(ctx context.Context, store *Store, id Identity, revision uint64, work, member string, output OutputRef, err error) {
+	if ctx.Err() != nil || !id.valid() || revision == 0 {
+		return
+	}
+	badRecord := errors.Is(err, storagecodec.ErrRecord) || d.cfg.NativeRecordError != nil && errors.Is(err, d.cfg.NativeRecordError)
+	if !errors.Is(err, errCallbackPanic) && (!badRecord || errors.Is(err, ErrUnknown) || errors.Is(err, ErrAuthority) ||
+		errors.Is(err, ErrExpired) || errors.Is(err, context.DeadlineExceeded)) {
+		return
+	}
+	e := store.park(ctx, d.cfg.Worker, d.cfg.Epoch, id, revision, output)
+	if e == nil {
+		d.report(DriverDiagnostic{Stage: "context-parked", Category: d.diagnosticCategory(err), Context: id.Context,
+			Incarnation: id.Incarnation, Revision: strconv.FormatUint(revision, 10), Work: work, Member: member})
+	} else if !errors.Is(e, ErrConflict) && !errors.Is(e, ErrAbsent) {
+		d.diagnostic("item-park", e, false)
+	}
+}
+
+type driverOwnerPass struct {
+	rank, next, workerOffset int
+	member                   string
+	scan                     applicationScan
+	items                    []ExpiredApplicationContext
+	scanDone                 bool
+	after                    time.Time
+}
+
+func (p *driverOwnerPass) advance(drained bool) {
+	rank := p.next
+	if drained {
+		rank--
+	}
+	*p = driverOwnerPass{rank: max(0, rank)}
 }
 func (d *Driver) fence() {
 	d.mu.Lock()
@@ -204,8 +268,11 @@ func (d *Driver) Run(parent context.Context) error {
 	d.mu.Unlock()
 	defer func() { cancel(); d.fence(); d.mu.Lock(); d.cancelRun = nil; d.mu.Unlock() }()
 	type result struct {
-		physical bool
+		stage    string
 		ref      OutputRef
+		due      *DueContext
+		rank     int
+		transfer WorkerTransferResult
 		err      error
 	}
 	results := make(chan result, 9)
@@ -226,6 +293,12 @@ func (d *Driver) Run(parent context.Context) error {
 	var changed <-chan struct{}
 	var lease WorkerLease
 	var headAt, ownerAt, renewAt, lastRefresh time.Time
+	var dueRank, readyRank int
+	var dueAfter, readyAfter time.Time
+	var ownerPass driverOwnerPass
+	var lastDue *DueContext
+	var dueFailures int
+	var lastReady OutputRef
 	headValid := false
 	dirtyProbe := false
 	attempts := 0
@@ -262,6 +335,9 @@ func (d *Driver) Run(parent context.Context) error {
 		renewAt = time.Time{}
 		lastRefresh = time.Time{}
 		headValid = false
+		dueRank, readyRank, dueAfter, readyAfter = 0, 0, time.Time{}, time.Time{}
+		lastDue, lastReady, ownerPass = nil, OutputRef{}, driverOwnerPass{}
+		dueFailures = 0
 		dirtyProbe = false
 		attempts = 0
 	}
@@ -270,7 +346,7 @@ func (d *Driver) Run(parent context.Context) error {
 	defer disconnect("", nil)
 	finish := func(r result) {
 		jobs--
-		if r.physical {
+		if r.stage == "ready" {
 			delete(inflight, r.ref)
 		} else {
 			nativeBusy = false
@@ -397,90 +473,172 @@ func (d *Driver) Run(parent context.Context) error {
 		}
 		// Dirty hints never select work. One bounded authoritative probe can still
 		// make progress while the next stable subscription generation is pending.
-		dueEligible := headValid && lease.Head.Context != "" && !current.Before(headAt) || !headValid && dirtyProbe
-		readyEligible := headValid && lease.Ready || !headValid && dirtyProbe
-		ownerEligible := lease.Coordinator && lease.OwnerExpiry.Context != "" && !current.Before(ownerAt)
+		dueEligible := !current.Before(dueAfter) && (headValid && lease.Head.Context != "" && !current.Before(headAt) || !headValid && dirtyProbe)
+		readyEligible := !current.Before(readyAfter) && (headValid && lease.Ready || !headValid && dirtyProbe)
+		ownerEligible := lease.Coordinator && lease.OwnerExpiry.Context != "" && !current.Before(ownerAt) && !current.Before(ownerPass.after)
 		if !nativeBusy && (dueEligible || ownerEligible) {
-			var work func() error
 			jobStore := store
-			chooseDue := driverChooseDue(turn, dueEligible, ownerEligible)
-			if chooseDue {
-				due, e := store.PeekDue(leaseCtx, d.cfg.Worker, d.cfg.Epoch)
-				if e != nil {
-					disconnect("peek-due", e)
-					continue
-				}
-				if due != nil {
-					work = func() error { return d.cfg.Due(leaseCtx, jobStore, due) }
-					turn = 1
-				} else if headValid {
-					renewAt = time.Time{}
+			if driverChooseDue(turn, dueEligible, ownerEligible) {
+				turn = 1
+				due, next, future, e := store.peekDuePage(leaseCtx, d.cfg.Worker, d.cfg.Epoch, dueRank)
+				sameTimer := due != nil && lastDue != nil && lastDue.Identity == due.Identity &&
+					lastDue.Member == due.Member && lastDue.Assignment == due.Assignment
+				switch {
+				case e != nil:
+					d.diagnostic("item-peek-due", e, false)
+					dueRank, dueAfter = 0, current.Add(WorkerRenewInterval)
+				case due == nil:
+					dueRank = next
+					if next == 0 {
+						dueAfter = current.Add(WorkerRenewInterval)
+						if !future.IsZero() && future.Before(dueAfter) {
+							dueAfter = future
+						}
+					}
+				case sameTimer && (lastDue.Revision == due.Revision || dueFailures >= 2):
+					// Recheck a revision race once before yielding to other calls.
+					// An unchanged selection has already had its chance.
+					dueRank = next + 1
+					lastDue = nil
+				default:
+					if !sameTimer {
+						dueFailures = 0
+					}
+					nativeBusy = true
+					jobs++
+					go func() {
+						e := callDriverWork(func() error { return d.cfg.Due(leaseCtx, jobStore, due) })
+						d.isolate(leaseCtx, jobStore, due.Identity, due.Revision, "timer", due.Member, OutputRef{}, e)
+						results <- result{stage: "due", due: due, rank: next, err: e}
+					}()
 				}
 			} else {
-				owner := lease.OwnerExpiry.Context
-				if strings.HasPrefix(owner, "w-") {
-					source := strings.TrimPrefix(owner, "w-")
-					work = func() error {
-						_, e := jobStore.TransferExpiredWorker(leaseCtx, WorkerTransfer{Coordinator: d.cfg.Worker, CoordinatorEpoch: d.cfg.Epoch, ExpiredWorker: source, Target: d.cfg.Worker, TargetEpoch: d.cfg.Epoch, Limit: MaxWorkerTransferBatch})
-						return e
-					}
-				} else if strings.HasPrefix(owner, "a-") {
-					term := strings.TrimPrefix(owner, "a-")
-					work = func() error { return d.cfg.OwnerExpired(leaseCtx, jobStore, term) }
-				} else {
-					disconnect("owner-head", ErrCorrupt)
-					continue
-				}
 				turn = 0
-			}
-			if work != nil {
-				nativeBusy = true
-				jobs++
-				go func() { results <- result{err: work()} }()
+				if ownerPass.member == "" {
+					member, next, future, e := store.ownerPage(leaseCtx, d.cfg.Worker, d.cfg.Epoch, ownerPass.rank)
+					switch {
+					case e != nil:
+						d.diagnostic("item-peek-owner", e, false)
+						ownerPass = driverOwnerPass{after: current.Add(WorkerRenewInterval)}
+					case member == "":
+						ownerPass.rank = next
+						if next == 0 {
+							ownerPass.after = current.Add(WorkerRenewInterval)
+							if !future.IsZero() && future.Before(ownerPass.after) {
+								ownerPass.after = future
+							}
+						}
+					default:
+						ownerPass.member, ownerPass.next = member, next+1
+					}
+				}
+				member := ownerPass.member
+				if strings.HasPrefix(member, "w-") {
+					source := strings.TrimPrefix(member, "w-")
+					offset := ownerPass.workerOffset
+					nativeBusy = true
+					jobs++
+					go func() {
+						var transferred WorkerTransferResult
+						e := callDriverWork(func() error {
+							var err error
+							transferred, err = jobStore.TransferExpiredWorker(leaseCtx, WorkerTransfer{Coordinator: d.cfg.Worker, CoordinatorEpoch: d.cfg.Epoch, ExpiredWorker: source, Target: d.cfg.Worker, TargetEpoch: d.cfg.Epoch, Limit: MaxWorkerTransferBatch, offset: offset, isolate: true})
+							return err
+						})
+						results <- result{stage: "transfer", transfer: transferred, err: e}
+					}()
+				} else if strings.HasPrefix(member, "a-") {
+					if len(ownerPass.items) == 0 && !ownerPass.scanDone {
+						page, e := store.peekExpiredApplicationPage(leaseCtx, d.cfg.Worker, d.cfg.Epoch, strings.TrimPrefix(member, "a-"), MaxExpiredApplicationBatch, ownerPass.scan)
+						if e != nil {
+							d.diagnostic("item-peek-application", e, false)
+							ownerPass.advance(errors.Is(e, ErrAbsent))
+						} else {
+							ownerPass.items, ownerPass.scan = page.Contexts, page.next
+							ownerPass.scanDone = page.next == (applicationScan{})
+						}
+					}
+					if len(ownerPass.items) != 0 {
+						item := ownerPass.items[0]
+						ownerPass.items = ownerPass.items[1:]
+						nativeBusy = true
+						jobs++
+						go func() {
+							e := callDriverWork(func() error { return d.cfg.OwnerExpired(leaseCtx, jobStore, item) })
+							d.isolate(leaseCtx, jobStore, item.Identity, item.Revision, "application-expiry", "", OutputRef{}, e)
+							results <- result{stage: "application", err: e}
+						}()
+					} else if ownerPass.scanDone {
+						ownerPass.advance(false)
+					}
+				} else if strings.HasPrefix(member, "p-") {
+					nativeBusy = true
+					jobs++
+					go func() {
+						event, e := jobStore.abandonParked(leaseCtx, d.cfg.Worker, d.cfg.Epoch, member[2:])
+						if e == nil && event.Context != "" {
+							d.report(event)
+						}
+						results <- result{stage: "abandon", err: e}
+					}()
+				}
 			}
 		}
 		if readyEligible && len(inflight) < 8 {
-			outputs, e := store.PeekReady(leaseCtx, d.cfg.Worker, d.cfg.Epoch, min(8, len(inflight)+1))
-			if e != nil {
-				disconnect("peek-ready", e)
-				continue
+			pageSize := min(8, len(inflight)+1)
+			if readyRank != 0 {
+				pageSize = nativeWorkPage
 			}
-			found := false
-			for _, output := range outputs {
-				if _, ok := inflight[output.Ref]; ok {
+			outputs, next, e := store.peekReadyPage(leaseCtx, d.cfg.Worker, d.cfg.Epoch, pageSize, readyRank)
+			if e != nil {
+				d.diagnostic("item-peek-ready", e, false)
+				readyRank, readyAfter = 0, current.Add(WorkerRenewInterval)
+			} else {
+				found := false
+				for _, output := range outputs {
+					if _, ok := inflight[output.Ref]; ok || output.Ref == lastReady {
+						continue
+					}
+					item := output
+					jobStore := store
+					inflight[item.Ref] = struct{}{}
+					jobs++
+					found = true
+					go func() {
+						e := callDriverWork(func() error { return d.cfg.ReadyOutput(leaseCtx, jobStore, item) })
+						d.isolate(leaseCtx, jobStore, item.identity, item.revision, "output", item.Ref.ID, item.Ref, e)
+						results <- result{stage: "ready", ref: item.Ref, rank: item.rank, err: e}
+					}()
+					break
+				}
+				if found {
 					continue
 				}
-				item := output
-				jobStore := store
-				inflight[item.Ref] = struct{}{}
-				jobs++
-				found = true
-				go func() {
-					results <- result{physical: true, ref: item.Ref, err: d.cfg.ReadyOutput(leaseCtx, jobStore, item)}
-				}()
-				break
+				readyRank = next
+				if next == 0 {
+					readyAfter = current.Add(WorkerRenewInterval)
+				}
 			}
-			if found {
-				continue
-			}
-			// The prefix is already in flight or disappeared; wait for a real change.
-			lease.Ready = false
 		}
 		dirtyProbe = false
 		delay := time.Until(renewAt)
 		if !nativeBusy {
 			if headValid && lease.Head.Context != "" {
-				delay = min(delay, time.Until(headAt))
+				delay = min(delay, time.Until(laterTime(headAt, dueAfter)))
 			}
 			if lease.Coordinator && lease.OwnerExpiry.Context != "" {
-				delay = min(delay, time.Until(ownerAt))
+				delay = min(delay, time.Until(laterTime(ownerAt, ownerPass.after)))
 			}
+		}
+		if headValid && lease.Ready && len(inflight) < 8 {
+			delay = min(delay, time.Until(readyAfter))
 		}
 		reset(delay)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-changed:
+			dueAfter, readyAfter, ownerPass.after = time.Time{}, time.Time{}, time.Time{}
 			// Coalesce a burst of hints without letting a continuously closing
 			// notification channel turn into an unbounded renewal loop.
 			next := lastRefresh.Add(10 * time.Millisecond)
@@ -495,19 +653,30 @@ func (d *Driver) Run(parent context.Context) error {
 		case <-timer.C:
 		case r := <-results:
 			finish(r)
-			if r.err != nil && !errors.Is(r.err, ErrConflict) && !errors.Is(r.err, ErrAbsent) {
-				stage := "native-callback"
-				if r.physical {
-					stage = "physical-callback"
+			if r.err != nil && !errors.Is(r.err, ErrConflict) && !errors.Is(r.err, ErrAbsent) && !errors.Is(r.err, ErrParked) {
+				d.diagnostic("item-"+r.stage, r.err, false)
+			}
+			switch r.stage {
+			case "due":
+				dueRank, lastDue = r.rank, r.due
+				if r.err != nil {
+					dueFailures++
+				} else {
+					dueFailures = 0
 				}
-				disconnect(stage, r.err)
-				reset(WorkerRenewInterval)
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-timer.C:
+			case "ready":
+				readyRank, readyAfter, lastReady = 0, time.Time{}, r.ref
+				if r.err != nil {
+					readyRank = r.rank
 				}
-				continue
+			case "transfer":
+				if r.err == nil && r.transfer.more {
+					ownerPass.workerOffset = r.transfer.next
+				} else {
+					ownerPass.advance(r.transfer.Drained || errors.Is(r.err, ErrAbsent))
+				}
+			case "abandon":
+				ownerPass.advance(r.err == nil || errors.Is(r.err, ErrAbsent))
 			}
 			renewAt = time.Time{}
 		}

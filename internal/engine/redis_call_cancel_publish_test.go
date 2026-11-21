@@ -28,11 +28,12 @@ func TestRedisInitialServerCancelAtomicPair(t *testing.T) {
 	if address == "" {
 		t.Skip("isolated Redis fixture required")
 	}
-	for _, label := range []string{"tls", "udp", "udp-unknown", "udp-obsolete", "udp-raw-late", "udp-both-unknown"} {
+	for _, label := range []string{"tls", "udp", "udp-overdue", "udp-unknown", "udp-obsolete", "udp-raw-late", "udp-both-unknown"} {
 		t.Run(label, func(t *testing.T) {
 			bothUnknown := label == "udp-both-unknown"
 			transport, unresolved := label, label == "udp-unknown" || label == "udp-obsolete" || label == "udp-raw-late" || bothUnknown
-			if unresolved {
+			overdue := label == "udp-overdue"
+			if unresolved || overdue {
 				transport = "udp"
 			}
 			ctx := context.Background()
@@ -300,7 +301,7 @@ func TestRedisInitialServerCancelAtomicPair(t *testing.T) {
 			if err != nil || otherProof.State != rediscore.OutputStarted || otherProof.Settled || otherProof.Acknowledged {
 				t.Fatal("CANCEL completion consumed INVITE 487", err)
 			}
-			if transport == "udp" {
+			if transport == "udp" && !overdue {
 				duplicate, handled, e := selectRedisServerCancel(ctx, store, local, flow, cancel, key, time.Now().Add(time.Second))
 				if e != nil || !handled {
 					t.Fatal(e)
@@ -330,7 +331,7 @@ func TestRedisInitialServerCancelAtomicPair(t *testing.T) {
 						t.Fatal(e)
 					}
 				}
-			} else {
+			} else if transport == "tls" {
 				assertSuppressed("retired reliable response")
 			}
 			// The original INVITE's real non-2xx ACK can arrive before its
@@ -367,7 +368,7 @@ func TestRedisInitialServerCancelAtomicPair(t *testing.T) {
 				t.Fatal("physical completion changed prior INVITE or business authority", err)
 			}
 			consumed, err := readPrivateProcedureRecord(completed.Records[selected.cancelField])
-			if err != nil || consumed.OutputConsumed != (transport == "tls") {
+			if err != nil || consumed.OutputConsumed != (transport == "tls" || overdue) {
 				t.Fatal("CANCEL consumption marker missing before proof release", err)
 			}
 			if transport == "udp" {
@@ -390,6 +391,11 @@ func TestRedisInitialServerCancelAtomicPair(t *testing.T) {
 					t.Fatal(e)
 				}
 				j.At = redisNow.Add(-time.Millisecond).UnixMilli()
+				if overdue {
+					// Recovery observes the original physical head first, with
+					// the later semantic deadline already elapsed as well.
+					j.At = ownProof.DeadlineMS + 1
+				}
 				jBytes, e := marshalNativeRecord(storagecodec.NativeProcedure, jProcedure)
 				if e != nil {
 					t.Fatal(e)

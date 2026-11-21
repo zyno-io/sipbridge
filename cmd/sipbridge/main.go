@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -262,15 +263,19 @@ func run() (runErr error) {
 		defer stopReporter()
 	}
 	engineConfig.OnNativeDriverDiagnostic = func(d rediscore.DriverDiagnostic) {
-		event, stream := "sipbridge-native-driver-fence", os.Stdout
-		if d.Stage == "generation-cleanup" || d.Stage == "generation-heartbeat" {
+		event := "sipbridge-native-driver-fence"
+		stream := os.Stdout
+		switch {
+		case d.Stage == "context-parked", d.Stage == "context-abandoned", d.Stage == "generation-cleanup", d.Stage == "generation-heartbeat":
 			event, stream = "sipbridge-native-"+d.Stage, os.Stderr
+		case strings.HasPrefix(d.Stage, "item-"):
+			event = "sipbridge-native-work-error"
 		}
 		_ = json.NewEncoder(stream).Encode(struct {
 			Event string `json:"event"`
 			rediscore.DriverDiagnostic
 		}{Event: event, DriverDiagnostic: d})
-		if enqueueDriverIncident != nil {
+		if enqueueDriverIncident != nil && d.WorkerFenced {
 			enqueueDriverIncident(d)
 		}
 	}

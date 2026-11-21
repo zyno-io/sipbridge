@@ -190,13 +190,21 @@ return out
 `)
 
 // selectorScript is composed into the selected publication script. The
-// reverse reference scalar prevents deletion of a record still selected by
-// another native key without retaining a selector list in the context.
+// Packed reverse references let the driver remove a failed context's exact
+// selectors without scanning the shared index.
 const selectorScript = `
 local function selectorPrepare(index,context,incarnation,pending,changes)
  if not kind(index,'hash') then return nil,'CORRUPT' end
  if #changes>128 then return nil,'CAPACITY' end
- local seen={};local refs={};local writes={};local indexDelta=0
+ local seen={};local refs={};local writes={};local indexDelta,countDelta=0,0
+ local function reverse(field)
+  local value=refs[field]
+  if value~=nil then return value end
+  value=redis.call('HGET',KEYS[2],field)
+  if not value then return '' end
+  if #value==0 or #value%33~=0 or #value>512*33 then return nil end
+  return value
+ end
  for _,c in ipairs(changes) do
   local field,record,action=c[1],c[2],c[3]
   if #field~=33 or string.byte(field,1)<1 or string.byte(field,1)>3 or #record<3 or #record>194 or not string.match(record,'^r:[A-Za-z0-9_-]+$') or seen[field] or (action~='set' and action~='delete') then return nil,'CONFLICT' end
@@ -208,27 +216,49 @@ local function selectorPrepare(index,context,incarnation,pending,changes)
   else local recordValue=pending[record];if recordValue==false then return nil,'CONFLICT' elseif recordValue==nil then recordValue=redis.call('HGET',KEYS[2],record) end;if recordValue==false or recordValue==nil then return nil,'CONFLICT' end end
   local change=(action=='delete' and -1 or (old and 0 or 1))
   if change~=0 then
-   local ref='sref:'..record;local n=refs[ref];if n==nil then local oldCount=redis.call('HGET',KEYS[2],ref);if oldCount and (not number(oldCount) or number(oldCount)==0) then return nil,'CORRUPT' end;n=oldCount and number(oldCount) or 0 end
-   n=n+change;if n<0 then return nil,'CORRUPT' elseif n>4096 then return nil,'CAPACITY' end;refs[ref]=n
+   local ref='sref:'..record;local selectors=reverse(ref);if selectors==nil then return nil,'CORRUPT' end
+   local at=nil
+   for pos=1,#selectors,33 do if string.sub(selectors,pos,pos+32)==field then at=pos;break end end
+   if action=='delete' then
+    if not at then return nil,'CORRUPT' end
+    selectors=string.sub(selectors,1,at-1)..string.sub(selectors,at+33)
+   else
+    if at then return nil,'CORRUPT' end
+    if #selectors>=512*33 then return nil,'CAPACITY' end
+    selectors=selectors..field
+   end
+   refs[ref]=selectors
    indexDelta=indexDelta+change*(#field+#value)
+   countDelta=countDelta+change
    if action=='set' then if not redis.acl_check_cmd('HSET',index,field,value) then return nil,'AUTHORITY' end
    elseif not redis.acl_check_cmd('HDEL',index,field) then return nil,'AUTHORITY' end
    writes[#writes+1]={field=field,value=value,action=action}
   end
  end
  for field,value in pairs(pending) do
-  if value==false then local ref='sref:'..field;local n=refs[ref];if n==nil then local old=redis.call('HGET',KEYS[2],ref);if old and (not number(old) or number(old)==0) then return nil,'CORRUPT' end;n=old and number(old) or 0 end;if n>0 then return nil,'CONFLICT' end end
+  if value==false then local selectors=reverse('sref:'..field);if selectors==nil then return nil,'CORRUPT' end;if #selectors>0 then return nil,'CONFLICT' end end
  end
  local byteDelta,fieldDelta=0,0
- for field,n in pairs(refs) do
+ for field,value in pairs(refs) do
   local old=redis.call('HGET',KEYS[2],field);if old then byteDelta=byteDelta-#field-#old;fieldDelta=fieldDelta-1 end
-  if n>0 then local value=string.format('%.0f',n);byteDelta=byteDelta+#field+#value;fieldDelta=fieldDelta+1;if not redis.acl_check_cmd('HSET',KEYS[2],field,value) then return nil,'AUTHORITY' end
+  if #value>0 then byteDelta=byteDelta+#field+#value;fieldDelta=fieldDelta+1;if not redis.acl_check_cmd('HSET',KEYS[2],field,value) then return nil,'AUTHORITY' end
   elseif not redis.acl_check_cmd('HDEL',KEYS[2],field) then return nil,'AUTHORITY' end
+ end
+ if countDelta~=0 then
+  local field='selector_count';local old=redis.call('HGET',KEYS[2],field)
+  local count=old and number(old) or 0
+  if old and (not number(old) or count==0 or count>512) or count+countDelta<0 then return nil,'CORRUPT' end
+  count=count+countDelta;if count>512 then return nil,'CAPACITY' end
+  local value=count>0 and tostring(count) or ''
+  if old then byteDelta=byteDelta-#field-#old;fieldDelta=fieldDelta-1 end
+  if count>0 then byteDelta=byteDelta+#field+#value;fieldDelta=fieldDelta+1;if not redis.acl_check_cmd('HSET',KEYS[2],field,value) then return nil,'AUTHORITY' end
+  elseif not redis.acl_check_cmd('HDEL',KEYS[2],field) then return nil,'AUTHORITY' end
+  refs[field]=value
  end
  return {index=index,refs=refs,writes=writes,byteDelta=byteDelta,fieldDelta=fieldDelta,indexDelta=indexDelta},nil
 end
 local function selectorApply(p)
- for field,n in pairs(p.refs) do if n==0 then redis.call('HDEL',KEYS[2],field) else redis.call('HSET',KEYS[2],field,string.format('%.0f',n)) end end
+ for field,value in pairs(p.refs) do if #value==0 then redis.call('HDEL',KEYS[2],field) else redis.call('HSET',KEYS[2],field,value) end end
  for _,w in ipairs(p.writes) do if w.action=='set' then redis.call('HSET',p.index,w.field,w.value) else redis.call('HDEL',p.index,w.field) end end
 end
 `

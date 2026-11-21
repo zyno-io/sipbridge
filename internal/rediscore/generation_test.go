@@ -193,7 +193,7 @@ func TestDriverSweepsOlderGeneration(t *testing.T) {
 	driver, err := NewDriver(DriverConfig{Connection: current, Worker: "worker", Epoch: "epoch",
 		Due:          func(context.Context, *Store, *DueContext) error { return nil },
 		ReadyOutput:  func(context.Context, *Store, ReadyOutput) error { return nil },
-		OwnerExpired: func(context.Context, *Store, string) error { return nil },
+		OwnerExpired: func(context.Context, *Store, ExpiredApplicationContext) error { return nil },
 		OnDiagnostic: func(event DriverDiagnostic) {
 			if event.Stage == "generation-cleanup" {
 				select {

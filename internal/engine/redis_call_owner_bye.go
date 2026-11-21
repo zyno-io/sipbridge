@@ -26,8 +26,22 @@ type redisOwnerByeStage struct {
 // prepareRedisOwnerBye creates one actual native cleanup continuation. Its
 // caller publishes the returned state together with the exact selected dialog.
 func prepareRedisOwnerBye(ctx context.Context, store *rediscore.Store, identity rediscore.Identity, revision uint64, assignment rediscore.TimerAssignment, current *nativepb.Context, dialogField string, dialog portable.Dialog, refs nativeDialogRefs, metadata *nativepb.Dialog, flow *pb.FlowRef, key []byte, now, deadline time.Time) (*redisOwnerByeStage, error) {
-	if store == nil || current == nil || current.Context == nil || current.Context.State == nil || current.Context.State.Authority == nil || current.Application == nil || metadata == nil || len(key) < 32 || len(key) > 1024 || !validPolicyFlow(flow) || flow.Transport != dialog.Transport || !slices.Contains(current.Dialogs, dialogField) || len(current.NoninitialProcedures)+len(current.InitialProcedures) >= stateNativeProcedures || !time.Now().Before(deadline) {
+	if store == nil || current == nil || current.Context == nil || current.Context.State == nil || current.Context.State.Authority == nil || current.Application == nil || metadata == nil || len(key) < 32 || len(key) > 1024 || !validPolicyFlow(flow) || flow.Transport != dialog.Transport || !slices.Contains(current.Dialogs, dialogField) || !time.Now().Before(deadline) {
 		return nil, errNativeRecord
+	}
+	if len(current.NoninitialProcedures)+len(current.InitialProcedures) >= stateNativeProcedures {
+		if !nativeOwnerByeEligible(dialog, metadata.AckWritten, false) {
+			return nil, nil
+		}
+		ended, timers, err := endRedisDialogWithoutBYE(dialog, dialogField, now.UnixMilli())
+		if err != nil {
+			return nil, err
+		}
+		data, err := encodeNativeDialog(ended, refs, metadata)
+		if err != nil {
+			return nil, err
+		}
+		return &redisOwnerByeStage{dialog: data, timers: timers}, nil
 	}
 	branch := sip.RFC3261BranchMagicCookie + nativeIdentity(key, "owner-loss-bye", identity.Incarnation, dialogField)[:32]
 	candidate, eligible, err := nativePrepareOwnerBye(dialog, metadata.AckWritten, false, branch, now.UnixMilli())
@@ -115,4 +129,25 @@ func prepareRedisOwnerBye(ctx context.Context, store *rediscore.Store, identity 
 		return nil, errNativeRecord
 	}
 	return &redisOwnerByeStage{dialog: dialogData, changes: changes, outputs: []rediscore.OutputIntent{intent}, selectors: []rediscore.SelectorChange{{Selector: ids[0], Record: procedureField}}, timers: timers}, nil
+}
+
+// End an exact dialog without staging a physical send or dropping its owners.
+func endRedisDialogWithoutBYE(dialog portable.Dialog, field string, nowMS int64) (portable.Dialog, []rediscore.TimerChange, error) {
+	ended, effects, err := portable.StepDialog(dialog, portable.DialogInput{Kind: portable.DialogTerminate, Now: nowMS})
+	if err != nil {
+		return portable.Dialog{}, nil, err
+	}
+	var timers []rediscore.TimerChange
+	for _, effect := range effects {
+		switch effect.Kind {
+		case portable.Ended:
+		case portable.CancelTimer:
+			if effect.Timer != portable.Timer2xx {
+				timers = append(timers, rediscore.TimerChange{Member: callDialogTimerMember(field, effect.Timer), Delete: true})
+			}
+		default:
+			return portable.Dialog{}, nil, errNativeRecord
+		}
+	}
+	return ended, timers, nil
 }

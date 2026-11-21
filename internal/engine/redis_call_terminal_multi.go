@@ -387,12 +387,13 @@ func validateRedisTerminalOutput(field string, output *nativepb.Output, owners *
 		}
 		id, err := uuid.Parse(rest[:36])
 		sequence, seqErr := strconv.ParseUint(rest[37:], 10, 53)
-		if err != nil || id.String() != rest[:36] || seqErr != nil || rest[37:] != strconv.FormatUint(sequence, 10) || !redisDialogNonInvite(sip.RequestMethod(output.Method)) || output.Status < 100 || output.Status > 699 || output.Procedure != "r:procedure-"+id.String() || sequence == 0 && output.Result != "" || output.Result != "" && output.Result != "r:result-"+strconv.FormatUint(sequence, 10) {
+		family := redisDialogServerFamily(output.Method)
+		if err != nil || id.String() != rest[:36] || seqErr != nil || rest[37:] != strconv.FormatUint(sequence, 10) || family == "" || output.Status < 100 || output.Status > 699 || output.Procedure != "r:procedure-"+id.String() || sequence == 0 && output.Result != "" || output.Result != "" && output.Result != "r:result-"+strconv.FormatUint(sequence, 10) {
 			return errNativeRecord
 		}
 		p := owners.procedures[output.Procedure]
 		d := owners.dialogs[output.Dialog]
-		if p == nil || d == nil || p.Native.Family != string(portable.NonInviteServer) || p.RequestId != id.String() || p.Origin != "r:origin-"+id.String() || !slices.Contains(p.Outputs, field) || !slices.Contains(d.Outputs, field) {
+		if p == nil || d == nil || p.Native.Family != family || p.RequestId != id.String() || p.Origin != "r:origin-"+id.String() || !slices.Contains(p.Outputs, field) || !slices.Contains(d.Outputs, field) {
 			return errNativeRecord
 		}
 	}

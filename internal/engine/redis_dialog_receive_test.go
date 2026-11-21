@@ -48,6 +48,15 @@ func TestRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T) {
 	t.Run("INFO-OWNER-LIVE", func(t *testing.T) {
 		testRedisDialogRequestAdmissionDefersDialogMutation(t, sip.INFO, false, false, false, 3)
 	})
+	t.Run("owner-expiry-after-peer-BYE-before-ACK", func(t *testing.T) {
+		testRedisDialogRequestAdmissionDefersDialogMutation(t, sip.INFO, false, false, false, 4)
+	})
+	t.Run("owner-expiry-at-procedure-limit", func(t *testing.T) {
+		testRedisDialogRequestAdmissionDefersDialogMutation(t, sip.INFO, false, false, false, 5)
+	})
+	t.Run("terminal-re-INVITE-output", func(t *testing.T) {
+		testRedisDialogRequestAdmissionDefersDialogMutation(t, sip.INFO, false, false, false, 6)
+	})
 }
 
 func TestRedisPeerACKLifecycleRetention(t *testing.T) {
@@ -764,6 +773,34 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	if reinviteEntry == nil {
 		t.Fatal("re-INVITE response not ready")
 	}
+	if ownerCase == 6 {
+		output, e := decodeNativeOutput(reinviteEntry.Metadata)
+		if e != nil {
+			t.Fatal(e)
+		}
+		view, e := store.Read(ctx, id, "r:context", output.Procedure, output.Dialog)
+		if e != nil {
+			t.Fatal(e)
+		}
+		current, e := decodeNativeContext(view.Records["r:context"])
+		if e != nil {
+			t.Fatal(e)
+		}
+		procedure, e := readPrivateProcedureRecord(view.Records[output.Procedure])
+		if e != nil {
+			t.Fatal(e)
+		}
+		dialog, e := readPrivateDialogRecord(view.Records[output.Dialog])
+		if e != nil {
+			t.Fatal(e)
+		}
+		owners := &terminalCallOwners{current: current, procedures: map[string]*nativepb.Procedure{output.Procedure: procedure}, dialogs: map[string]*nativepb.Dialog{output.Dialog: dialog}}
+		field := "r:dialog-output-" + inviteID + "-7"
+		if e = validateRedisTerminalOutput(field, output, owners); e != nil {
+			t.Fatal("terminal cleanup rejected an admitted in-dialog INVITE output", e)
+		}
+		return
+	}
 	runtime.cfg.WriteCommitted = func(ctx context.Context, write *pb.FlowWrite) *pb.DeliveryResult {
 		reserved, e := (nativeRedisWriter{store: store}).Reserve(ctx, write)
 		if e != nil || reserved == nil || len(reserved.Wire) == 0 {
@@ -1024,7 +1061,31 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 			t.Fatal("expire call owner", e)
 		}
 	}
-	if ownerCase != 0 && ownerCase != 3 {
+	if ownerCase == 4 {
+		bye, e := portable.BuildDialogRequest(peer, sip.BYE, 15, nil, "z9hG4bK-bye-before-ack")
+		if e != nil {
+			t.Fatal(e)
+		}
+		bye = portable.RestoreMessage(bye.WireBytes(), "tls", "192.0.2.3:6789", "")
+		timer := rediscore.TimerAssignment{Worker: worker, Epoch: executor.Epoch, Term: executor.Epoch}
+		if handled, e := matchRedisCallCompletion(ctx, remoteStore, executor, flow, bye, key, timer, time.Now().Add(time.Second)); e != nil || !handled {
+			t.Fatal("peer BYE before ACK", handled, e)
+		}
+		if e = remoteStore.ExpireApplication(ctx, lease.ApplicationLeaseRef); e != nil {
+			t.Fatal(e)
+		}
+		releaseOwner()
+		ownerless, e := remoteStore.ObserveContext(ctx, id.Context, id.Incarnation, "r:dialog")
+		if e != nil || ownerless.Identity.Owner != "" {
+			t.Fatal("ended call retained controller ownership", e)
+		}
+		dialog, e := decodeNativeDialog(ownerless.View.Records["r:dialog"])
+		if e != nil || dialog.Native.Phase != portable.DialogEnded || dialog.Native.RemoteInvite == nil || dialog.Native.RemoteInvite.State != portable.InviteAwaitingACK || dialog.Native.Timers[portable.TimerACK].Active {
+			t.Fatal("owner release altered the ended dialog or revived its ACK timer", e)
+		}
+		return
+	}
+	if ownerCase != 0 && ownerCase != 3 && ownerCase != 5 {
 		if err = remoteStore.ExpireApplication(ctx, lease.ApplicationLeaseRef); err != nil {
 			t.Fatal("expire controller term", err)
 		}
@@ -1051,6 +1112,26 @@ func testRedisDialogRequestAdmissionDefersDialogMutation(t *testing.T, method si
 	ackedDialog, err := readPrivateDialogRecord(acked.Records["r:dialog"])
 	if err != nil || ackedDialog.Native.RemoteInvite.State != string(portable.InviteAcked) {
 		t.Fatal("re-INVITE ACK not applied", err)
+	}
+	if ownerCase == 5 {
+		refs := fillRedisProcedureSlots(t, ctx, remoteStore, id)
+		if e := remoteStore.ExpireApplication(ctx, lease.ApplicationLeaseRef); e != nil {
+			t.Fatal(e)
+		}
+		releaseOwner()
+		ownerless, e := remoteStore.ObserveContext(ctx, id.Context, id.Incarnation, "r:context", "r:dialog")
+		if e != nil || ownerless.Identity.Owner != "" {
+			t.Fatal("full call retained controller ownership", e)
+		}
+		current, e := decodeNativeContext(ownerless.View.Records["r:context"])
+		if e != nil || !current.Ended || !slices.Equal(current.NoninitialProcedures, refs) {
+			t.Fatal("owner expiry changed occupied procedures or left the call active", e)
+		}
+		dialog, e := decodeNativeDialog(ownerless.View.Records["r:dialog"])
+		if e != nil || dialog.Native.Phase != portable.DialogEnded || dialog.Refs.LocalBye != "" {
+			t.Fatal("full call was not ended locally", e)
+		}
+		return
 	}
 	if len(ackEvent) > 0 {
 		assertRedisPeerACKRetention(t, ctx, remoteStore, client, root, selectedACK.Identity, "r:procedure-"+inviteID, "r:dialog", ack, ackEvent[0])

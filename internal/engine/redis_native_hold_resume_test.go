@@ -37,15 +37,16 @@ type redisPreviousACKPause struct {
 	release  chan struct{}
 	recorded chan *pb.FlowWrite
 	done     chan error
+	replayed chan struct{}
 }
 
 func newRedisPreviousACKPause(outcome pb.DeliveryResult_Outcome) *redisPreviousACKPause {
-	return &redisPreviousACKPause{outcome: outcome, release: make(chan struct{}), recorded: make(chan *pb.FlowWrite, 1), done: make(chan error, 1)}
+	return &redisPreviousACKPause{outcome: outcome, release: make(chan struct{}), recorded: make(chan *pb.FlowWrite, 1), done: make(chan error, 1), replayed: make(chan struct{}, 1)}
 }
 func (p *redisPreviousACKPause) unblock() { p.once.Do(func() { close(p.release) }) }
-func (p *redisPreviousACKPause) selectWrite(wire []byte, transport string) bool {
+func isRedisHoldACK(wire []byte, transport string) bool {
 	facts, err := portable.RestoreMessage(wire, transport, "", "").Facts()
-	return err == nil && facts.Method == "ACK" && facts.CSeq == 2 && p.used.CompareAndSwap(false, true)
+	return err == nil && facts.Method == "ACK" && facts.CSeq == 2
 }
 func (p *redisPreviousACKPause) write(ctx context.Context, e *redisNative, write *pb.FlowWrite, wire []byte, written chan<- []byte) *pb.DeliveryResult {
 	result := &pb.DeliveryResult{Effect: write.Effect, Outcome: p.outcome}
@@ -264,7 +265,8 @@ func testRedisPreviousACKCompletionBeforeResume(t *testing.T, ctx context.Contex
 		pause.unblock()
 		select {
 		case callbackErr := <-pause.done:
-			if callbackErr != nil {
+			// The driver can independently settle the recorded ACK first.
+			if callbackErr != nil && !errors.Is(callbackErr, rediscore.ErrConflict) {
 				t.Fatal("current ACK callback", callbackErr)
 			}
 		case <-ctx.Done():
@@ -305,6 +307,13 @@ func testRedisPreviousACKCompletionBeforeResume(t *testing.T, ctx context.Contex
 		}
 		if replay := nextWire("ACK "); !bytes.Equal(replay, holdACK) {
 			t.Fatal("current cached ACK replay changed bytes")
+		}
+		// Seeing bytes in the fixture does not mean the write callback has
+		// recorded the physical outcome. Keep Redis active through that step.
+		select {
+		case <-pause.replayed:
+		case <-ctx.Done():
+			t.Fatal("current ACK replay callback did not finish", ctx.Err())
 		}
 		return
 	}

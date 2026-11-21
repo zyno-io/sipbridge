@@ -21,6 +21,14 @@ import (
 )
 
 func TestRedisInviteReceivePublishesOneBoundedPendingProcedure(t *testing.T) {
+	testRedisInviteReceive(t, false)
+}
+
+func TestRedisACKTimeoutAtProcedureLimit(t *testing.T) {
+	testRedisInviteReceive(t, true)
+}
+
+func testRedisInviteReceive(t *testing.T, full bool) {
 	address := os.Getenv("SIPBRIDGE_CORE_TEST_REDIS")
 	if address == "" {
 		t.Skip("isolated Redis fixture required")
@@ -467,6 +475,37 @@ func TestRedisInviteReceivePublishesOneBoundedPendingProcedure(t *testing.T) {
 	_, err = store.Commit(ctx, rediscore.Publication{Identity: ackView.Identity, Revision: ackView.View.Revision, Deadline: time.Now().Add(time.Second), Changes: []rediscore.Change{{Field: "r:dialog-" + finalInput.RequestID, Value: ackBytes}}, Timers: &rediscore.TimerMutation{Expected: ackView.View.Timer, Target: ackView.View.Timer, RequireLease: true, Changes: []rediscore.TimerChange{{Member: ackMember, Due: time.UnixMilli(ackTimer.At)}}}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if full {
+		refs := fillRedisProcedureSlots(t, ctx, store, ackView.Identity)
+		ackDue, e := store.PeekDue(ctx, worker, process.Epoch)
+		if e != nil || ackDue == nil || ackDue.Member != ackMember {
+			t.Fatal("full call lost its ACK timer", e)
+		}
+		if e = fireRedisInitialInviteACKTimeout(ctx, store, key, ackDue, time.Now().Add(time.Second)); e != nil {
+			t.Fatal("full call ACK timeout", e)
+		}
+		dialogField := "r:dialog-" + finalInput.RequestID
+		view, e := store.Read(ctx, ackView.Identity, "r:context", dialogField)
+		if e != nil {
+			t.Fatal(e)
+		}
+		current, e := decodeNativeContext(view.Records["r:context"])
+		if e != nil || !current.Ended || !slices.Equal(current.NoninitialProcedures, refs) {
+			t.Fatal("ACK timeout changed occupied procedures or left the call active", e)
+		}
+		dialog, e := decodeNativeDialog(view.Records[dialogField])
+		if e != nil || dialog.Native.Phase != portable.DialogEnded || dialog.Refs.LocalBye != "" || dialog.Native.Timers[portable.TimerACK].Active {
+			t.Fatal("ACK timeout did not end the full dialog locally", e)
+		}
+		deadlines := root + "core:deadlines:final"
+		if e = client.ZScore(ctx, deadlines, ackMember).Err(); !errors.Is(e, redis.Nil) {
+			t.Fatal("consumed ACK timer remains indexed", e)
+		}
+		if e = client.ZScore(ctx, deadlines, "call-retire").Err(); e != nil {
+			t.Fatal("ended call lost its retirement deadline", e)
+		}
+		return
 	}
 	ackDue, err := store.PeekDue(ctx, worker, process.Epoch)
 	if err != nil || ackDue == nil || ackDue.Member != ackMember {

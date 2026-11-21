@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -54,6 +55,10 @@ func (s *Store) workerReadyKey(worker string) string { return s.root + "core:rea
 func (s *Store) coordinatorKey() string              { return s.root + "core:coordinator" }
 func (s *Store) ownerExpiryKey() string              { return s.root + "core:owner-expiry" }
 
+func observedDeadline(start time.Time, deltaMS int64) time.Time {
+	return start.Add(time.Duration(min(deltaMS, int64((1<<63-1)/time.Millisecond))) * time.Millisecond)
+}
+
 // RenewWorker renews a live epoch or acquires a fresh one. A timeout, lost
 // response, malformed response, or post-mutation clock failure is UNKNOWN.
 // The caller supplies its independently validated current primary run ID and
@@ -101,7 +106,8 @@ func (s *Store) RenewWorker(ctx context.Context, req WorkerLeaseRequest) (Worker
 	coordinator, ok2 := values[5].(string)
 	ownerID, ok3 := values[6].(string)
 	ready, ok4 := values[8].(string)
-	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || !ok1 || !ok2 || !ok3 || !ok4 || (coordinator != "0" && coordinator != "1") || (ready != "0" && ready != "1") || (contextID != "" && !reference(contextID)) || (ownerID != "" && !reference(ownerID)) || (contextID == "") != (due == 0) || (ownerID == "") != (ownerDue == 0) || (coordinator == "0" && ownerID != "") || until != now+WorkerLeaseLifetime.Milliseconds() {
+	validOwner := ownerID == "" || reference(ownerID) || strings.HasPrefix(ownerID, "p-") && reference(ownerID[2:])
+	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || !ok1 || !ok2 || !ok3 || !ok4 || (coordinator != "0" && coordinator != "1") || (ready != "0" && ready != "1") || (contextID != "" && !reference(contextID)) || !validOwner || (contextID == "") != (due == 0) || (ownerID == "") != (ownerDue == 0) || (coordinator == "0" && ownerID != "") || until != now+WorkerLeaseLifetime.Milliseconds() {
 		return WorkerLease{}, errors.Join(ErrUnknown, ErrCorrupt)
 	}
 	elapsed := finish.Sub(start)
@@ -139,14 +145,15 @@ local function uint(s)
 end
 local function head(k)
  local v=redis.call('ZRANGE',k,0,0,'WITHSCORES'); if #v==0 then return '', '0' end
- local d=uint(v[2]); if not d or d==0 or #v[1]>192 or not string.match(v[1],'^[A-Za-z0-9_-]+$') then return nil,nil end
+ local d=uint(v[2]); if not d or d==0 or #v[1]>192 or not string.match(v[1],'^[A-Za-z0-9_-]+$') then return 'inspect', '1' end
  return v[1],v[2]
 end
 local function ownerHeadAfterRenew(k,member,due)
  local rows=redis.call('ZRANGE',k,0,1,'WITHSCORES');local selected,score=member,due
  for i=1,#rows,2 do
   if rows[i]~=member then
-   local n=uint(rows[i+1]);if not n or n==0 or #rows[i]>192 or not string.match(rows[i],'^[A-Za-z0-9_-]+$') then return nil,nil end
+   local n=uint(rows[i+1]);local max=#rows[i]>=2 and string.sub(rows[i],1,2)=='p-' and 194 or 192
+   if not n or n==0 or #rows[i]>max or not string.match(rows[i],'^[A-Za-z0-9_-]+$') then return 'inspect','1' end
    if n<score or (n==score and rows[i]<selected) then selected,score=rows[i],n end
    break
   end
@@ -167,14 +174,14 @@ if epoch then
  if epoch~=ARGV[3] then return fail('CONFLICT') end
  if expires<=now and ARGV[5]~='2' then return fail('EXPIRED') end
 elseif ARGV[5]~='1' and ARGV[5]~='2' then return fail('ABSENT') end
-local context,due=head(KEYS[3]); if not context then return fail('CORRUPT') end
+local context,due=head(KEYS[3])
 local c=redis.call('HMGET',KEYS[5],'worker','epoch','expires_ms'); local coordinator='0'; local owner,ownerDue='','0'
 local coordExpiry=0
 if c[1] or c[2] or c[3] then
  if not c[1] or not c[2] or not c[3] then return fail('CORRUPT') end
  coordExpiry=uint(c[3]); if not coordExpiry then return fail('CORRUPT') end
 end
-if coordExpiry<=now or (c[1]==ARGV[2] and c[2]==ARGV[3]) then coordinator='1';owner,ownerDue=ownerHeadAfterRenew(KEYS[6],'w-'..ARGV[2],now+2000);if not owner then return fail('CORRUPT') end end
+if coordExpiry<=now or (c[1]==ARGV[2] and c[2]==ARGV[3]) then coordinator='1';owner,ownerDue=ownerHeadAfterRenew(KEYS[6],'w-'..ARGV[2],now+2000) end
 local ready='0'; if redis.call('ZCOUNT',KEYS[4],'('..string.format('%.0f',now),'+inf')>0 then ready='1' end
 local untilms=now+2000
 local untilText=string.format('%.0f',untilms)

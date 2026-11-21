@@ -155,6 +155,12 @@ An application BYE publishes its exact dialog request and independent native pro
 
 A preceding remote re-INVITE changes the dialog's remote transaction association. A later application BYE still publishes ENDED through the original canonical call root; its own procedure, original result and lifecycle event retain the exact response under their existing independent cutoffs. The additional cleanup-procedure event backlink remains specific to native cleanup BYE.
 
+On an ended call, the remote re-INVITE procedure may retire before the local BYE procedure. If it has cleared the dialog's remote transaction association, BYE retirement uses the retained remote INVITE references and the unique canonical initial INVITE from the same context revision. The original result and lifecycle event still govern ownership of the BYE response.
+
+Owner expiry skips already-ended dialogs. An ended dialog can retain a remote INVITE that awaited ACK when the peer hung up, even though the dialog canceled its ACK timer. Preserve the existing termination and release the expired application owner without rearming ACK.
+
+If owner expiry or ACK timeout needs a cleanup BYE and the call has no procedure slot left, terminate that dialog locally and keep the already admitted procedures and physical evidence. A winning-dialog ACK timeout still publishes the normal ENDED event and call retirement. Live dialogs awaiting ACK during owner expiry keep their original native deadline.
+
 Application INFO, REFER, UPDATE and in-dialog NOTIFY use the same selected dialog, non-INVITE client reducer, output proof, F/K deadlines and local UDP retry machinery. A definite write leaves their original result pending until the matched final response or F timeout; an uncertain or failed write returns UNKNOWN. Their native transaction does not terminate the dialog merely because it times out. The exact result and selected request/response records remain owned only while their actual waiter, native procedure, physical output or lifecycle references need them.
 
 An initial UAC's still-owned successful ACK uses the same exact local-BYE
@@ -298,6 +304,8 @@ The selected native terminal procedure proves those bounded actual owners and du
 
 For a fully ended call with several actual owners, terminal selection follows the context's existing initial and noninitial procedure references and dialog references in batches of at most 128 fields. Every batch must observe the same incarnation, revision and executor assignment; a conflict restarts the bounded selection under the original operation deadline. This traversal is terminal work only. It creates no authoritative cache, new owner index or SIP reconstruction on ordinary operations. Check every actual procedure's terminal phase and inactive native timers, each dialog's ended state and inactive timers, and each canonical anchor's actual lifecycle references before treating the graph as closed. The existing early-dialog termination transition remains the only permitted way to close an early dialog. Timer M expiry or a missing timer by itself does not prove fork, ACK, cleanup-BYE, result or event work complete.
 
+Terminal cleanup recognizes retained in-dialog INVITE response attempts as InviteServer outputs, alongside the existing non-INVITE response attempts. Both must retain their exact procedure and dialog references and satisfy the same physical proof and retirement cutoffs.
+
 An original result remains independently retained until its admitted waiter cutoff has elapsed and its exact physical or native completion dependency is closed. Its scalar marker also remains while any actual initial anchor references it, even after its replay rights end; initial digest anchors may share that one marker. A terminal stage deletes an expired marker only with its last anchor reference, or with final context removal if it is also the current result. Its optional request and response bytes follow their own actual owners. A canonical response event and each actual wire owner retain their established reciprocal references until event delivery or cutoff and owner release. A winning ACK, every losing-fork ACK and its required cleanup BYE must each reach their existing native closure predicates; positive ACK-write evidence required before a losing-fork BYE cannot be inferred from UNKNOWN, an ended snapshot or another fork. Keep the shared continuation contribution until its actual owning procedure and obligations close. No terminal proof changes the application-owned result, public certainty or established dialog guarantees.
 
 Only after those independent obligations close may a terminal pass select one exact remaining output through its actual procedure and dialog ownership. A definite WRITTEN or NOT_WRITTEN proof may be settled and acknowledged by the recovered terminal consumer only when exact output-specific native facts prove under the same revision that no physical-result-dependent continuation remains or applies; this performs no new socket write, result update, lifecycle event or application action. A pending or unexpired output-linked result still uses its normal completion; after its cutoff, clear its exact backlink and ownership atomically without changing certainty. UNKNOWN uses the two unchanged fixed cutoffs and proof-only release above, never that definite-consumer rule. Reconcile proof absence after a lost release reply only under the same terminal witness and both elapsed UNKNOWN cutoffs; a separately consumed definite proof uses its existing native consumption evidence. Absence never identifies the physical outcome.
@@ -337,6 +345,8 @@ The private first-CANCEL publication admits no fresh contribution: both transact
 The CANCEL response and INVITE 487 have independent physical proofs. For either exact WRITTEN or NOT_WRITTEN completion, re-arm that attempt's original physical cutoff before settlement. The actual or recovered consumer acknowledges only that attempt; the CANCEL procedure records consumption before its proof can disappear, so a later eligible UDP replay cannot reuse an uncertain predecessor. The INVITE 487 has no separate business receipt or write-dependent native transition. Its settlement does not rewrite an older INVITE command's result. STARTED or UNKNOWN authorizes neither acknowledgement nor another response attempt.
 
 At a CANCEL response cutoff, UNKNOWN keeps its metadata reachable from the native owner and removes only the expired scheduling head. Definite evidence passes through the same exact recovered consumer. An acknowledged INVITE 487 output may release its physical metadata and variant while its native procedure retains the selected final. A CANCEL server transaction retains its exact request and final until its original UDP Timer J, or reliable termination, and its consumed proof has closed; its final publication removes only its own selector, records and actual noninitial-procedure membership. Its own J member is `call-cancel-tx-<identifier>-J`, so dispatch distinguishes it from another non-INVITE procedure without guessing a record family. A UDP request retry before J may then create one new bounded response attempt after its predecessor is consumed, without advancing J or repeating the INVITE transition. Native J does not itself authorize a resend or assert delivery.
+
+If recovery sees both a consumed UDP CANCEL response cutoff and its semantic Timer J overdue, the output cutoff yields to J at its original timestamp. Timer J terminates the transaction and re-drives the output's original cutoff.
 
 Selected call dialog timers use the dialog field's SHA-256-derived private identifier and the native timer name; call transaction timers use the exact procedure identifier and the native timer name. Their creation and cancellation address the same bounded member without storing another lookup index. A quiet call uses the current live worker as executor when it creates a new deadline; otherwise it preserves its assigned executor. A definite expired-assignment refusal may be retried at the same revision with the current worker, while an uncertain publication is never retried as a new action.
 
@@ -468,7 +478,56 @@ Store one sorted-set entry for the earliest actual semantic deadline of each con
 
 The worker alternates eligible context-deadline and coordinator-expiry work in one native callback lane. Up to eight distinct physical-output callbacks run independently, so a slow socket does not hold unrelated deadlines or outputs. The worker reads only the bounded ready prefix needed to skip attempts already in flight. Renewal and lease fencing continue while callbacks run; a fenced generation finishes its cancelled callbacks before reacquisition.
 
-A callback whose exact selection disappeared or lost its revision race invalidates that selected work and refreshes the indexed head; it does not fence the healthy physical process or cancel unrelated writes. Primary, lease, profile, clock and datastore uncertainty retain their process-fencing behavior.
+A callback whose exact selection disappeared or lost its revision race refreshes
+the work selection without fencing the healthy physical process or canceling
+unrelated writes. Recheck the affected rank so an updated timer revision or the
+next pending attempt can run in the same pass. Yield after one retry of a
+changed revision of the same failing timer, or immediately for an unchanged
+selection. An uncertain operation leaves its existing proof in place.
+
+Separate worker authority from scheduled work. Renewing the worker lease must
+not depend on decoding an individual timer, ready output or owner hint. Only
+failure of the shared binding or its independent validation fences the worker.
+A failed SIP operation does not release the worker lease or its controller
+connections.
+
+A deterministic failure attributed to one selected native context may park that
+incarnation. Parking checks the exact observed revision and live worker under
+the current Redis primary and profile and retains all existing records, indexes
+and physical write evidence. New publications and reservations for the parked
+incarnation are refused, but physical completion of a previously reserved
+attempt can still report its exact outcome. An unknown write never authorizes
+another attempt.
+
+Parking also schedules abandonment on the existing coordinator expiry index.
+The deadline allows a fixed two-minute grace after parking and after any
+already authorized physical output deadline. At expiry, the coordinator
+atomically drops the exact parked incarnation, releases its admission charge,
+and removes its selectors, deadlines, ready projections and application
+membership. It uses the bounded context hash and up to 512 binary reverse
+selectors, without decoding SIP records or scanning the namespace. This is
+local abandonment of a failed call. It produces no SIP output and assigns no
+outcome to an uncertain write. Any process-local retry must reach its original
+cutoff before the state is discarded. Other application commands continue to
+use their own original completion deadlines.
+
+The worker logs parking and successful abandonment as structured events on
+stderr, with the retained context and incarnation, revision, and the failed
+work when available. The log carries no SIP payload or credential data.
+The marker and expiry member are bounded maintenance metadata, with one of
+each per parked admission slot.
+
+Timer, ready-output, expired-application and expired-worker selection must
+advance past unusable entries in bounded pages. Keep the original index scores
+and ownership membership intact. If a selection lacks trustworthy context
+identity, skip the raw entry without inventing an owner or outcome. After a
+pass with no usable work, wait for an invalidation or the next ordinary lease
+renewal. A callback panic is contained to its exact selected operation.
+
+The Redis profile binds this behavior. Start these workers with a fresh state
+generation so older workers cannot select parked calls. The SIP Redis user
+requires `SSCAN` for bounded traversal of an expired application's owned set
+and `HKEYS` and `UNLINK` for inspecting and releasing one parked context.
 
 Lifecycle delivery has eight independent bounded application calls. Before launching one, reserve its next retry eligibility by advancing the existing event's `NextMs` in a definite fenced publication. The call deadline is captured before that publication and cannot exceed two seconds or the original event cutoff. Reserve the next existing backoff interval once; a failed reply uses that same interval. If the lane is full or the same event is already active, postpone only its eligibility by at most one second, without increasing its backoff. Already-expired debt is consumed even when the lane is full. These are scheduling changes to the existing event, not a claim, fresh-request queue or additional index. They move blocked event heads so native SIP deadlines can continue.
 

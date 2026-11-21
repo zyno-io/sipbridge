@@ -54,7 +54,7 @@ func releaseExpiredRedisCall(ctx context.Context, store *rediscore.Store, item r
 		if dialog.Native.Version != portable.Version || dialog.Native.CallID != current.CallId {
 			return errNativeRecord
 		}
-		if dialog.Refs.LocalBye != "" {
+		if dialog.Native.Phase == portable.DialogEnded || dialog.Refs.LocalBye != "" {
 			continue
 		}
 		lateOffer := dialog.Native.LocalInvite != nil && dialog.Native.LocalInvite.Initial && dialog.Native.LocalInvite.State == portable.InviteAwaitingACK && dialog.Native.Offer == portable.RemoteOfferInACK && dialog.Refs.Local != nil && dialog.Refs.Local.ACK == "" && !dialog.Metadata.AckWritten
@@ -109,19 +109,11 @@ func releaseExpiredRedisCall(ctx context.Context, store *rediscore.Store, item r
 			return e
 		}
 		if lateOffer {
-			terminated, effects, e := portable.StepDialog(restored, portable.DialogInput{Kind: portable.DialogTerminate, Now: time.Now().UnixMilli()})
+			terminated, canceled, e := endRedisDialogWithoutBYE(restored, field, time.Now().UnixMilli())
 			if e != nil {
 				return e
 			}
-			for _, effect := range effects {
-				switch effect.Kind {
-				case portable.Ended:
-				case portable.CancelTimer:
-					timers = append(timers, rediscore.TimerChange{Member: callDialogTimerMember(field, effect.Timer), Delete: true})
-				default:
-					return errNativeRecord
-				}
-			}
+			timers = append(timers, canceled...)
 			data, e := encodeNativeDialog(terminated, dialog.Refs, dialog.Metadata)
 			if e != nil {
 				return e

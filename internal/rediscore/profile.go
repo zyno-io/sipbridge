@@ -85,6 +85,7 @@ func BindProfile(cfg ProfileConfig) (ProfileBinding, error) {
 		text("instance-admission-v2")
 	}
 	text("command-refusal-status-v1")
+	text("context-fault-abandonment-packed-reverse-selectors-v1")
 	generation, err := managedGeneration(cfg.Root, cfg.Generation)
 	if err != nil {
 		return ProfileBinding{}, err

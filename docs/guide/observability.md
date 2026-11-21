@@ -71,6 +71,14 @@ and stopped its in-flight work. It carries only a fixed `stage` and
 occurrences during a Redis failover are expected; frequent ones point to Redis
 or network trouble.
 
+### `sipbridge-native-context-parked` and `sipbridge-native-context-abandoned`
+
+Redis state isolation emits these events to stderr. Match the opaque `context`
+and `incarnation` to trace one failed call from isolation to automatic
+retirement. Both events carry the selected `revision`. The parking event also
+carries the error `category`, work type, and the timer or output reference when
+known. These events omit SIP payloads and credentials.
+
 ### `sipbridge-control-failure`
 
 A control session read, write, protocol or heartbeat failure. Fields: `Event`,

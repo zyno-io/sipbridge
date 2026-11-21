@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -236,6 +237,13 @@ func TestIngressDrainHardDeadlineDoesNotWaitForFlowLock(t *testing.T) {
 	}
 }
 
+func TestIngressDrainReportsShareHardDeadline(t *testing.T) {
+	i, _, _ := drainFixture(t)
+	i.drainReports.Add(1)
+	// The outstanding report never settles. It must not add a two-second tail.
+	requireDrainDone(t, startDrain(t, i, 50*time.Millisecond))
+}
+
 type drainWriteConn struct {
 	net.Conn
 	started chan struct{}
@@ -274,7 +282,17 @@ func TestIngressDrainStartedWriteStaysUnknownAndUnstartedStaysNotWritten(t *test
 			case <-time.After(time.Second):
 				t.Fatal("write did not reach barrier")
 			}
-			done := startDrain(t, i, 50*time.Millisecond)
+			idleLocal, idlePeer := net.Pipe()
+			defer idleLocal.Close()
+			defer idlePeer.Close()
+			if _, err := i.addStream(idleLocal, "192.0.2.2", 5061, "tls"); err != nil {
+				t.Fatal(err)
+			}
+			done := startDrain(t, i, 500*time.Millisecond)
+			idlePeer.SetReadDeadline(time.Now().Add(250 * time.Millisecond))
+			if _, err := idlePeer.Read(make([]byte, 1)); err != io.EOF {
+				t.Fatalf("idle stream stayed open for a write on another stream: %v", err)
+			}
 			if blocked == "reserve" {
 				until := time.Now().Add(time.Second)
 				for !f.closed.Load() && time.Now().Before(until) {
@@ -324,9 +342,11 @@ func TestIngressDrainClosesListenerAndFencesNewAdmission(t *testing.T) {
 		conn.Close()
 		t.Fatal("draining listener accepted connection")
 	}
-	request := drainMessageObservation(drainRequest(t, "INVITE", 4, ""))
-	if i.beginDrainRoute(f, request) {
-		t.Fatal("new session admitted during drain")
+	for _, tag := range []string{"", "established"} {
+		request := drainMessageObservation(drainRequest(t, "INVITE", 4, tag))
+		if i.beginDrainRoute(f, request) {
+			t.Fatal("new transaction admitted during drain")
+		}
 	}
 	local, remote := net.Pipe()
 	defer local.Close()
@@ -417,6 +437,23 @@ func TestIngressDrainNativeReplayPrecedesSessionRefusal(t *testing.T) {
 				t.Fatal("completion-only route leaked drain admission")
 			}
 		})
+	}
+}
+
+func TestIngressDrainFreshDialogByeDoesNotEnterNativeCompletion(t *testing.T) {
+	i, flow, _ := drainFixture(t)
+	i.draining.Store(true)
+	i.stateCompletion = func(context.Context, *pb.FlowRef, *pb.SipMessage) (bool, error) {
+		t.Fatal("fresh BYE reached the dialog mutation path")
+		return false, nil
+	}
+	parsed := drainRequest(t, "BYE", 2, "established")
+	message := projectObservedMessage([]byte(parsed.String()), parsed, false)
+	var status int
+	i.routeWithin(context.Background(), flow, message, func(code int) { status = code },
+		func() { t.Fatal("unexpected unavailable path") }, drainMessageObservation(parsed))
+	if status != 503 {
+		t.Fatalf("draining refused BYE with %d, want 503", status)
 	}
 }
 

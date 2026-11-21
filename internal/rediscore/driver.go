@@ -27,11 +27,12 @@ type DriverConfig struct {
 
 // DriverDiagnostic contains only bounded, non-sensitive diagnostic labels.
 type DriverDiagnostic struct {
-	Stage    string `json:"stage"`
-	Category string `json:"category"`
+	Stage        string `json:"stage"`
+	Category     string `json:"category"`
+	WorkerFenced bool   `json:"-"`
 }
 
-func (d *Driver) diagnostic(stage string, err error) {
+func (d *Driver) diagnostic(stage string, err error, workerFenced bool) {
 	if d.cfg.OnDiagnostic == nil {
 		return
 	}
@@ -55,7 +56,7 @@ func (d *Driver) diagnostic(stage string, err error) {
 	}
 	// An observer cannot undo a fence or crash the driver.
 	defer func() { _ = recover() }()
-	d.cfg.OnDiagnostic(DriverDiagnostic{Stage: stage, Category: category})
+	d.cfg.OnDiagnostic(DriverDiagnostic{Stage: stage, Category: category, WorkerFenced: workerFenced})
 }
 
 type Driver struct {
@@ -162,12 +163,13 @@ func (d *Driver) fenceLocked() {
 func (d *Driver) fenceDiagnostic(wake *Wake, stage string, err error) {
 	d.mu.Lock()
 	selected := wake != nil && d.wake == wake
+	workerFenced := selected && d.store != nil
 	if selected {
 		d.fenceLocked()
 	}
 	d.mu.Unlock()
 	if selected {
-		d.diagnostic(stage, err)
+		d.diagnostic(stage, err, workerFenced)
 	}
 }
 
@@ -212,7 +214,7 @@ func (d *Driver) publish(store *Store, wake *Wake, until time.Time, fresh bool) 
 		}
 		d.mu.Unlock()
 		if selected {
-			d.diagnostic("watchdog", ErrExpired)
+			d.diagnostic("watchdog", ErrExpired, true)
 		}
 	})
 	return true
@@ -357,7 +359,7 @@ func (d *Driver) Run(parent context.Context) error {
 				renewAt = time.Time{}
 			} else {
 				if ctx.Err() == nil {
-					d.diagnostic(stage, err)
+					d.diagnostic(stage, err, false)
 				}
 				reset(WorkerRenewInterval)
 				select {

@@ -43,6 +43,7 @@ type physicalFlow struct {
 	capture       *capture.Exporter
 	drainHints    map[drainHintKey]time.Time
 	drainRoutes   int
+	drainWrites   atomic.Int64
 	drainUnknown  bool
 }
 
@@ -384,6 +385,13 @@ func (i *Ingress) routeWithinParsed(ctx context.Context, flow *physicalFlow, mes
 	if !completionOnly && i.requiresLocalChallenge(message) {
 		timing.Outcome = "local-challenge"
 		i.challengeLocally(ctx, flow, message, parsed)
+		return
+	}
+	// A tagged BYE can start a new dialog operation in the native completion
+	// handler. Only an already admitted BYE goes through that handler in drain.
+	if completionOnly && message.GetMethod() == "BYE" && !observation[0].Initial {
+		timing.Outcome = "draining"
+		reject(503)
 		return
 	}
 	if i.directCompletion != nil || i.directRequest != nil {

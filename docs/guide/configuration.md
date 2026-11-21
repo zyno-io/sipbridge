@@ -75,8 +75,8 @@ an existing dialog to a different transport or connection.
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--sip-withdrawal-grace` | `5s` | After `SIGTERM`, how long idle connections stay open before they are closed, 0 to 60 seconds. |
-| `--sip-drain-timeout` | `40s` | Total time from `SIGTERM` until every remaining connection is closed. Must be longer than the grace and at most 2 minutes. |
+| `--sip-withdrawal-grace` | `3s` | Time to keep accepting and serving SIP after withdrawing readiness on `SIGTERM`, 0 to 60 seconds. |
+| `--sip-drain-timeout` | `65s` | Total time from `SIGTERM` to process exit, including completion reporting. Must exceed the grace and be at most 2 minutes. |
 
 See [Replacing a process](./deployment.md#replacing-a-process) for what
 happens during the drain.

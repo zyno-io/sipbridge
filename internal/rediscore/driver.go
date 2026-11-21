@@ -28,17 +28,18 @@ type DriverConfig struct {
 
 // DriverDiagnostic carries bounded operation labels and opaque native references.
 type DriverDiagnostic struct {
-	Stage       string `json:"stage"`
-	Category    string `json:"category"`
-	Context     string `json:"context,omitempty"`
-	Incarnation string `json:"incarnation,omitempty"`
-	Revision    string `json:"revision,omitempty"`
-	Work        string `json:"work,omitempty"`
-	Member      string `json:"member,omitempty"`
+	WorkerFenced bool   `json:"-"`
+	Stage        string `json:"stage"`
+	Category     string `json:"category"`
+	Context      string `json:"context,omitempty"`
+	Incarnation  string `json:"incarnation,omitempty"`
+	Revision     string `json:"revision,omitempty"`
+	Work         string `json:"work,omitempty"`
+	Member       string `json:"member,omitempty"`
 }
 
-func (d *Driver) diagnostic(stage string, err error) {
-	d.report(DriverDiagnostic{Stage: stage, Category: d.diagnosticCategory(err)})
+func (d *Driver) diagnostic(stage string, err error, workerFenced bool) {
+	d.report(DriverDiagnostic{Stage: stage, Category: d.diagnosticCategory(err), WorkerFenced: workerFenced})
 }
 
 func (d *Driver) diagnosticCategory(err error) string {
@@ -140,7 +141,7 @@ func (d *Driver) isolate(ctx context.Context, store *Store, id Identity, revisio
 		d.report(DriverDiagnostic{Stage: "context-parked", Category: d.diagnosticCategory(err), Context: id.Context,
 			Incarnation: id.Incarnation, Revision: strconv.FormatUint(revision, 10), Work: work, Member: member})
 	} else if !errors.Is(e, ErrConflict) && !errors.Is(e, ErrAbsent) {
-		d.diagnostic("item-park", e)
+		d.diagnostic("item-park", e, false)
 	}
 }
 
@@ -182,12 +183,13 @@ func (d *Driver) fenceLocked() {
 func (d *Driver) fenceDiagnostic(wake *Wake, stage string, err error) {
 	d.mu.Lock()
 	selected := wake != nil && d.wake == wake
+	workerFenced := selected && d.store != nil
 	if selected {
 		d.fenceLocked()
 	}
 	d.mu.Unlock()
 	if selected {
-		d.diagnostic(stage, err)
+		d.diagnostic(stage, err, workerFenced)
 	}
 }
 
@@ -232,7 +234,7 @@ func (d *Driver) publish(store *Store, wake *Wake, until time.Time, fresh bool) 
 		}
 		d.mu.Unlock()
 		if selected {
-			d.diagnostic("watchdog", ErrExpired)
+			d.diagnostic("watchdog", ErrExpired, true)
 		}
 	})
 	return true
@@ -377,7 +379,7 @@ func (d *Driver) Run(parent context.Context) error {
 				renewAt = time.Time{}
 			} else {
 				if ctx.Err() == nil {
-					d.diagnostic(stage, err)
+					d.diagnostic(stage, err, false)
 				}
 				reset(WorkerRenewInterval)
 				select {
@@ -475,7 +477,7 @@ func (d *Driver) Run(parent context.Context) error {
 					lastDue.Member == due.Member && lastDue.Assignment == due.Assignment
 				switch {
 				case e != nil:
-					d.diagnostic("item-peek-due", e)
+					d.diagnostic("item-peek-due", e, false)
 					dueRank, dueAfter = 0, current.Add(WorkerRenewInterval)
 				case due == nil:
 					dueRank = next
@@ -508,7 +510,7 @@ func (d *Driver) Run(parent context.Context) error {
 					member, next, future, e := store.ownerPage(leaseCtx, d.cfg.Worker, d.cfg.Epoch, ownerPass.rank)
 					switch {
 					case e != nil:
-						d.diagnostic("item-peek-owner", e)
+						d.diagnostic("item-peek-owner", e, false)
 						ownerPass = driverOwnerPass{after: current.Add(WorkerRenewInterval)}
 					case member == "":
 						ownerPass.rank = next
@@ -541,7 +543,7 @@ func (d *Driver) Run(parent context.Context) error {
 					if len(ownerPass.items) == 0 && !ownerPass.scanDone {
 						page, e := store.peekExpiredApplicationPage(leaseCtx, d.cfg.Worker, d.cfg.Epoch, strings.TrimPrefix(member, "a-"), MaxExpiredApplicationBatch, ownerPass.scan)
 						if e != nil {
-							d.diagnostic("item-peek-application", e)
+							d.diagnostic("item-peek-application", e, false)
 							ownerPass.advance(errors.Is(e, ErrAbsent))
 						} else {
 							ownerPass.items, ownerPass.scan = page.Contexts, page.next
@@ -581,7 +583,7 @@ func (d *Driver) Run(parent context.Context) error {
 			}
 			outputs, next, e := store.peekReadyPage(leaseCtx, d.cfg.Worker, d.cfg.Epoch, pageSize, readyRank)
 			if e != nil {
-				d.diagnostic("item-peek-ready", e)
+				d.diagnostic("item-peek-ready", e, false)
 				readyRank, readyAfter = 0, current.Add(WorkerRenewInterval)
 			} else {
 				found := false
@@ -644,7 +646,7 @@ func (d *Driver) Run(parent context.Context) error {
 		case r := <-results:
 			finish(r)
 			if r.err != nil && !errors.Is(r.err, ErrConflict) && !errors.Is(r.err, ErrAbsent) && !errors.Is(r.err, ErrParked) {
-				d.diagnostic("item-"+r.stage, r.err)
+				d.diagnostic("item-"+r.stage, r.err, false)
 			}
 			switch r.stage {
 			case "due":

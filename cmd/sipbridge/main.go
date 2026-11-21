@@ -266,7 +266,7 @@ func run() (runErr error) {
 		event := "sipbridge-native-driver-fence"
 		stream := os.Stdout
 		switch {
-		case d.Stage == "context-parked", d.Stage == "context-abandoned":
+		case d.Stage == "context-parked", d.Stage == "context-abandoned", d.Stage == "generation-cleanup", d.Stage == "generation-heartbeat":
 			event, stream = "sipbridge-native-"+d.Stage, os.Stderr
 		case strings.HasPrefix(d.Stage, "item-"):
 			event = "sipbridge-native-work-error"

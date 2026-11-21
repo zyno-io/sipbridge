@@ -86,6 +86,13 @@ func BindProfile(cfg ProfileConfig) (ProfileBinding, error) {
 	}
 	text("command-refusal-status-v1")
 	text("context-fault-abandonment-packed-reverse-selectors-v1")
+	generation, err := managedGeneration(cfg.Root, cfg.Generation)
+	if err != nil {
+		return ProfileBinding{}, err
+	}
+	if generation.id != "" {
+		text("managed-generation-v1")
+	}
 	for _, kind := range []byte{storagecodec.SelectedMessage, storagecodec.NativeContext, storagecodec.NativeProcedure, storagecodec.NativeDialog,
 		storagecodec.NativeSubscription, storagecodec.NativeResult, storagecodec.NativeLifecycle, storagecodec.NativeOutput} {
 		tuple = append(tuple, kind)

@@ -36,6 +36,9 @@ type DriverDiagnostic struct {
 	Revision     string `json:"revision,omitempty"`
 	Work         string `json:"work,omitempty"`
 	Member       string `json:"member,omitempty"`
+	Pool         string `json:"pool,omitempty"`
+	Generation   string `json:"generation,omitempty"`
+	KeysRemoved  int64  `json:"keysRemoved,omitempty"`
 }
 
 func (d *Driver) diagnostic(stage string, err error, workerFenced bool) {
@@ -338,6 +341,8 @@ func (d *Driver) Run(parent context.Context) error {
 		dirtyProbe = false
 		attempts = 0
 	}
+	var generation generationMaintenance
+	defer generation.jobs.Wait()
 	defer disconnect("", nil)
 	finish := func(r result) {
 		jobs--
@@ -463,6 +468,9 @@ func (d *Driver) Run(parent context.Context) error {
 			continue
 		}
 		current := time.Now()
+		if d.cfg.Connection.generation.id != "" {
+			generation.schedule(d, store, leaseCtx, lease.Coordinator, current)
+		}
 		// Dirty hints never select work. One bounded authoritative probe can still
 		// make progress while the next stable subscription generation is pending.
 		dueEligible := !current.Before(dueAfter) && (headValid && lease.Head.Context != "" && !current.Before(headAt) || !headValid && dirtyProbe)

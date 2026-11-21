@@ -588,6 +588,33 @@ A native ACK/response handled on another worker commits the actual protocol upda
 
 Measure selected records/bytes decoded and encoded, round trips, retained bytes, heap/RSS and native CPU for these cases. Counts must remain independent of retired history. Use fault injection for lost commit/reserve/completion replies, missed hints, owner death during transfer and completion after reassignment. Keep the existing SIP reducers and exact-wire goldens as semantic oracles.
 
+## Redis generation retirement
+
+Canonical positive decimal generation IDs enable automatic retirement.
+Allocate a strictly increasing ID for each incompatible cutover or rollback.
+The per-pool hash retains the greatest opened ID and one last-seen timestamp
+per tracked generation. Profile initialization and enrollment are atomic.
+A missing profile can only be initialized with an ID above the greatest
+opened ID. A worker on an existing compatible profile can continue serving
+and update its timestamp until that profile is retired. Existing nonnumeric
+generation IDs retain their startup behavior and are outside automatic cleanup.
+
+Managed workers record last-seen time on initial binding and once per minute
+while leased. A coordinator inspects its pool registry every fifteen minutes.
+After an earlier generation has been quiet for an hour and has no live
+coordinator, a primary-fenced script claims it with an expiring token and
+deletes its profile atomically. Existing commands require that profile.
+The high-water ID prevents a cleaned generation from bootstrapping again.
+
+Cleanup runs outside the SIP work lanes. It scans the exact old generation
+prefix and unlinks keys with the native Redis key shapes in paced batches.
+Keys from nested legacy scopes can share the scan prefix and are left alone.
+Verify the current Redis primary, live serving profile and claim token before
+unlinking or finalizing. After a full scan, remove the old heartbeat entry
+and claim together. An interrupted sweep leaves the heartbeat entry for a
+future retry. The pool's high-water ID survives cleanup, with no per-generation
+tombstone. Pool authorization must cover the registry and its generations.
+
 ## Cutover
 
 Explicit `redis` selection uses the composed runtime defined in [Runtime](runtime.md#native-ownership-domains). The checkpoint execution/JSON path is not a serving alternative or legacy reader. The private binary format has an explicit compatibility identity. Keep the application control schema/JSON profile unchanged unless a deliberate observable contract change is required. The binary Redis runtime MUST use the same direct `sip.request-decision.v1` request path as Memory, without the checkpoint routing/presentation alternative. The negotiated capability and public wire contract are shared with Memory; verify every producer and consumer together. Initial INVITE setup may fail during a core outage, but this does not introduce a non-persisted initial-procedure path, a public API change or a routing-affinity exception. Any pending native procedure required for matching and any-worker semantics remains uniform and bounded; it is not an application job queue.

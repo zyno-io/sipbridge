@@ -140,6 +140,9 @@ func fireRedisInitialInviteACKTimeout(ctx context.Context, store *rediscore.Stor
 		_, e = store.Commit(ctx, rediscore.Publication{Identity: due.Identity, Revision: due.Revision, Deadline: deadline, SpendReservation: true, Changes: []rediscore.Change{{Field: dialogField, Value: data}}, Timers: &rediscore.TimerMutation{Expected: due.Assignment, Target: due.Assignment, RequireLease: true, Changes: []rediscore.TimerChange{{Member: due.Member, Delete: true}}}})
 		return e
 	}
+	if len(current.InitialProcedures)+len(current.NoninitialProcedures) >= stateNativeProcedures {
+		return terminateRedisFullCallAfterACKTimeout(ctx, store, due, current, dialogField, dialog, timed, deadline)
+	}
 	branch := sip.RFC3261BranchMagicCookie + nativeIdentity(key, "owner-loss-bye", due.Identity.Incarnation, dialogField)[:32]
 	candidate, eligible, err := nativePrepareOwnerBye(timed, dialog.Metadata.AckWritten, true, branch, due.CheckedAtMS)
 	if err != nil || !eligible {
@@ -244,6 +247,56 @@ func fireRedisInitialInviteACKTimeout(ctx context.Context, store *rediscore.Stor
 	changes := []rediscore.Change{{Field: "r:context", Value: contextBytes}, {Field: dialogField, Value: dialogBytes}, {Field: procedureField, Value: procedureBytes}}
 	changes = append(changes, outputChanges...)
 	_, err = store.Commit(ctx, rediscore.Publication{Identity: due.Identity, Revision: view.Revision, Deadline: until, SpendReservation: true, Changes: changes, NewOutputs: []rediscore.OutputIntent{intent}, Selectors: []rediscore.SelectorChange{{Selector: originSelectors[0], Record: procedureField}}, Timers: &rediscore.TimerMutation{Expected: due.Assignment, Target: due.Assignment, RequireLease: true, Changes: timers}})
+	return err
+}
+
+// A full call has no room for another wire attempt. End just this dialog and
+// keep the earlier procedures, proof and deadlines available for retirement.
+func terminateRedisFullCallAfterACKTimeout(ctx context.Context, store *rediscore.Store, due *rediscore.DueContext, current *nativepb.Context, dialogField string, dialog nativeDialogRecord, timed portable.Dialog, deadline time.Time) error {
+	ended, timers, err := endRedisDialogWithoutBYE(timed, dialogField, due.CheckedAtMS)
+	if err != nil {
+		return err
+	}
+	timers = append(timers, rediscore.TimerChange{Member: due.Member, Delete: true})
+	data, err := encodeNativeDialog(ended, dialog.Refs, dialog.Metadata)
+	if err != nil {
+		return err
+	}
+	changes := []rediscore.Change{{Field: dialogField, Value: data}}
+	if !current.Ended && current.LocalTag == ended.LocalTag && current.RemoteTag == ended.RemoteTag {
+		if current.Revision >= 1<<53-1 || due.CheckedAtMS > 1<<53-1-(2*time.Minute).Milliseconds() {
+			return errNativeRecord
+		}
+		current.Ended = true
+		current.Revision++
+		cutoff := due.CheckedAtMS + (2 * time.Minute).Milliseconds()
+		if current.CallRetireAtMs == 0 {
+			current.CallRetireAtMs = cutoff
+		}
+		snapshot, e := nativeProjectSnapshot(current, &ended, nil, nil)
+		if e != nil {
+			return e
+		}
+		eventField := "event-" + uuid.NewString()
+		event, e := encodeNativeLifecycle(&nativepb.Lifecycle{Kind: pb.DialogEvent_ENDED, Snapshot: snapshot, DeadlineMs: cutoff, NextMs: due.CheckedAtMS})
+		if e != nil {
+			return e
+		}
+		contextData, e := encodeNativeContext(current)
+		if e != nil {
+			return e
+		}
+		changes = append(changes, rediscore.Change{Field: "r:context", Value: contextData}, rediscore.Change{Field: "r:" + eventField, Value: event})
+		timers = append(timers, rediscore.TimerChange{Member: eventField, Due: time.UnixMilli(due.CheckedAtMS)})
+	}
+	if current.Ended {
+		if current.CallRetireAtMs <= 0 {
+			return errNativeRecord
+		}
+		timers = append(timers, rediscore.TimerChange{Member: "call-retire", Due: time.UnixMilli(current.CallRetireAtMs)})
+	}
+	_, err = store.Commit(ctx, rediscore.Publication{Identity: due.Identity, Revision: due.Revision, Deadline: deadline, SpendReservation: true,
+		Changes: changes, Timers: &rediscore.TimerMutation{Expected: due.Assignment, Target: due.Assignment, RequireLease: true, Changes: timers}})
 	return err
 }
 

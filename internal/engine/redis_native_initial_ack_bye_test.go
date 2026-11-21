@@ -429,6 +429,7 @@ func testRedisInitialACKAfterApplicationBYE(t *testing.T, ctx context.Context, e
 			if x != nil || len(bye.Events) != 0 || bye.Origin != receipt.Request || bye.LastResponse != receipt.Response || !slices.Contains(bye.Outputs, receipt.Output) || len(owned.Records[receipt.Request]) == 0 || len(owned.Records[receipt.Response]) == 0 {
 				t.Fatal("application BYE exact response owners changed", x)
 			}
+			testRedisBYECutoffAfterRemoteInviteRetirement(t, ctx, e, store, identity, dialogField, output.Procedure, receipt.Output, receipt.Response)
 			break
 		}
 	}
@@ -500,6 +501,74 @@ func testRedisInitialACKAfterApplicationBYE(t *testing.T, ctx context.Context, e
 		case <-time.After(time.Millisecond):
 		case <-ctx.Done():
 			t.Fatal("fresh INVITE consumer did not acknowledge", ctx.Err())
+		}
+	}
+}
+
+func testRedisBYECutoffAfterRemoteInviteRetirement(t *testing.T, ctx context.Context, e *redisNative, store *rediscore.Store, identity rediscore.Identity, dialogField, byeField, outputField, responseField string) {
+	t.Helper()
+	view, err := store.Read(ctx, identity, dialogField)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialog, err := readPrivateDialogRecord(view.Records[dialogField])
+	if err != nil || dialog.Transaction == "" {
+		t.Fatal("expected a selected remote INVITE transaction", err)
+	}
+	parent, err := store.LookupSelector(ctx, nativeSelector(rediscore.SelectorServerTransaction, dialog.Transaction))
+	if err != nil {
+		t.Fatal(err)
+	}
+	procedure, err := readPrivateProcedureRecord(parent.View.Records[parent.Record])
+	if err != nil || procedure.Native.Timers == nil {
+		t.Fatal("expected a retained remote INVITE procedure", err)
+	}
+	timer := procedure.Native.Timers.Values[string(portable.TimerL)]
+	if timer == nil || !timer.Active {
+		t.Fatal("expected active remote INVITE Timer L")
+	}
+	// Advance the real server timer to its selected logical deadline. Its
+	// resulting retirement must precede the local BYE output cutoff.
+	due := &rediscore.DueContext{Identity: parent.Identity, Revision: parent.View.Revision, Assignment: parent.View.Timer,
+		Member: "call-tx-" + procedure.RequestId + "-L", DeadlineMS: timer.At, CheckedAtMS: timer.At}
+	if err = fireRedisInviteServerTimer(ctx, store, due, time.Now().Add(time.Second)); err != nil {
+		t.Fatal("remote INVITE Timer L", err)
+	}
+	view, err = store.Read(ctx, identity, parent.Record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	due.Revision, due.Assignment, due.Member = view.Revision, view.Timer, "call-proc-"+procedure.RequestId
+	if err = retireRedisDialogServerProcedure(ctx, store, e.cfg.StateIdentityKey, due, time.Now().Add(time.Second)); err != nil {
+		t.Fatal("remote INVITE retirement", err)
+	}
+	view, err = store.Read(ctx, identity, dialogField, parent.Record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialog, err = readPrivateDialogRecord(view.Records[dialogField])
+	if err != nil || dialog.Transaction != "" || dialog.RemoteInvite == nil || len(view.Records[parent.Record]) != 0 {
+		t.Fatal("remote INVITE retirement did not preserve only the dialog references", err)
+	}
+	for {
+		if err = e.Ready(); err != nil {
+			t.Fatal("local BYE cutoff fenced the worker after remote INVITE retirement", err)
+		}
+		view, err = store.Read(ctx, identity, byeField, outputField, "r:result-6", responseField)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(view.Records[outputField]) == 0 {
+			receipt, err := decodeNativeResult(view.Records["r:result-6"])
+			if err != nil || receipt.GetOutput() != "" || receipt.GetResponse() != responseField || len(view.Records[responseField]) == 0 || len(view.Records[byeField]) != 0 {
+				t.Fatal("BYE did not retire while preserving its final response", err)
+			}
+			break
+		}
+		select {
+		case <-time.After(5 * time.Millisecond):
+		case <-ctx.Done():
+			t.Fatal("BYE output did not retire", ctx.Err())
 		}
 	}
 }

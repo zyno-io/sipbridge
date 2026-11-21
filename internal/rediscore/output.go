@@ -239,13 +239,14 @@ local function output()
 end
 `
 
-var reserveOutputScript = redis.NewScript(outputScript + `
+var reserveOutputScript = redis.NewScript(outputScript + parkedScript + `
 local problem=guard(); if problem then return fail(problem) end
 if not kind(KEYS[3],'hash') or not kind(KEYS[4],'zset') then return fail('CORRUPT') end
 local out; out,problem=output(); if problem then return fail(problem) end
 local a=out.values
 if a[8]=='S' or a[8]=='U' then return {'UNKNOWN'} end
 if a[8]=='W' then return {'DONE','WRITTEN'} elseif a[8]=='N' then return {'DONE','NOT_WRITTEN'} end
+if parked(string.sub(KEYS[1],1,#KEYS[1]-#'core:profile'),ARGV[9],ARGV[2]) then return fail('PARKED') end
 local lo=number(ARGV[10]); local hi=number(ARGV[11]); if not lo or not hi or hi<lo then return fail('CORRUPT') end
 local clock=redis.call('TIME'); local now=tonumber(clock[1])*1000+math.floor(tonumber(clock[2])/1000)
 if now<lo or now>hi then return fail('EXPIRED') end

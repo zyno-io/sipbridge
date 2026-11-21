@@ -49,7 +49,13 @@ func testRedisNativeOpenUACCommand(t *testing.T, cancelLookup int) {
 	if address == "" {
 		t.Skip("isolated Redis fixture required")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	timeout := 10 * time.Second
+	if cancelLookup == 4 {
+		// The capacity case drives 65 calls serially under the race detector.
+		// Keep the fixture deadline below the original UDP Timer D.
+		timeout = 25 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	root := "sipstate:test:native-uac-open-" + uuid.NewString() + ":"
 	key := bytes.Repeat([]byte{7}, 32)
@@ -134,8 +140,13 @@ func testRedisNativeOpenUACCommand(t *testing.T, cancelLookup int) {
 			result.Outcome, result.Recorded = reserved.Outcome, true
 			return result
 		}
-		if previousACK != nil && previousACK.selectWrite(reserved.Wire, transport) {
-			return previousACK.write(ctx, engine, write, reserved.Wire, written)
+		if previousACK != nil && isRedisHoldACK(reserved.Wire, transport) {
+			if previousACK.used.CompareAndSwap(false, true) {
+				return previousACK.write(ctx, engine, write, reserved.Wire, written)
+			}
+			if cancelLookup == 11 {
+				defer func() { previousACK.replayed <- struct{}{} }()
+			}
 		}
 		select {
 		case written <- bytes.Clone(reserved.Wire):

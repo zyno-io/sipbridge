@@ -91,7 +91,8 @@ func (s *Store) ownerPage(ctx context.Context, worker, epoch string, offset int)
 	member, ok := v[1].(string)
 	n, err := responseInt(v[2])
 	if !ok || err != nil || n != 0 && (n < int64(offset) || n > int64(offset+nativeWorkPage)) || member != "" &&
-		(len(member) < 3 || len(member) > 192 || !reference(member) || !strings.HasPrefix(member, "a-") && !strings.HasPrefix(member, "w-")) {
+		(len(member) < 3 || !reference(member[2:]) ||
+			!strings.HasPrefix(member, "p-") && (len(member) > 192 || !strings.HasPrefix(member, "a-") && !strings.HasPrefix(member, "w-"))) {
 		return "", 0, time.Time{}, ErrCorrupt
 	}
 	if len(v) == 4 {
@@ -116,7 +117,7 @@ local rows=redis.call('ZRANGE',KEYS[4],offset,offset+limit-1,'WITHSCORES')
 for i=1,#rows,2 do
  local member,due=rows[i],number(rows[i+1])
  if due and due>now then return {'OK','','0',string.format('%.0f',due-now)} end
- if due and due>0 and #member<=192 and string.match(member,'^[aw]%-[A-Za-z0-9_-]+$') then
+ if due and due>0 and ((#member<=192 and string.match(member,'^[aw]%-[A-Za-z0-9_-]+$')) or (#member<=194 and string.match(member,'^p%-[A-Za-z0-9_-]+$'))) then
   return {'OK',member,tostring(offset+math.floor(i/2))}
  end
 end

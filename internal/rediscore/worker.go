@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -105,7 +106,8 @@ func (s *Store) RenewWorker(ctx context.Context, req WorkerLeaseRequest) (Worker
 	coordinator, ok2 := values[5].(string)
 	ownerID, ok3 := values[6].(string)
 	ready, ok4 := values[8].(string)
-	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || !ok1 || !ok2 || !ok3 || !ok4 || (coordinator != "0" && coordinator != "1") || (ready != "0" && ready != "1") || (contextID != "" && !reference(contextID)) || (ownerID != "" && !reference(ownerID)) || (contextID == "") != (due == 0) || (ownerID == "") != (ownerDue == 0) || (coordinator == "0" && ownerID != "") || until != now+WorkerLeaseLifetime.Milliseconds() {
+	validOwner := ownerID == "" || reference(ownerID) || strings.HasPrefix(ownerID, "p-") && reference(ownerID[2:])
+	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || !ok1 || !ok2 || !ok3 || !ok4 || (coordinator != "0" && coordinator != "1") || (ready != "0" && ready != "1") || (contextID != "" && !reference(contextID)) || !validOwner || (contextID == "") != (due == 0) || (ownerID == "") != (ownerDue == 0) || (coordinator == "0" && ownerID != "") || until != now+WorkerLeaseLifetime.Milliseconds() {
 		return WorkerLease{}, errors.Join(ErrUnknown, ErrCorrupt)
 	}
 	elapsed := finish.Sub(start)
@@ -150,7 +152,8 @@ local function ownerHeadAfterRenew(k,member,due)
  local rows=redis.call('ZRANGE',k,0,1,'WITHSCORES');local selected,score=member,due
  for i=1,#rows,2 do
   if rows[i]~=member then
-   local n=uint(rows[i+1]);if not n or n==0 or #rows[i]>192 or not string.match(rows[i],'^[A-Za-z0-9_-]+$') then return 'inspect','1' end
+   local n=uint(rows[i+1]);local max=#rows[i]>=2 and string.sub(rows[i],1,2)=='p-' and 194 or 192
+   if not n or n==0 or #rows[i]>max or not string.match(rows[i],'^[A-Za-z0-9_-]+$') then return 'inspect','1' end
    if n<score or (n==score and rows[i]<selected) then selected,score=rows[i],n end
    break
   end

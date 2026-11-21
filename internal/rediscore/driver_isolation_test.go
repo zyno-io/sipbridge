@@ -223,6 +223,92 @@ func TestDriverReleasesHealthyExpiredOwnerBesideParkedContext(t *testing.T) {
 	}
 }
 
+func TestDriverAbandonsParkedContextAndReleasesItsIndexes(t *testing.T) {
+	ctx := context.Background()
+	bad := Identity{Context: "parked", Incarnation: "bad-inc", Owner: "app", Term: "term"}
+	good := Identity{Context: "healthy", Incarnation: "good-inc"}
+	nativeFault := errors.New("invalid selected native record")
+	events := make(chan DriverDiagnostic, 8)
+	f := startIsolationDriver(t, DriverConfig{
+		NativeRecordError: nativeFault,
+		Due:               func(context.Context, *Store, *DueContext) error { return nativeFault },
+		ReadyOutput:       func(context.Context, *Store, ReadyOutput) error { return nil },
+		OwnerExpired:      func(context.Context, *Store, ExpiredApplicationContext) error { return nil },
+		OnDiagnostic: func(event DriverDiagnostic) {
+			if event.Context == bad.Context {
+				events <- event
+			}
+		},
+	})
+	badSelector := Selector{Kind: SelectorDialog, Digest: [32]byte{0xff, 1}}
+	goodSelector := Selector{Kind: SelectorDialog, Digest: [32]byte{0xff, 2}}
+	now := time.Now()
+	publish := func(id Identity, selector Selector) {
+		t.Helper()
+		_, err := f.store.Commit(ctx, Publication{Identity: id, Create: true, Deadline: now.Add(time.Second), CreditDelta: 8192,
+			Changes:   []Change{{Field: "r:context", Value: []byte("opaque")}},
+			Selectors: []SelectorChange{{Selector: selector, Record: "r:context"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish(good, goodSelector)
+	unbound := Identity{Context: bad.Context, Incarnation: bad.Incarnation}
+	publish(unbound, badSelector)
+	lease, err := f.store.AcquireApplication(ctx, bad.Owner, bad.Term)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.store.Commit(ctx, Publication{Identity: unbound, Revision: 1, Deadline: now.Add(time.Second),
+		BindApplication: true, Application: &ApplicationLeaseRef{Application: lease.Application, Term: lease.Term},
+		Timers: &TimerMutation{Target: TimerAssignment{Worker: "worker", Epoch: "epoch", Term: "epoch"},
+			Changes: []TimerChange{{Member: "duty", Due: now}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait := func(stage string) {
+		t.Helper()
+		select {
+		case event := <-events:
+			if event.Stage != stage || event.Incarnation != bad.Incarnation || event.Revision != "2" {
+				t.Fatal("unexpected context diagnostic", event)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("missing context diagnostic", stage)
+		}
+	}
+	wait("context-parked")
+	index := f.store.ownerExpiryKey()
+	member := "p-" + bad.Context
+	due, err := f.client.ZScore(ctx, index, member).Result()
+	if err != nil || due < float64(now.Add(parkedCallGrace).UnixMilli()) {
+		t.Fatal("park did not persist its grace deadline", due, err)
+	}
+	// Move the fixture's clock forward to the stored expiry.
+	if err = f.client.ZAdd(ctx, index, redis.Z{Member: member, Score: float64(time.Now().UnixMilli() - 1)}).Err(); err != nil {
+		t.Fatal(err)
+	}
+	wait("context-abandoned")
+	if _, err = f.store.LookupSelector(ctx, badSelector); !errors.Is(err, ErrAbsent) {
+		t.Fatal("abandoned selector still present", err)
+	}
+	if _, err = f.store.LookupSelector(ctx, goodSelector); err != nil {
+		t.Fatal("healthy selector was changed", err)
+	}
+	count, err := f.client.Exists(ctx, f.store.contextKey(bad.Context), f.store.contextDeadlineKey(bad.Context),
+		f.store.applicationOwnedKey(bad.Term), f.store.root+"core:parked:"+bad.Context).Result()
+	if err != nil || count != 0 {
+		t.Fatal("abandoned state remained", count, err)
+	}
+	if _, err = f.client.ZScore(ctx, f.store.workerTimerKey("worker"), bad.Context).Result(); !errors.Is(err, redis.Nil) {
+		t.Fatal("abandoned worker deadline remained", err)
+	}
+	checkNamespace(t, f.store, f.client, good)
+	if f.lease.Err() != nil {
+		t.Fatal("automatic abandonment fenced worker")
+	}
+}
+
 func TestDriverIsolatesOutputFaultsAndPreservesStartedAttempt(t *testing.T) {
 	ctx := context.Background()
 	nativeFault := errors.New("invalid selected native record")
@@ -315,6 +401,103 @@ func TestDriverIsolatesOutputFaultsAndPreservesStartedAttempt(t *testing.T) {
 	if err != nil || lease != f.lease || f.lease.Err() != nil {
 		t.Fatal("physical item error fenced binding", err)
 	}
+}
+
+func TestParkedAbandonmentWaitsForPhysicalCutoffAndSurvivesCoordinatorChange(t *testing.T) {
+	ctx := context.Background()
+	s, client, id := fixture(t)
+	old := WorkerLeaseRequest{Worker: "old", Epoch: "old-epoch", PrimaryRunID: s.primary, Acquire: true}
+	if _, err := s.RenewWorker(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	message, err := portable.BuildInitialRequest(portable.InitialRequest{Method: sip.NOTIFY, URI: "sip:phone@example.test", From: "<sip:alice@example.test>", CallID: "abandon", LocalTag: "tag", Branch: "z9hG4bK-abandon", CSeq: 1, Advertise: "192.0.2.1:5061", Transport: "tls"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := selectedmessage.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutoff := time.Now().Add(time.Minute).Truncate(time.Millisecond)
+	intent := OutputIntent{ID: "output", Attempt: "attempt", Worker: old.Worker, Epoch: old.Epoch, Connection: "flow", MessageField: "r:message", MetadataField: "r:metadata", WireHash: message.WireHash(), ProofHash: sha256.Sum256([]byte(id.Context)), Deadline: cutoff}
+	pending := intent
+	pending.ID = "pending"
+	_, err = s.Commit(ctx, Publication{Identity: id, Create: true, Deadline: cutoff,
+		Changes:    []Change{{Field: intent.MessageField, Value: data}, {Field: intent.MetadataField, Value: []byte("metadata")}},
+		NewOutputs: []OutputIntent{intent, pending}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := outputRef(id, intent)
+	if _, err = s.ReserveOutput(ctx, ref); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.park(ctx, old.Worker, old.Epoch, id, 1, OutputRef{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ReserveOutput(ctx, outputRef(id, pending)); !errors.Is(err, ErrParked) {
+		t.Fatal("parked context admitted a new write", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Del(ctx, s.ownerExpiryKey(), s.root+"core:parked:"+id.Context, s.coordinatorKey(), s.workerKey(old.Worker),
+			s.workerKey("new"), s.workerReadyKey(old.Worker)).Err(); err != nil {
+			t.Error(err)
+		}
+	})
+	makeDue := func() {
+		t.Helper()
+		if err := client.ZAdd(ctx, s.ownerExpiryKey(), redis.Z{Member: "p-" + id.Context, Score: float64(time.Now().UnixMilli() - 1)}).Err(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	makeDue()
+	if event, err := s.abandonParked(ctx, old.Worker, old.Epoch, id.Context); err != nil || event.Context != "" {
+		t.Fatal("attempt still inside its physical cutoff was abandoned", event, err)
+	}
+	score, err := client.ZScore(ctx, s.ownerExpiryKey(), "p-"+id.Context).Result()
+	if err != nil || int64(score) != cutoff.Add(parkedCallGrace).UnixMilli() {
+		t.Fatal("unexpected rescheduled deadline", score, err)
+	}
+	if err = s.CompleteOutput(ctx, ref, "WRITTEN"); err != nil {
+		t.Fatal("already started write could not report success after parking", err)
+	}
+	output, err := s.InspectOutput(ctx, ref)
+	if err != nil || output.State != OutputWritten {
+		t.Fatal("definite physical outcome not retained during grace", output.State, err)
+	}
+	makeDue()
+	if err = client.HSet(ctx, s.contextKey(id.Context), "o:"+intent.ID+":d", "0").Err(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.abandonParked(ctx, old.Worker, old.Epoch, id.Context); !errors.Is(err, ErrCorrupt) {
+		t.Fatal("invalid physical deadline allowed abandonment", err)
+	}
+	// Advance the fixture through both the coordinator and output deadlines.
+	expired := time.Now().Add(-parkedCallGrace - time.Second).UnixMilli()
+	if err = client.HSet(ctx, s.coordinatorKey(), "expires_ms", expired).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err = client.HSet(ctx, s.contextKey(id.Context), "o:"+intent.ID+":d", expired, "o:"+pending.ID+":d", expired).Err(); err != nil {
+		t.Fatal(err)
+	}
+	makeDue()
+	if _, err = s.abandonParked(ctx, old.Worker, old.Epoch, id.Context); !errors.Is(err, ErrAuthority) {
+		t.Fatal("expired coordinator could abandon context", err)
+	}
+	next := WorkerLeaseRequest{Worker: "new", Epoch: "new-epoch", PrimaryRunID: s.primary, Acquire: true}
+	if lease, err := s.RenewWorker(ctx, next); err != nil || !lease.Coordinator {
+		t.Fatal("replacement coordinator did not acquire authority", lease, err)
+	}
+	if event, err := s.abandonParked(ctx, next.Worker, next.Epoch, id.Context); err != nil || event.Incarnation != id.Incarnation {
+		t.Fatal("replacement coordinator did not abandon the parked context", event, err)
+	}
+	if _, err = s.InspectOutput(ctx, ref); !errors.Is(err, ErrAuthority) {
+		t.Fatal("expired physical proof still had context authority", err)
+	}
+	if _, err = client.ZScore(ctx, s.workerReadyKey(old.Worker), id.Context+"/"+pending.ID).Result(); !errors.Is(err, redis.Nil) {
+		t.Fatal("abandoned ready output remained", err)
+	}
+	checkNamespace(t, s, client)
 }
 
 func TestDriverSelectsDuePastMalformedEqualScorePage(t *testing.T) {

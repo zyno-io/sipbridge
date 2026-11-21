@@ -672,7 +672,7 @@ if not deadline or not reserved or not maximum or not count or count>128 then re
 local offset=11+3*count; local context=ARGV[offset]; local outputCount=number(ARGV[offset+1]); local outputBase=offset+2
 if not outputCount or outputCount>32 or not context or #context>192 or not string.match(context,'^[A-Za-z0-9_-]+$') then return fail('CORRUPT') end
 local root=string.sub(KEYS[1],1,#KEYS[1]-#'core:profile')
-if not creating and ARGV[#ARGV-8]~='1' and parked(root,context,ARGV[2]) then return fail('PARKED') end
+if not creating and parked(root,context,ARGV[2]) then return fail('PARKED') end
 local timerBase=outputBase+15*outputCount; local hasTimers=ARGV[timerBase]
 if hasTimers~='0' and hasTimers~='1' then return fail('CORRUPT') end
 local timerCount=hasTimers=='1' and number(ARGV[timerBase+8]) or 0
@@ -796,7 +796,7 @@ if terminal then
  if records~=0 or total~=0 or indexes~=0 then return fail('CONFLICT') end
  local deadlines=root..'core:deadlines:'..context;if not kind(deadlines,'zset') then return fail('CORRUPT') end
  if timerPlan then if timerPlan.next then return fail('CONFLICT') end elseif redis.call('ZCARD',deadlines)~=0 then return fail('CONFLICT') end
- if not redis.acl_check_cmd('DEL',KEYS[2],root..'core:parked:'..context) then return refuse('AUTHORITY','terminal-acl') end
+ if not redis.acl_check_cmd('DEL',KEYS[2]) then return refuse('AUTHORITY','terminal-acl') end
 end
 local resultField=ARGV[#ARGV-4];local resultHint=ARGV[#ARGV-3];local resultChannel=root..'core:wake:results'
 if (resultField=='')~=(resultHint=='') or (resultField~='' and (not pending[resultField] or #resultHint>395)) then return fail('CORRUPT') end
@@ -815,7 +815,7 @@ if not terminal then redis.call('HSET',KEYS[2],'incarnation',ARGV[2],'owner',nex
 if timerPlan then timerApply(timerPlan) end
 selectorApply(selectors)
 bindingApply(binding)
-if terminal then redis.call('DEL',KEYS[2],root..'core:parked:'..context) end
+if terminal then redis.call('DEL',KEYS[2]) end
 nsApply(ns)
 for _,w in ipairs(writes) do redis.call('PUBLISH',w.wake,'1') end
 if resultField~='' then redis.call('PUBLISH',resultChannel,resultHint) end

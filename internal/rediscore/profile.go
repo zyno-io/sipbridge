@@ -85,7 +85,7 @@ func BindProfile(cfg ProfileConfig) (ProfileBinding, error) {
 		text("instance-admission-v2")
 	}
 	text("command-refusal-status-v1")
-	text("context-fault-parking-v1")
+	text("context-fault-abandonment-packed-reverse-selectors-v1")
 	for _, kind := range []byte{storagecodec.SelectedMessage, storagecodec.NativeContext, storagecodec.NativeProcedure, storagecodec.NativeDialog,
 		storagecodec.NativeSubscription, storagecodec.NativeResult, storagecodec.NativeLifecycle, storagecodec.NativeOutput} {
 		tuple = append(tuple, kind)

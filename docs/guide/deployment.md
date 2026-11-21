@@ -114,6 +114,12 @@ subscriptions and NOTIFY delivery. Make the stop/start boundary explicit in
 your deployment tooling when using `OnDelete`. See the
 [cutover and rollback steps](../redis-core.md#command-refusal-status-layout-upgrade-and-rollback).
 
+Positive decimal Redis generation IDs enable automatic cleanup. Use an
+increasing ID, such as a Unix timestamp in milliseconds, for each
+incompatible cutover. Scope the Redis ACL to the pool across generations
+and grant `HSCAN`, `SCAN` and `UNLINK` for cleanup. Compatible deployments
+keep the same generation.
+
 ## Rollback
 
 Roll back by deploying the previous image digest with the same steps.

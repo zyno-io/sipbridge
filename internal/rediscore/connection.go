@@ -28,6 +28,7 @@ type Connection struct {
 	recordBudget, namespaceContexts, namespaceBytes int64
 	instanceAdmission                               bool
 	timeout                                         time.Duration
+	generation                                      generationScope
 }
 
 func NewConnection(cfg ConnectionConfig) (*Connection, error) {
@@ -39,6 +40,10 @@ func NewConnection(cfg ConnectionConfig) (*Connection, error) {
 	if err != nil {
 		return nil, err
 	}
+	generation, err := managedGeneration(cfg.Profile.Root, cfg.Profile.Generation)
+	if err != nil {
+		return nil, err
+	}
 	contexts := cfg.Profile.NamespaceMaxContexts
 	if contexts == 0 {
 		contexts = DefaultNamespaceMaxContexts
@@ -47,7 +52,7 @@ func NewConnection(cfg ConnectionConfig) (*Connection, error) {
 	if namespaceBytes == 0 {
 		namespaceBytes = DefaultNamespaceMaxBytes
 	}
-	return &Connection{client: redisclient.New(options, options.PoolSize, nil), root: cfg.Profile.Root, profile: bytes.Clone(binding.Value), authority: proto.Clone(binding.Authority).(*pb.StateAuthority), recordBudget: cfg.Profile.RecordBudget, namespaceContexts: contexts, namespaceBytes: namespaceBytes, instanceAdmission: cfg.Profile.InstanceAdmission, timeout: options.IOTimeout}, nil
+	return &Connection{client: redisclient.New(options, options.PoolSize, nil), root: cfg.Profile.Root, profile: bytes.Clone(binding.Value), authority: proto.Clone(binding.Authority).(*pb.StateAuthority), recordBudget: cfg.Profile.RecordBudget, namespaceContexts: contexts, namespaceBytes: namespaceBytes, instanceAdmission: cfg.Profile.InstanceAdmission, timeout: options.IOTimeout, generation: generation}, nil
 }
 
 // AdmissionLimits are immutable profile bounds. The sole process-local phone
@@ -87,7 +92,10 @@ func (c *Connection) Refresh(ctx context.Context) (*Store, error) {
 	low := start.UnixMilli() - workerClockTolerance.Milliseconds()
 	high := start.UnixMilli() + max(int64(0), deadline.Sub(start).Milliseconds()) + workerClockTolerance.Milliseconds()
 	keys := []string{c.root + "core:profile", c.root + "core:capacity", c.root + "core:selectors", c.root + "core:applications", c.root + "core:owner-expiry", c.root + "core:coordinator"}
-	result, err := connectionProbeScript.Run(callCtx, c.client, keys, c.profile, low, high).Slice()
+	if c.generation.id != "" {
+		keys = append(keys, c.generation.registry())
+	}
+	result, err := connectionProbeScript.Run(callCtx, c.client, keys, c.profile, low, high, c.generation.id).Slice()
 	finish := time.Now()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnknown, err)
@@ -121,10 +129,28 @@ local lo,hi=uint(ARGV[2]),uint(ARGV[3]);if not lo or not hi or hi<lo then return
 local clock=redis.call('TIME');local now=tonumber(clock[1])*1000+math.floor(tonumber(clock[2])/1000);if now<lo or now>hi then return fail('EXPIRED') end
 local typ=redis.call('TYPE',KEYS[1]).ok;if typ~='none' and typ~='string' then return fail('AUTHORITY') end
 local profile=redis.call('GET',KEYS[1]);if profile and profile~=ARGV[1] then return fail('AUTHORITY') end
+local managed=ARGV[4]~='' and ARGV[4]~=nil
+local current,newest=nil,nil
+local seen=string.format('%.0f',now)
+if managed then
+ current=uint(ARGV[4]);if not current or current==0 then return fail('AUTHORITY') end
+ local registryType=redis.call('TYPE',KEYS[7]).ok
+ if registryType~='none' and registryType~='hash' then return fail('CORRUPT') end
+ local recorded=redis.call('HGET',KEYS[7],'newest');newest=recorded and uint(recorded) or nil
+ if recorded and (not newest or newest==0) then return fail('CORRUPT') end
+ if profile then
+  local last=uint(redis.call('HGET',KEYS[7],ARGV[4]))
+  if not newest or newest<current or not last then return fail('AUTHORITY') end
+  seen=string.format('%.0f',math.max(now,last))
+ elseif newest and current<=newest then return fail('AUTHORITY') end
+ if not redis.acl_check_cmd('HSET',KEYS[7],ARGV[4],seen) then return fail('AUTHORITY') end
+end
 if not profile then
- for i=2,#KEYS do if redis.call('EXISTS',KEYS[i])~=0 then return fail('AUTHORITY') end end
+ for i=2,6 do if redis.call('EXISTS',KEYS[i])~=0 then return fail('AUTHORITY') end end
  if not redis.acl_check_cmd('SET',KEYS[1],ARGV[1]) then return fail('AUTHORITY') end
  redis.call('SET',KEYS[1],ARGV[1])
+ if managed then redis.call('HSET',KEYS[7],'newest',ARGV[4]) end
 end
-return {'OK',id,string.format('%.0f',now)}
+if managed then redis.call('HSET',KEYS[7],ARGV[4],seen) end
+return {'OK',id,seen}
 `)

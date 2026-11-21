@@ -262,10 +262,14 @@ func run() (runErr error) {
 		defer stopReporter()
 	}
 	engineConfig.OnNativeDriverDiagnostic = func(d rediscore.DriverDiagnostic) {
-		_ = json.NewEncoder(os.Stdout).Encode(struct {
+		event, stream := "sipbridge-native-driver-fence", os.Stdout
+		if d.Stage == "generation-cleanup" || d.Stage == "generation-heartbeat" {
+			event, stream = "sipbridge-native-"+d.Stage, os.Stderr
+		}
+		_ = json.NewEncoder(stream).Encode(struct {
 			Event string `json:"event"`
 			rediscore.DriverDiagnostic
-		}{Event: "sipbridge-native-driver-fence", DriverDiagnostic: d})
+		}{Event: event, DriverDiagnostic: d})
 		if enqueueDriverIncident != nil {
 			enqueueDriverIncident(d)
 		}

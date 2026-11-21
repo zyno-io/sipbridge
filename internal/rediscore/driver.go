@@ -27,6 +27,9 @@ type DriverConfig struct {
 type DriverDiagnostic struct {
 	Stage        string `json:"stage"`
 	Category     string `json:"category"`
+	Pool         string `json:"pool,omitempty"`
+	Generation   string `json:"generation,omitempty"`
+	KeysRemoved  int64  `json:"keysRemoved,omitempty"`
 	WorkerFenced bool   `json:"-"`
 }
 
@@ -52,9 +55,16 @@ func (d *Driver) diagnostic(stage string, err error, workerFenced bool) {
 	case d.cfg.NativeRecordError != nil && errors.Is(err, d.cfg.NativeRecordError):
 		category = "native-record"
 	}
+	d.report(DriverDiagnostic{Stage: stage, Category: category, WorkerFenced: workerFenced})
+}
+
+func (d *Driver) report(event DriverDiagnostic) {
+	if d.cfg.OnDiagnostic == nil {
+		return
+	}
 	// An observer cannot undo a fence or crash the driver.
 	defer func() { _ = recover() }()
-	d.cfg.OnDiagnostic(DriverDiagnostic{Stage: stage, Category: category, WorkerFenced: workerFenced})
+	d.cfg.OnDiagnostic(event)
 }
 
 type Driver struct {
@@ -255,6 +265,8 @@ func (d *Driver) Run(parent context.Context) error {
 		dirtyProbe = false
 		attempts = 0
 	}
+	var generation generationMaintenance
+	defer generation.jobs.Wait()
 	defer disconnect("", nil)
 	finish := func(r result) {
 		jobs--
@@ -380,6 +392,9 @@ func (d *Driver) Run(parent context.Context) error {
 			continue
 		}
 		current := time.Now()
+		if d.cfg.Connection.generation.id != "" {
+			generation.schedule(d, store, leaseCtx, lease.Coordinator, current)
+		}
 		// Dirty hints never select work. One bounded authoritative probe can still
 		// make progress while the next stable subscription generation is pending.
 		dueEligible := headValid && lease.Head.Context != "" && !current.Before(headAt) || !headValid && dirtyProbe

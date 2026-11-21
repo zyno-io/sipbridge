@@ -134,6 +134,15 @@ func inspectRedisUACSuccessACK(ctx context.Context, store *rediscore.Store, writ
 // settleRedisUACSuccessACK publishes positive ACK evidence before settling
 // the exact physical proof. A late definite proof re-indexes its original due.
 func settleRedisUACSuccessACK(ctx context.Context, store *rediscore.Store, write *pb.FlowWrite, capture *nativeOutputCapture, key []byte, executor rediscore.TimerAssignment, deadline time.Time) error {
+	for attempt := 0; ; attempt++ {
+		err := publishRedisUACSuccessACK(ctx, store, write, capture, key, executor, deadline)
+		if !errors.Is(err, rediscore.ErrConflict) || attempt == 2 || ctx.Err() != nil || !time.Now().Before(deadline) {
+			return err
+		}
+	}
+}
+
+func publishRedisUACSuccessACK(ctx context.Context, store *rediscore.Store, write *pb.FlowWrite, capture *nativeOutputCapture, key []byte, executor rediscore.TimerAssignment, deadline time.Time) error {
 	selected, err := inspectRedisUACSuccessACK(ctx, store, write, capture)
 	if err != nil {
 		return err

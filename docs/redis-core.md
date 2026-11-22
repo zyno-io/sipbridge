@@ -590,8 +590,12 @@ Measure selected records/bytes decoded and encoded, round trips, retained bytes,
 
 ## Redis generation retirement
 
+Sipbridge owns the default Redis generation, starting at `1`. Keep it for
+compatible releases and increase it when a release requires fresh Redis state.
+`SIPBRIDGE_STATE_GENERATION` overrides the built-in value for a deliberate
+reset or an incompatible rollback. Choose a canonical positive decimal ID
+above every previously opened generation in that pool for a fresh override.
 Canonical positive decimal generation IDs enable automatic retirement.
-Allocate a strictly increasing ID for each incompatible cutover or rollback.
 The per-pool hash retains the greatest opened ID and one last-seen timestamp
 per tracked generation. Profile initialization and enrollment are atomic.
 A missing profile can only be initialized with an ID above the greatest

@@ -42,7 +42,7 @@ func TestStateConfigurationRequiresRedisAndDiscovery(t *testing.T) {
 	}
 	delete(values, "SIPBRIDGE_STATE_GENERATION")
 	delete(values, "SIPBRIDGE_STATE_NAMESPACE")
-	if cfg, err = stateConfiguration(get, read); err != nil || cfg.Generation != "default" || cfg.Namespace != "sipbridge" {
+	if cfg, err = stateConfiguration(get, read); err != nil || cfg.Generation != "1" || cfg.binaryConnectionConfig().Profile.Root != "sipstate:v1:sipbridge:1:" {
 		t.Fatal("configuration defaults failed", err)
 	}
 
@@ -70,7 +70,7 @@ func TestStateConfigurationDefaultsToStandaloneMemory(t *testing.T) {
 	get := func(key string) string { return values[key] }
 	read := func(string) ([]byte, error) { t.Fatal("memory must not read Redis trust"); return nil, nil }
 	first, err := stateConfiguration(get, read)
-	if err != nil || first.Backend != "memory" || len(first.NamespaceKey) != 32 {
+	if err != nil || first.Backend != "memory" || first.Generation != "default" || len(first.NamespaceKey) != 32 {
 		t.Fatal("memory defaults", err)
 	}
 	second, err := stateConfiguration(get, read)

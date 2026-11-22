@@ -24,4 +24,9 @@ func TestNativeFixtureConfigurationMatchesBinaryRootAndRequiresExplicitTLS(t *te
 		}
 		values[invalid.key] = old
 	}
+	delete(values, "SIPBRIDGE_STATE_GENERATION")
+	config, err = nativeFixtureConfiguration(get, noFile)
+	if err != nil || config.Profile.Root != "sipstate:v1:fixture:1:" {
+		t.Fatal("fixture Redis generation default", err)
+	}
 }

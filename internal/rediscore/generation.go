@@ -12,6 +12,10 @@ import (
 	"github.com/google/uuid"
 )
 
+// DefaultGeneration selects the Redis keyspace for this storage layout.
+// Increase it when an incompatible layout needs a fresh keyspace.
+const DefaultGeneration = "1"
+
 const (
 	generationHeartbeatInterval = time.Minute
 	generationSweepInterval     = 15 * time.Minute

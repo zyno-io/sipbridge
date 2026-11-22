@@ -103,22 +103,24 @@ rollback once a newer one has written to the namespace.
 
 Upgrade the whole group in one maintenance step: drain and stop every old
 instance in the namespace and confirm none is left before starting the new
-ones. If the upgrade changes the Redis storage format, use an empty namespace
-or set a fresh `SIPBRIDGE_STATE_GENERATION`. This applies to changes such as
-per-instance call limits, re-INVITE ACK storage and SIP status in command
-refusals.
-Calls still using the old namespace end when you switch.
+ones. Leave `SIPBRIDGE_STATE_GENERATION` unset to use the image's built-in
+generation. Compatible releases retain that generation. A release that
+requires fresh state bumps it. Calls using the old generation end when
+you switch.
 
 After starting the new group, check controller readiness, re-registration,
 subscriptions and NOTIFY delivery. Make the stop/start boundary explicit in
 your deployment tooling when using `OnDelete`. See the
 [cutover and rollback steps](../redis-core.md#command-refusal-status-layout-upgrade-and-rollback).
 
-Positive decimal Redis generation IDs enable automatic cleanup. Use an
-increasing ID, such as a Unix timestamp in milliseconds, for each
-incompatible cutover. Scope the Redis ACL to the pool across generations
-and grant `HSCAN`, `SCAN` and `UNLINK` for cleanup. Compatible deployments
-keep the same generation.
+The built-in generation enables automatic cleanup. Scope the Redis ACL
+to the pool across generations and grant `HSCAN`, `SCAN` and `UNLINK` for
+cleanup. If you deliberately reset state with the same image or roll back
+across an incompatible storage change, use a fresh namespace or override the
+generation with an ID above the highest opened in the pool. An explicit
+override continues to take precedence on subsequent releases. If an older
+installation used the former implicit `default` Redis keyspace, set the
+generation explicitly to `default` to keep it.
 
 ## Rollback
 

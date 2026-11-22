@@ -124,7 +124,7 @@ set, sipbridge keeps state in memory, which is all a single instance needs.
 | `SIPBRIDGE_STATE_BACKEND` | `memory` | `memory` or `redis`. Any other value fails startup. |
 | `SIPBRIDGE_STATE_IDENTITY_KEY` | random per process (memory only) | Standard base64 of 32 to 256 bytes. Required for Redis, where every instance sharing a namespace must use the same key. |
 | `SIPBRIDGE_STATE_NAMESPACE` | `sipbridge` | Name of the state namespace; Redis-backed instances with matching settings and the same namespace share state. It is also reported to controllers as `stateAuthority.service`. Pattern `[A-Za-z0-9_.:@+-]{1,96}`. |
-| `SIPBRIDGE_STATE_GENERATION` | `default` | Compatibility label reported as `stateAuthority.generation` and a component of the Redis root. Changing it selects a different root; it does not recover old state. Same pattern as the namespace. |
+| `SIPBRIDGE_STATE_GENERATION` | Redis: built-in generation (`1`). Memory: `default`. | Optional override reported as `stateAuthority.generation`. For Redis it selects a separate keyspace within the pool. Leave it unset to follow the image's generation. See [Redis upgrades](deployment.md#upgrading-instances-that-share-redis). |
 | `SIPBRIDGE_STATE_PREFIX` | `sipstate:v1` | Binary Redis root prefix; full root is prefix, namespace and generation separated by colons. Pattern `[A-Za-z0-9_.:-]{1,96}`. |
 
 `SIPBRIDGE_STATE_PARTITIONS` is no longer used; setting it fails startup.

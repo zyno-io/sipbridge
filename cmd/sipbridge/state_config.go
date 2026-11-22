@@ -54,7 +54,11 @@ func stateConfiguration(get func(string) string, readFile func(string) ([]byte, 
 		return nil, errors.New("unknown SIP state backend")
 	}
 	if cfg.Generation == "" {
-		cfg.Generation = "default"
+		if cfg.Backend == redisBackend {
+			cfg.Generation = rediscore.DefaultGeneration
+		} else {
+			cfg.Generation = "default"
+		}
 	}
 	if cfg.Namespace == "" {
 		cfg.Namespace = "sipbridge"

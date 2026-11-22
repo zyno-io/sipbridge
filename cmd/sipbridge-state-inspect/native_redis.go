@@ -27,7 +27,9 @@ func nativeFixtureConfiguration(get func(string) string, readFile func(string) (
 		}
 		return v
 	}
-	namespace, generation, prefix := value("SIPBRIDGE_STATE_NAMESPACE", "sipbridge"), value("SIPBRIDGE_STATE_GENERATION", "default"), value("SIPBRIDGE_STATE_PREFIX", "sipstate:v1")
+	namespace := value("SIPBRIDGE_STATE_NAMESPACE", "sipbridge")
+	generation := value("SIPBRIDGE_STATE_GENERATION", rediscore.DefaultGeneration)
+	prefix := value("SIPBRIDGE_STATE_PREFIX", "sipstate:v1")
 	key, err := base64.StdEncoding.Strict().DecodeString(get("SIPBRIDGE_STATE_IDENTITY_KEY"))
 	if err != nil || len(key) < 32 || len(key) > 256 {
 		return rediscore.ConnectionConfig{}, errors.New("fixture identity key must be base64 of 32 to 256 bytes")

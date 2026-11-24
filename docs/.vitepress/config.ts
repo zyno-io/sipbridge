@@ -77,6 +77,15 @@ export default defineConfig({
   },
   markdown: {
     config(md) {
+      // Render ```mermaid fences as diagrams through the theme's Mermaid component.
+      const fence = md.renderer.rules.fence!
+      md.renderer.rules.fence = (tokens, index, options, env, self) => {
+        const token = tokens[index]
+        if (token.info.trim() === 'mermaid') {
+          return `<Mermaid code="${encodeURIComponent(token.content)}" />`
+        }
+        return fence(tokens, index, options, env, self)
+      }
       md.core.ruler.push('sipbridge_source_links', (state) => {
         const env = state.env ?? {}
         const page = `docs/${env.relativePath ?? ''}`

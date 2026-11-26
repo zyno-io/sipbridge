@@ -51,6 +51,14 @@ deadline with a new physical write bound to the controller-selected socket.
 Unknown or possibly started writes cannot yield a resumable result. The existing
 SIP transaction routing governs native ACK, CANCEL and responses.
 
+The Redis-only `sip.control-attachment.v1` capability requires
+`sip.dialog-socket.v1`. Native binds an exact control session at Hello and
+renews it on a matching Pong. Nexus uses the established authenticated session
+as permission to send commands. SIPbridge carries its own shared application
+term plus exact attachment when admitting stateful work and reserving writes.
+Closure revokes that attachment only. Legacy negotiation keeps shared-term
+closure and the wire lease receipt remains available to compatible clients.
+
 | Identity | Authority and lifetime |
 | --- | --- |
 | Physical flow | Exact live ingress process epoch/socket or UDP listener/peer tuple; sockets never migrate. |

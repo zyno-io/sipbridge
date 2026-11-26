@@ -123,7 +123,7 @@ for _,field in ipairs(fields) do
    local base='o:'..output..':'
    local expiry=number(redis.call('HGET',KEYS[2],base..'d'))
    local phase=redis.call('HGET',KEYS[2],base..'s')
-   if not expiry or expiry==0 or not phase or not string.match(phase,'^[PSUWN]$') then return fail('CORRUPT') end
+   if not expiry or expiry==0 or not phase or not string.match(phase,'^[PSUWNR]$') then return fail('CORRUPT') end
    cutoff=math.max(cutoff,expiry+grace)
    local worker=redis.call('HGET',KEYS[2],base..'w')
    if not appRef(worker) then return fail('CORRUPT') end

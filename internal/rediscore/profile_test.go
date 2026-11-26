@@ -116,8 +116,8 @@ func TestParkedCallAbandonmentChangesBaselineProfile(t *testing.T) {
 	}
 	for _, check := range []struct{ name, got, want string }{
 		{"selected schema digest", fmt.Sprintf("%x", selectedSchemaDigest), "29e7076b73166bd7e764425a88994ff57027c6231c44b5f975708c1418f57f55"},
-		{"profile", fmt.Sprintf("%x", binding.Value), "10704423a2c3edac29c5b4cd98c2f3027c52c78f090095a03dae6f3b4dea8a82"},
-		{"StateAuthority.PrimaryId", binding.Authority.PrimaryId, "8d4d43b1fbbb349151e45874127fb2944b71c960"},
+		{"profile", fmt.Sprintf("%x", binding.Value), "1f43d0d1f70fa9be83678531b2c73b3d977848e7c71cad5bad2ebe95bce0206e"},
+		{"StateAuthority.PrimaryId", binding.Authority.PrimaryId, "260c54e6aaeab75e84bcde81822fe08aecedfde7"},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s changed: got %s, want %s", check.name, check.got, check.want)

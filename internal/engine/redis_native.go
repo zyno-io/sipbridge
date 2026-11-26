@@ -257,6 +257,10 @@ func (e *redisNative) operation(parent context.Context, deadline time.Time) (con
 }
 
 func (e *redisNative) ApplicationLease(parent context.Context, application *pb.ProcessRef, term string) (*pb.ApplicationLease, error) {
+	return e.applicationLease(parent, application, term, "")
+}
+
+func (e *redisNative) applicationLease(parent context.Context, application *pb.ProcessRef, term, attachment string) (*pb.ApplicationLease, error) {
 	id, err := nativeApplicationReference(e.cfg.StateIdentityKey, application)
 	if err != nil {
 		return nil, err
@@ -268,9 +272,9 @@ func (e *redisNative) ApplicationLease(parent context.Context, application *pb.P
 	defer cancel()
 	var lease rediscore.ApplicationLease
 	if term == "" {
-		lease, err = store.AcquireApplication(ctx, id, uuid.NewString())
+		lease, err = store.AcquireAttachedApplication(ctx, id, uuid.NewString(), attachment)
 	} else {
-		lease, err = store.RenewApplication(ctx, rediscore.ApplicationLeaseRef{Application: id, Term: term})
+		lease, err = store.RenewApplication(ctx, rediscore.ApplicationLeaseRef{Application: id, Term: term, Attachment: attachment})
 	}
 	if err != nil {
 		if term != "" && !errors.Is(err, rediscore.ErrUnknown) && (errors.Is(err, rediscore.ErrAuthority) || errors.Is(err, rediscore.ErrExpired) || errors.Is(err, rediscore.ErrAbsent) || errors.Is(err, rediscore.ErrCorrupt)) {
@@ -286,26 +290,43 @@ func (e *redisNative) ControllerSession(ctx context.Context, peer *control.Peer,
 	if peer == nil || hello == nil || hello.Recovery != nil {
 		return nil, errors.New("native Redis controller recovery is unavailable")
 	}
-	return e.ApplicationLease(ctx, peer.Process(), "")
+	return e.applicationLease(ctx, peer.Process(), "", e.controlAttachment(peer))
 }
 
 func (e *redisNative) ControllerRenew(ctx context.Context, peer *control.Peer) (*pb.ApplicationLease, error) {
-	if peer == nil || peer.ApplicationLease() == nil || peer.ApplicationLease().Term == "" {
+	if peer == nil {
 		return nil, control.ErrApplicationLeaseFenced
 	}
-	return e.ApplicationLease(ctx, peer.Application(), peer.ApplicationLease().Term)
+	lease := peer.ApplicationLease()
+	if lease == nil || lease.Term == "" {
+		return nil, control.ErrApplicationLeaseFenced
+	}
+	return e.applicationLease(ctx, peer.Application(), lease.Term, e.controlAttachment(peer))
+}
+
+func (e *redisNative) controlAttachment(peer *control.Peer) string {
+	if !peer.HasCapability(control.ControlAttachmentCapability) {
+		return ""
+	}
+	return e.worker + "_" + peer.SessionID()
 }
 
 func (e *redisNative) controllerWitness(peer *control.Peer) (rediscore.ApplicationLeaseRef, error) {
-	if peer == nil || !peer.HasCapability(control.RequestDecisionCapability) {
+	if peer == nil || peer.Context().Err() != nil || !peer.HasCapability(control.RequestDecisionCapability) {
 		return rediscore.ApplicationLeaseRef{}, control.ErrApplicationLeaseFenced
 	}
 	lease := peer.ApplicationLease()
 	if lease == nil || lease.Term == "" || !sameProcess(lease.Application, peer.Application()) || !proto.Equal(lease.Authority, e.StateAuthority()) {
 		return rediscore.ApplicationLeaseRef{}, control.ErrApplicationLeaseFenced
 	}
+	if peer.HasCapability(control.ControlAttachmentCapability) {
+		capability := peer.ApplicationCapability(e.control)
+		if err := capability.Guard(lease.Application, lease.Term, nil); err != nil {
+			return rediscore.ApplicationLeaseRef{}, err
+		}
+	}
 	id, err := nativeApplicationReference(e.cfg.StateIdentityKey, peer.Application())
-	return rediscore.ApplicationLeaseRef{Application: id, Term: lease.Term}, err
+	return rediscore.ApplicationLeaseRef{Application: id, Term: lease.Term, Attachment: e.controlAttachment(peer)}, err
 }
 
 func (e *redisNative) ControllerReady(parent context.Context, peer *control.Peer) error {
@@ -318,7 +339,7 @@ func (e *redisNative) ControllerReady(parent context.Context, peer *control.Peer
 		return err
 	}
 	defer cancel()
-	current, err := store.ObserveApplication(ctx, witness.Application)
+	current, err := store.ObserveAttachedApplication(ctx, witness)
 	if err != nil {
 		return err
 	}
@@ -334,7 +355,16 @@ func (e *redisNative) Reserve(parent context.Context, write *pb.FlowWrite) (*Com
 		return nil, err
 	}
 	defer cancel()
-	return (nativeRedisWriter{store: store}).Reserve(ctx, write)
+	reserved, err := (nativeRedisWriter{store: store}).Reserve(ctx, write)
+	if err != nil || reserved == nil || reserved.Known {
+		return reserved, err
+	}
+	if sessionID, local := strings.CutPrefix(reserved.attachment, e.worker+"_"); local {
+		reserved.checkAttachment = func() error {
+			return e.control.CheckApplicationAttachment(sessionID)
+		}
+	}
+	return reserved, nil
 }
 
 // The physical fact outlives the write's request/lease cancellation. A fenced
@@ -558,6 +588,9 @@ func (e *redisNative) readyOutput(ctx context.Context, store *rediscore.Store, r
 		if _, err = inspectRedisInitialInviteOutput(ctx, store, metadata.Write, nil); err != nil {
 			return err
 		}
+	}
+	if parked, err := e.parkClosedDialogOutput(ctx, store, metadata); err != nil || parked {
+		return err
 	}
 	result := e.cfg.WriteCommitted(ctx, metadata.Write)
 	if result == nil || !proto.Equal(result.Effect, metadata.Write.Effect) {

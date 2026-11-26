@@ -61,6 +61,7 @@ type Server struct {
 	mu                sync.Mutex
 	claims            map[string]*claim
 	all               map[*session]struct{}
+	attachments       map[string]*session
 	slots             chan struct{}
 	closed            bool
 	http              *http.Server
@@ -108,6 +109,14 @@ func NewServer(cfg Config) (*Server, error) {
 		(!slices.Contains(cfg.Capabilities, NativeCompletionCapability) || cfg.OnControllerSession == nil || cfg.OnControllerRenew == nil) {
 		return nil, errors.New("controller reattach requires session and renewal hooks")
 	}
+	if slices.Contains(cfg.Capabilities, DialogSocketResumeCapability) && !slices.Contains(cfg.Capabilities, DialogSocketCapability) {
+		return nil, errors.New("dialog socket resume requires direct socket routing")
+	}
+	if slices.Contains(cfg.Capabilities, ControlAttachmentCapability) &&
+		(!slices.Contains(cfg.Capabilities, NativeCompletionCapability) || !slices.Contains(cfg.Capabilities, DialogSocketCapability) ||
+			cfg.OnControllerSession == nil || cfg.OnControllerRenew == nil || cfg.OnDisconnect == nil) {
+		return nil, errors.New("exact control attachments require native dialog socket handling and controller lifecycle hooks")
+	}
 	if slices.Contains(cfg.Capabilities, RequestDecisionCapability) {
 		for _, required := range requestDecisionDependencies {
 			if !slices.Contains(cfg.Capabilities, required) {
@@ -147,7 +156,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.HelloTimeout <= 0 || cfg.HelloTimeout > 5*time.Second || cfg.WriteTimeout <= 0 || cfg.WriteTimeout > 2*time.Second || cfg.HeartbeatInterval < time.Millisecond || cfg.HeartbeatInterval > time.Minute || cfg.HeartbeatTimeout < 2*cfg.HeartbeatInterval || cfg.HeartbeatTimeout > 2*time.Minute || cfg.ReloadInterval <= 0 {
 		return nil, errors.New("invalid control deadlines")
 	}
-	s := &Server{cfg: cfg, claims: make(map[string]*claim), all: make(map[*session]struct{}), slots: make(chan struct{}, cfg.MaxSessions)}
+	s := &Server{cfg: cfg, claims: make(map[string]*claim), all: make(map[*session]struct{}), attachments: make(map[string]*session), slots: make(chan struct{}, cfg.MaxSessions)}
 	s.http = &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 * 1024}
 	return s, nil
 }
@@ -296,6 +305,7 @@ func (s *Server) release(p *session) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.all, p)
+	delete(s.attachments, p.id)
 	if p.process != nil {
 		if c := s.claims[p.process.InstanceId]; c != nil {
 			if c.pending == p {
@@ -445,6 +455,7 @@ func HasStateCapability(capabilities []string) bool {
 
 const NativeCompletionCapability = "sip.native-completion.v1"
 const ControllerReattachCapability = "sip.controller-reattach.v1"
+const ControlAttachmentCapability = "sip.control-attachment.v1"
 
 func (p *session) stop() {
 	p.cancel()
@@ -605,6 +616,12 @@ func (p *session) hello() error {
 	if h.Recovery != nil && !slices.Contains(p.capabilities, ControllerReattachCapability) {
 		return errors.New("controller recovery capability required")
 	}
+	if slices.Contains(p.capabilities, ControlAttachmentCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {
+		return errors.New("exact control attachments require dialog socket handling")
+	}
+	if slices.Contains(p.capabilities, DialogSocketResumeCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {
+		return errors.New("dialog socket resume requires direct socket routing")
+	}
 	if recovery := h.Recovery; recovery != nil && (!validProcess(recovery.Application) || !reference.MatchString(recovery.Term) ||
 		!reference.MatchString(recovery.AttemptId) || recovery.AttachmentGeneration == 0 ||
 		len(recovery.Token) < 32 || len(recovery.Token) > 512 || strings.ContainsAny(recovery.Token, " \r\n\t")) {
@@ -628,7 +645,7 @@ func (p *session) hello() error {
 	if slices.Contains(p.capabilities, NativeCompletionCapability) {
 		var lease *pb.ApplicationLease
 		started := time.Now()
-		if slices.Contains(p.capabilities, ControllerReattachCapability) {
+		if slices.Contains(p.capabilities, ControllerReattachCapability) || slices.Contains(p.capabilities, ControlAttachmentCapability) {
 			lease, err = p.server.cfg.OnControllerSession(ctx, &Peer{p}, h)
 		} else if p.server.cfg.OnApplicationLease != nil {
 			lease, err = p.server.cfg.OnApplicationLease(ctx, p.process, "")
@@ -666,6 +683,9 @@ func (p *session) hello() error {
 	}
 	p.server.mu.Lock()
 	p.established = true
+	if slices.Contains(p.capabilities, ControlAttachmentCapability) {
+		p.server.attachments[p.id] = p
+	}
 	p.server.mu.Unlock()
 	return nil
 }

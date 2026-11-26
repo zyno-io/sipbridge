@@ -33,6 +33,7 @@ func (p *Peer) ApplicationGeneration() uint64 {
 }
 
 func (p *Peer) Process() *pb.ProcessRef   { return proto.Clone(p.session.process).(*pb.ProcessRef) }
+func (p *Peer) SessionID() string         { return p.session.id }
 func (p *Peer) Context() context.Context  { return p.session.ctx }
 func (p *Peer) Send(e *pb.Envelope) error { return p.session.write(e) }
 func (p *Peer) HasCapability(capability string) bool {

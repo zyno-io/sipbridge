@@ -73,6 +73,9 @@ if phase=='P' then
  ns,problem=nsCurrent(KEYS[7],KEYS[2],0,-#member-8,number(ARGV[#ARGV-2]),number(ARGV[#ARGV-1]),number(ARGV[#ARGV-3]));if problem then return fail(problem) end
  if not redis.acl_check_cmd('ZREM',KEYS[6],member) then return fail('AUTHORITY') end
  next='N'
+elseif phase=='R' then
+ if redis.call('ZSCORE',KEYS[6],member) then return fail('CORRUPT') end
+ next='N'
 elseif phase=='S' then next='U' end
 if next~=phase and not redis.acl_check_cmd('HSET',KEYS[2],out.prefix..'s',next) then return fail('AUTHORITY') end
 if phase=='P' then redis.call('ZREM',KEYS[6],member) end

@@ -30,9 +30,12 @@ Redis selection composes the existing resident phone domain with the binary
 `state.OpenBackend` and the former checkpoint engine remain fixture APIs only.
 Both serving backends use parsed direct request/completion hooks and the same
 JSON control framing. Neither advertises controller reattachment. An established
-control disconnect expires its exact application term; calls are lost while
-committed native obligations finish. Healthy phone subscriptions remain pinned
-to their accepting process and connection until socket close or their own expiry.
+control disconnect expires its exact application term on the legacy path. A
+Redis session with negotiated exact control attachment instead closes only that
+session, with application-term expiry handling loss of the owner. Committed
+native obligations finish under their own deadlines. Healthy phone subscriptions
+remain pinned to their accepting process and connection until socket close or
+their own expiry.
 
 This describes the current source, not deployment evidence. The binary Redis
 runtime never decodes checkpoint-format records: a namespace written by the

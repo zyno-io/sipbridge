@@ -145,6 +145,12 @@ Connection construction derives that profile and logical authority offline and a
 
 A retained command result records its sequence, operation ID and raw 32-byte deterministic command fingerprint alongside its immutable outcome. These bounded facts distinguish an exact replay from a different command at the same sequence; expiration never proves an uncertain prior operation did not happen.
 
+An explicit pending-output park checks the live application owner, the selected context revision and the exact physical attempt in one Redis operation. It removes ready eligibility and marks the exact output as parked only while the output remains unreserved. A stale ready reader cannot reserve or complete the parked attempt. An existing reservation retains exclusive disposition authority, and a lost park response remains `UNKNOWN`. The original physical cutoff can retire the parked attempt as `NOT_WRITTEN`. Parking supplies no replacement output or permission to replay the SIP transaction.
+
+Conditional reassignment can exchange a parked application attempt for one different physical attempt on the same Redis primary. It updates the exact procedure metadata, write permit and ready index together. The operation preserves the original origin record, wire digest, output cutoff and native timer. The retired attempt loses its output identity, so a late reserve or completion through its socket cannot affect the new attempt. A repeated exchange cannot create another output. A caller that loses the acknowledgement may inspect its exact replacement, subject to ordinary unknown-outcome rules.
+
+The negotiated dialog resume path uses the original native command waiter. If the selected reliable socket closes after publication but before a ready attempt can reserve, the socket owner parks that attempt and returns an authenticated handle bound to the native result and current Redis primary. The handle authorizes only a replacement physical attempt for that same pending transaction. Resume checks the new selected socket and original dialog state, response-flow policy, transport, Via sent-by and original deadlines. Loss of the park acknowledgement, a different primary or any possible prior socket write grants no resume. A duplicate calls the normal result reader once the replacement assignment is already present.
+
 An application BYE on an established call admits its own bounded continuation credit under the current application lease, command sequence, policy, selected dialog and flow. Its one atomic publication advances the native dialog and local CSeq, creates the selected NonInviteClient procedure, exact request and application-authorized physical intent, and records a pending result with the original command deadline. The exact physical result first resolves that receipt as ACCEPTED with its request on WRITTEN, or UNKNOWN on NOT_WRITTEN or uncertainty; publish that observation before releasing definite proof. A matched final response or native F timeout can later upgrade the shared result and publish the dialog ending transition without changing a result already returned to an earlier caller. Exact proof settlement, timer and selector retirement, result wire ownership and lifecycle delivery remain separate duties. Native owner-loss cleanup BYE uses its existing cleanup authority and does not lend its reserved continuation credit to a fresh application command.
 
 A remote in-dialog BYE response retains its exact server transaction, dialog and physical output under the existing original cutoff. Dispatch its output duty to the BYE consumer and its UDP Timer J to the BYE server reducer. At the original cutoff, exact pending or started proof expires to NOT_WRITTEN or UNKNOWN; definite proof follows ordinary settlement and acknowledgement, and absent proof permits retirement only with its existing consumed marker. UNKNOWN removes only the expired output scheduling head after the exact owner and current proof are revalidated; the output, uncertainty and native duties remain for late definite completion or existing fully-ended-call retirement. Neither elapsed time nor physical absence implies a write.
@@ -592,11 +598,10 @@ Measure selected records/bytes decoded and encoded, round trips, retained bytes,
 
 Sipbridge owns the default Redis generation, starting at `1`. Keep it for
 compatible releases and increase it when a release requires fresh Redis state.
-Dialog socket recovery adds fields to persisted command admission and uses
-default generation `2`. Drain active calls before moving a pool to that
-generation. Restart the pool on homogeneous SIPbridge builds and allow its
-endpoints to register again. Established dialogs belong to their original
-generation.
+Dialog socket recovery introduced generation `2`. Exact control attachments and
+prepared write reassignment introduce generation `3`. Drain active calls before
+moving each pool to a fresh generation and restart its workers on homogeneous
+builds. Endpoints register again in the new generation.
 `SIPBRIDGE_STATE_GENERATION` overrides the built-in value for a deliberate
 reset or an incompatible rollback. Choose a canonical positive decimal ID
 above every previously opened generation in that pool for a fresh override.

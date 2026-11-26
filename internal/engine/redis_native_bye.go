@@ -58,6 +58,8 @@ func (e *redisNative) commandApplicationBye(parent context.Context, peer *contro
 		}
 		defer e.releaseResultWaiter(hint, waiter)
 	}
+	flow := command.GetAdmission().GetSelectedFlow()
+	capture.allowResume = peer.HasCapability(control.DialogSocketResumeCapability) && flow != nil && flow.Transport != "udp" && sameProcess(flow.Ingress, e.cfg.Process)
 	store, workerLease, until, err := e.driver.Current()
 	if err != nil {
 		return nil, err
@@ -96,6 +98,12 @@ func (e *redisNative) commandApplicationBye(parent context.Context, peer *contro
 			if refused := e.checkDialogSocket(command, current, operation, deadline); refused != nil {
 				return refused, nil
 			}
+		}
+		if capture.allowResume {
+			e.mu.Lock()
+			waiter.allowDialogResume = true
+			waiter.dialogResumeFingerprint = capture.fingerprint
+			e.mu.Unlock()
 		}
 		if command.GetDialogRequest().Method == "INVITE" {
 			identity, x = publishRedisApplicationInvite(ctx, store, e.cfg.StateIdentityKey, peer.Application(), lease, command, capture, operation, rediscore.TimerAssignment{Worker: e.worker, Epoch: e.cfg.Process.Epoch, Term: e.cfg.Process.Epoch}, deadline, until)
@@ -200,6 +208,12 @@ func (e *redisNative) awaitRedisApplicationByeResult(ctx context.Context, store 
 		if result.Pending {
 			if result.Output != prefix+"output-"+id || result.CutoffMs <= 0 {
 				return nil, errNativeRecord
+			}
+			if capture.allowResume {
+				parked, err := e.parkedDialogResult(ctx, store, selected.Identity, result, method, waiter, snapshot)
+				if err != nil || parked != nil {
+					return parked, err
+				}
 			}
 			offset := result.CutoffMs - leaseUntil.UnixMilli()
 			if offset > int64((24*time.Hour)/time.Millisecond) || offset < -int64((24*time.Hour)/time.Millisecond) {

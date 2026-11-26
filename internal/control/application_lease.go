@@ -64,7 +64,7 @@ func (p *session) renewApplicationLease(force ...bool) error {
 	started := time.Now()
 	var renewed *pb.ApplicationLease
 	var err error
-	if slices.Contains(p.capabilities, ControllerReattachCapability) {
+	if slices.Contains(p.capabilities, ControllerReattachCapability) || slices.Contains(p.capabilities, ControlAttachmentCapability) {
 		renewed, err = p.server.cfg.OnControllerRenew(ctx, &Peer{p})
 	} else if p.server.cfg.OnApplicationLease != nil {
 		renewed, err = p.server.cfg.OnApplicationLease(ctx, p.process, term)
@@ -113,6 +113,24 @@ func (p *Peer) ApplicationLease() *pb.ApplicationLease {
 		return nil
 	}
 	return proto.Clone(p.session.applicationLease).(*pb.ApplicationLease)
+}
+
+// CheckApplicationAttachment is the final local start check for a reserved
+// application output. The caller already holds the physical flow's writer lock.
+func (s *Server) CheckApplicationAttachment(sessionID string) error {
+	s.mu.Lock()
+	p := s.attachments[sessionID]
+	s.mu.Unlock()
+	if p == nil || p.ctx.Err() != nil {
+		return ErrApplicationLeaseFenced
+	}
+	p.mu.Lock()
+	capability := p.applicationCapability
+	p.mu.Unlock()
+	if capability == nil {
+		return ErrApplicationLeaseFenced
+	}
+	return capability.Guard(capability.application, capability.term, nil)
 }
 
 // ResumeApplicationLease is called before recovered protocol work. It gives the

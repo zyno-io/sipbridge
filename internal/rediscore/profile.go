@@ -86,6 +86,7 @@ func BindProfile(cfg ProfileConfig) (ProfileBinding, error) {
 	}
 	text("command-refusal-status-v1")
 	text("context-fault-abandonment-packed-reverse-selectors-v1")
+	text("dialog-output-reassignment-control-attachments-v1")
 	generation, err := managedGeneration(cfg.Root, cfg.Generation)
 	if err != nil {
 		return ProfileBinding{}, err

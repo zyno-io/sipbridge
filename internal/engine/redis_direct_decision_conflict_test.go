@@ -144,12 +144,19 @@ func testRedisDirectDecisionReadConflict(t *testing.T, ctx context.Context, e *r
 			if !receipt {
 				return nil
 			}
-		} else if postSelection {
-			if len(args) != 14 || string(args[2].scalar) != "2" || string(args[10].scalar) != "exact" || len(args[11].scalar) != 0 || !strings.HasPrefix(string(args[9].scalar), "r:uac-procedure-") {
+		} else {
+			// A selected read ends with mode, owner, lease term, attachment, and primary.
+			if len(args) != 15 || string(args[2].scalar) != "2" || string(args[len(args)-5].scalar) != "exact" {
 				return nil
 			}
-		} else if len(args) != 14 || string(args[2].scalar) != "2" || string(args[10].scalar) != "exact" || len(args[11].scalar) == 0 {
-			return nil
+			owner := args[len(args)-4].scalar
+			if postSelection {
+				if len(owner) != 0 || !strings.HasPrefix(string(args[9].scalar), "r:uac-procedure-") {
+					return nil
+				}
+			} else if len(owner) == 0 {
+				return nil
+			}
 		}
 		hasContext, hasDialog := false, false
 		for _, arg := range args[3:] {

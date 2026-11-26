@@ -88,12 +88,9 @@ A controller can address persisted state using its scoped lookup coordinates.
 The native projection returns the signed ID for subsequent requests. Unscoped
 references also identify outbound transactions before SIPbridge creates a dialog.
 
-The handle requires no new native index or stored field. This additive control
-schema still changes the descriptor that the current storage profile binds, so
-a deployed Redis cohort needs a fresh generation under the normal profile
-rollout procedure. The first dual-reference build defaults to generation 4.
-Dual references preserve legacy client interoperability at the control boundary
-of that cohort. The v2 capability reuses the same field and storage descriptor.
+The signed handle uses the generation-4 Redis descriptor and existing native
+indexes. Serving peers move to the current control contract together during the
+maintenance window.
 
 | Identity | Authority and lifetime |
 | --- | --- |

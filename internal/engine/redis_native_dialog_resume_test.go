@@ -25,14 +25,22 @@ import (
 )
 
 func TestRedisNativeResumesPreparedDialogByeOnce(t *testing.T) {
-	testRedisNativeResumesPreparedDialog(t, "BYE")
+	testRedisNativeResumesPreparedDialog(t, "BYE", "", false)
 }
 
 func TestRedisNativeResumesPreparedDialogReinviteAndAdopts(t *testing.T) {
-	testRedisNativeResumesPreparedDialog(t, "INVITE")
+	testRedisNativeResumesPreparedDialog(t, "INVITE", "", false)
 }
 
-func testRedisNativeResumesPreparedDialog(t *testing.T, method string) {
+func TestRedisNativeResumesPreparedDialogInfoAfterNewInboundDecision(t *testing.T) {
+	testRedisNativeResumesPreparedDialog(t, "INFO", "", true)
+}
+
+func TestRedisNativeResumesPreparedDialogRefusesUnprovenHop(t *testing.T) {
+	testRedisNativeResumesPreparedDialog(t, "BYE", "<sips:router@192.0.2.42:5061;lr>", false)
+}
+
+func testRedisNativeResumesPreparedDialog(t *testing.T, method, route string, inboundDecision bool) {
 	t.Helper()
 	var closeFirst atomic.Bool
 	var active *pb.ContextRef
@@ -47,6 +55,9 @@ func testRedisNativeResumesPreparedDialog(t *testing.T, method string) {
 		return err != nil || len(seen.View.Records["r:result-2"]) == 0
 	}, control.DialogSocketCapability, control.DialogSocketResumeCapability)
 	initial := stateTestRequest("INVITE", 1, "", "resume-dialog")
+	if route != "" {
+		initial.Wire = bytes.Replace(initial.Wire, []byte("\r\n\r\n"), []byte("\r\nRecord-Route: "+route+"\r\n\r\n"), 1)
+	}
 	if err := e.ReceiveRequest(ctx, peer, flow, initial); err != nil {
 		t.Fatal(err)
 	}
@@ -59,8 +70,10 @@ func testRedisNativeResumesPreparedDialog(t *testing.T, method string) {
 		t.Fatal("initial response", answered)
 	}
 	final := peerACKFinal(t, ctx, writes)
-	if method == "INVITE" {
-		remote, err := portable.NewDialog(portable.UAC, portable.RestoreMessage(initial.Wire, "tls", "", ""), portable.RestoreMessage(final, "tls", "", ""), portable.DefaultTimers())
+	var remote portable.Dialog
+	if method != "BYE" {
+		var err error
+		remote, err = portable.NewDialog(portable.UAC, portable.RestoreMessage(initial.Wire, "tls", "", ""), portable.RestoreMessage(final, "tls", "", ""), portable.DefaultTimers())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -84,6 +97,20 @@ func testRedisNativeResumesPreparedDialog(t *testing.T, method string) {
 	store, _, _, err = e.driver.Current()
 	if err != nil {
 		t.Fatal(err)
+	}
+	var inbound *pb.RequestPresented
+	if inboundDecision {
+		request, err := portable.BuildDialogRequest(remote, sip.INFO, 2, nil, "z9hG4bK-inbound-during-resume")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = e.ReceiveRequest(ctx, peer, flow, &pb.SipMessage{Wire: request.WireBytes()}); err != nil {
+			t.Fatal(err)
+		}
+		inbound = peerACKRead(t, ctx, conn, session).GetRequest()
+		if inbound == nil {
+			t.Fatal("inbound request not presented")
+		}
 	}
 	replacement, replacementPeer, replacementFlow, replacementWrites := prepareDialogResumePeer(t, ctx, e, peer, flow)
 	deadline := time.Now().Add(4 * time.Second)
@@ -138,6 +165,30 @@ func testRedisNativeResumesPreparedDialog(t *testing.T, method string) {
 		DirectoryEpoch: admission.DirectoryEpoch, RegistrationTicket: admission.DirectoryEpoch + ":1"}
 	resume := &pb.Command{Context: ref, Sequence: 2, Admission: admission,
 		Action: &pb.Command_ResumeDialogRequest{ResumeDialogRequest: &pb.ResumeDialogRequest{OperationId: parked.DialogRecovery.OperationId}}}
+	if route != "" {
+		refused, err := replacement.commandResumeDialog(ctx, replacementPeer, resume, deadline)
+		if err != nil || refused.GetCertainty() != pb.OperationResult_NOT_ACCEPTED || !strings.Contains(refused.GetError(), "first SIP next hop") {
+			t.Fatalf("routed resume refusal: %v %v", refused, err)
+		}
+		proof, err := store.InspectOutput(ctx, oldRef)
+		if err != nil || proof.State != rediscore.OutputResumeParked {
+			t.Fatal("refused resume changed the parked attempt", proof.State, err)
+		}
+		select {
+		case wire := <-replacementWrites:
+			t.Fatalf("refused resume wrote to the wrong hop: %s", wire)
+		default:
+		}
+		return
+	}
+	if inbound != nil {
+		decision := residentDirectDecision(inbound, 3, 0)
+		decision.Basis = pb.OwnerIngest_EXISTING_FLOW
+		answer := residentSendDecision(t, ctx, conn, session, "advance-inbound-decision", decision)
+		if answer.GetCertainty() != pb.OperationResult_ACCEPTED || answer.GetSnapshot().GetCommandSequence() != 3 {
+			t.Fatal("intervening inbound decision did not advance the sequence", answer)
+		}
+	}
 	type commandResult struct {
 		answer *pb.OperationResult
 		err    error
@@ -165,10 +216,11 @@ func testRedisNativeResumesPreparedDialog(t *testing.T, method string) {
 		t.Fatalf("A retained write permission after replacement: %v", err)
 	}
 	wantCertainty := pb.OperationResult_ACCEPTED
-	if method == "INVITE" {
+	var pendingDuplicate <-chan commandResult
+	if method != "BYE" {
 		wantCertainty = pb.OperationResult_COMPLETED
 		for {
-			view, err := store.Read(ctx, view.Identity, metadata.Procedure)
+			view, err := store.Read(ctx, view.Identity, metadata.Procedure, result.Output)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -177,12 +229,46 @@ func testRedisNativeResumesPreparedDialog(t *testing.T, method string) {
 				t.Fatal(err)
 			}
 			if procedure.OutputConsumed {
-				break
+				assigned, err := decodeNativeOutput(view.Records[result.Output])
+				if err != nil {
+					t.Fatal(err)
+				}
+				ref, err := nativeOutputRef(assigned.Write)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = store.InspectOutput(ctx, ref); errors.Is(err, rediscore.ErrAbsent) {
+					break
+				} else if err != nil {
+					t.Fatal(err)
+				}
 			}
 			if !time.Now().Before(deadline) {
-				t.Fatal("replacement re-INVITE write proof missing")
+				t.Fatal("replacement write proof was not consumed")
 			}
 			time.Sleep(time.Millisecond)
+		}
+		seen, err := store.Read(ctx, view.Identity, "r:result-2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		observed, err := decodeNativeResult(seen.Records["r:result-2"])
+		if err != nil || !observed.Pending {
+			t.Fatal("result was not pending after proof consumption", observed, err)
+		}
+		duplicate := make(chan commandResult, 1)
+		pendingDuplicate = duplicate
+		start := make(chan struct{})
+		go func() {
+			close(start)
+			answer, err := replacement.commandResumeDialog(ctx, replacementPeer, resume, deadline)
+			duplicate <- commandResult{answer: answer, err: err}
+		}()
+		<-start
+		select {
+		case result := <-duplicate:
+			t.Fatalf("duplicate returned before the SIP final: %v %v", result.answer, result.err)
+		case <-time.After(35 * time.Millisecond):
 		}
 		response, err := portable.BuildResponseWithHeaders(portable.RestoreMessage(wire, "tls", "", ""), 200, "OK", nil, "", "<sips:phone@192.0.2.12:5061>", nil)
 		if err != nil {
@@ -197,8 +283,14 @@ func testRedisNativeResumesPreparedDialog(t *testing.T, method string) {
 	if resultWithError.err != nil || answer.GetCertainty() != wantCertainty || answer.GetRequest().GetMethod() != method || answer.DialogRecovery != nil || !bytes.Equal(answer.Request.Wire, wire) {
 		t.Fatalf("resumed request: %v %v", answer, resultWithError.err)
 	}
-	if method == "INVITE" && !proto.Equal(answer.GetSnapshot().GetDelivery(), admission.FallbackDelivery) {
-		t.Fatal("accepted re-INVITE did not adopt replacement socket", answer)
+	if method != "BYE" && !proto.Equal(answer.GetSnapshot().GetDelivery(), admission.FallbackDelivery) {
+		t.Fatal("accepted request did not adopt replacement socket", answer)
+	}
+	if pendingDuplicate != nil {
+		winner := <-pendingDuplicate
+		if winner.err != nil || winner.answer.GetCertainty() != wantCertainty || !bytes.Equal(winner.answer.GetRequest().GetWire(), wire) || winner.answer.GetSipStatus() != 200 {
+			t.Fatalf("pending duplicate did not join the final result: %v %v", winner.answer, winner.err)
+		}
 	}
 	duplicate, err := replacement.commandResumeDialog(ctx, replacementPeer, resume, deadline)
 	if err != nil || duplicate.GetCertainty() != wantCertainty || !bytes.Equal(duplicate.GetRequest().GetWire(), answer.Request.Wire) {

@@ -153,6 +153,11 @@ func publishRedisApplicationBye(ctx context.Context, store *rediscore.Store, key
 	if !validPolicyFlow(flow) || flow.Transport != current.Transport {
 		return publishRedisApplicationByeRefusal(ctx, store, selected, current, lease, command, capture, operation, policy, executor, deadline, errors.New("BYE output flow unavailable"))
 	}
+	if policy.RegistrationFallback {
+		if err = validateDialogReplacementHop(native.Routes, tx.Origin, flow); err != nil {
+			return zero, err
+		}
+	}
 	nextContext := proto.Clone(current).(*nativepb.Context)
 	nextContext.CommandSequence = command.Sequence
 	nextContext.Revision++

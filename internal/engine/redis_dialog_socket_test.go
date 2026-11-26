@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,39 @@ import (
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/rediscore"
 )
+
+func TestDialogReplacementProvesFirstSIPHop(t *testing.T) {
+	for _, test := range []struct {
+		name, route, ip string
+		port            uint32
+		accepted        bool
+	}{
+		{"direct UA behind NAT", "", "192.0.2.25", 60202, true},
+		{"loose IPv4 route", "<sips:192.0.2.25:5061;lr>", "192.0.2.25", 5061, true},
+		{"strict IPv6 with default port", "<sips:[2001:db8::20]>", "2001:db8:0:0::20", 5061, true},
+		{"different port", "<sips:192.0.2.25:5071;lr>", "192.0.2.25", 5061, false},
+		{"unverified hostname", "<sips:proxy.example.test:5061;lr>", "192.0.2.25", 5061, false},
+		{"different transport", "<sip:192.0.2.25:5061;Transport=UDP;lr>", "192.0.2.25", 5061, false},
+		{"alternate destination", "<sips:192.0.2.25:5061;maddr=192.0.2.26;lr>", "192.0.2.25", 5061, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dialog := portable.Dialog{LocalTag: "local", RemoteTag: "remote", CallID: "test", SentBy: "local.example.test:5061",
+				Target: "sips:callee@10.0.0.8:5061", LocalURI: "sips:local@example.test", RemoteURI: "sips:remote@example.test", Transport: "tls"}
+			if test.route != "" {
+				dialog.Routes = []string{test.route}
+			}
+			message, err := portable.BuildDialogRequest(dialog, sip.INFO, 1, nil, "z9hG4bK-replacement-hop")
+			if err != nil {
+				t.Fatal(err)
+			}
+			flow := &pb.FlowRef{Transport: "tls", SourceIp: test.ip, SourcePort: test.port}
+			err = validateDialogReplacementHop(dialog.Routes, message, flow)
+			if test.accepted && err != nil || !test.accepted && !errors.Is(err, errStatePolicyAdmission) {
+				t.Fatal("unexpected next-hop decision", err)
+			}
+		})
+	}
+}
 
 func TestRedisNativeDialogSocketRefusalDoesNotConsumeCommand(t *testing.T) {
 	var live atomic.Bool
@@ -112,17 +146,23 @@ func TestRedisNativeDialogRegistrationFallbackAdoption(t *testing.T) {
 		method     string
 		status     int
 		superseded bool
+		firstRoute string
 	}{
-		{"matching-info-response-adopts", "INFO", 200, false},
-		{"matching-reinvite-response-adopts", "INVITE", 200, false},
-		{"unknown-dialog-keeps-old-route", "INFO", 481, false},
-		{"a-later-accepted-route-wins", "INFO", 200, true},
+		{"matching-info-response-adopts", "INFO", 200, false, ""},
+		{"matching-reinvite-response-adopts", "INVITE", 200, false, ""},
+		{"unknown-dialog-keeps-old-route", "INFO", 481, false, ""},
+		{"a-later-accepted-route-wins", "INFO", 200, true, ""},
+		{"fallback-cannot-bypass-loose-route", "INFO", 0, false, "<sips:proxy@192.0.2.41:5061;lr>"},
+		{"fallback-cannot-bypass-strict-route", "INVITE", 0, false, "<sips:proxy@192.0.2.41:5061>"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			e, peer, conn, ctx, session, flow, writes := peerACKRedisFixtureWithCapabilities(t, false, func(*pb.FlowRef) bool {
 				return true
 			}, control.DialogSocketCapability)
 			initial := stateTestRequest("INVITE", 1, "", "dialog-registration-fallback")
+			if scenario.firstRoute != "" {
+				initial.Wire = bytes.Replace(initial.Wire, []byte("\r\n\r\n"), []byte("\r\nRecord-Route: "+scenario.firstRoute+"\r\n\r\n"), 1)
+			}
 			if err := e.ReceiveRequest(ctx, peer, flow, initial); err != nil {
 				t.Fatal(err)
 			}
@@ -168,6 +208,30 @@ func TestRedisNativeDialogRegistrationFallbackAdoption(t *testing.T) {
 				ExpectedDelivery: snapshot.GetDelivery(), RegistrationFallback: true, FallbackDelivery: candidate,
 			}, Action: &pb.Command_DialogRequest{DialogRequest: &pb.DialogRequest{Method: scenario.method}}}
 			const operation = "registration-fallback"
+			if scenario.firstRoute != "" {
+				result, err := e.commandApplicationBye(ctx, peer, command, operation, until)
+				if err != nil || result.GetCertainty() != pb.OperationResult_NOT_ACCEPTED || !strings.Contains(result.GetError(), "first SIP next hop") {
+					t.Fatalf("routed fallback refusal: %v %v", result, err)
+				}
+				store, _, _, err := e.driver.Current()
+				if err != nil {
+					t.Fatal(err)
+				}
+				records, err := store.ObserveContext(ctx, ref.Id, ref.State.Incarnation, "r:context", "r:result-2")
+				if err != nil {
+					t.Fatal(err)
+				}
+				current, err := decodeNativeContext(records.View.Records["r:context"])
+				if err != nil || current.CommandSequence != 1 || len(records.View.Records["r:result-2"]) != 0 {
+					t.Fatal("refused replacement consumed the command", current, err)
+				}
+				select {
+				case wire := <-writes:
+					t.Fatalf("routed fallback wrote through the wrong socket: %s", wire)
+				default:
+				}
+				return
+			}
 			writeControllerEnvelope(t, ctx, conn, &pb.Envelope{SessionId: session, CorrelationId: operation, RemainingBudgetMs: 2000,
 				Payload: &pb.Envelope_Command{Command: command}})
 			var wire []byte

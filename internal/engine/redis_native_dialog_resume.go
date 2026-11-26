@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/hmac"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
@@ -155,7 +157,7 @@ func (e *redisNative) commandResumeDialog(parent context.Context, peer *control.
 		}
 		if selected.Identity.Owner != lease.Application || selected.Identity.Term != lease.Term || current.Context == nil || !proto.Equal(current.Context.State, ref.State) ||
 			!sameProcess(current.Application, peer.Application()) || current.ApplicationLeaseTerm != lease.Term ||
-			current.CommandSequence != sequence || result.Sequence != sequence || result.DecidingLeaseTerm != lease.Term ||
+			current.CommandSequence < sequence || result.Sequence != sequence || result.DecidingLeaseTerm != lease.Term ||
 			!hmac.Equal([]byte(opID), []byte(e.dialogResumeID(store, selected.Identity, result, method))) {
 			return nil, rediscore.ErrAuthority
 		}
@@ -182,6 +184,12 @@ func (e *redisNative) commandResumeDialog(parent context.Context, peer *control.
 			return nil, errNativeRecord
 		}
 		exact, err := inspectRedisApplicationByeOutput(ctx, store, metadata.Write, nil)
+		if errors.Is(err, rediscore.ErrAbsent) {
+			err = validateConsumedDialogResume(ctx, store, selected, current, result, metadata, flow, resultField)
+			if err == nil {
+				return e.awaitRedisApplicationByeResult(ctx, store, selected.Identity, lease, capture, result.OperationId, cutoff, until, waiter, method)
+			}
+		}
 		if errors.Is(err, rediscore.ErrAbsent) || errors.Is(err, rediscore.ErrConflict) {
 			continue
 		}
@@ -198,6 +206,9 @@ func (e *redisNative) commandResumeDialog(parent context.Context, peer *control.
 			return e.awaitRedisApplicationByeResult(ctx, store, selected.Identity, lease, capture, result.OperationId, cutoff, until, waiter, method)
 		}
 		if err = e.assignResumedDialog(ctx, store, selected, current, exact, command, lease, cutoff); err != nil {
+			if errors.Is(err, errStatePolicyAdmission) {
+				return commandRefusal(err), nil
+			}
 			if !errors.Is(err, rediscore.ErrUnknown) && (errors.Is(err, rediscore.ErrAbsent) || errors.Is(err, rediscore.ErrConflict)) {
 				continue
 			}
@@ -206,6 +217,46 @@ func (e *redisNative) commandResumeDialog(parent context.Context, peer *control.
 		return e.awaitRedisApplicationByeResult(ctx, store, selected.Identity, lease, capture, result.OperationId, cutoff, until, waiter, method)
 	}
 	return nil, rediscore.ErrConflict
+}
+
+// Completion can drop compact physical proof while the command still awaits a
+// SIP final. Join only the result backed by the exact consumed procedure.
+func validateConsumedDialogResume(ctx context.Context, store *rediscore.Store, selected *rediscore.ObservedContext, current *nativepb.Context, result *nativepb.Result, metadata *nativepb.Output, flow *pb.FlowRef, resultField string) error {
+	if !proto.Equal(metadata.Write.Flow, flow) {
+		return rediscore.ErrConflict
+	}
+	id, err := redisApplicationByeID(result.Fingerprint)
+	if err != nil {
+		return err
+	}
+	prefix := "r:" + redisApplicationClientPrefix(metadata.Method)
+	family := portable.NonInviteClient
+	if metadata.Method == "INVITE" {
+		prefix, family = "r:app-invite-", portable.InviteClient
+	}
+	if metadata.Status != 0 || metadata.Operation != result.OperationId || metadata.Result != resultField || result.Output != prefix+"output-"+id ||
+		metadata.Procedure != prefix+id || !slices.Contains(current.NoninitialProcedures, metadata.Procedure) || !slices.Contains(current.Dialogs, metadata.Dialog) ||
+		!proto.Equal(metadata.Write.Effect.Context, current.Context) || metadata.Write.Permit.Authorization.AuthorityClass != pb.EffectAuthorization_APPLICATION ||
+		metadata.Write.Permit.Authorization.ApplicationLeaseTerm != result.DecidingLeaseTerm {
+		return errNativeRecord
+	}
+	procedureView, err := store.Read(ctx, selected.Identity, metadata.Procedure)
+	if err != nil {
+		return err
+	}
+	if procedureView.Revision != selected.View.Revision || procedureView.Timer != selected.View.Timer {
+		return rediscore.ErrConflict
+	}
+	procedure, err := readPrivateProcedureRecord(procedureView.Records[metadata.Procedure])
+	if err != nil {
+		return err
+	}
+	if !procedure.OutputConsumed || procedure.Cleanup || procedure.Native.Version != portable.Version || procedure.Native.Family != string(family) ||
+		procedure.Origin != prefix+"origin-"+id || procedure.CommandResult != resultField || !slices.Contains(procedure.Outputs, result.Output) ||
+		!sameProcess(procedure.Application, current.Application) || !proto.Equal(procedure.Flow, flow) || !proto.Equal(procedure.Policy.GetSelectedFlow(), flow) {
+		return rediscore.ErrConflict
+	}
+	return nil
 }
 
 func (e *redisNative) assignResumedDialog(ctx context.Context, store *rediscore.Store, selected *rediscore.ObservedContext, current *nativepb.Context, old selectedCleanupByeOutput, command *pb.Command, lease rediscore.ApplicationLeaseRef, cutoff time.Time) error {
@@ -248,6 +299,38 @@ func (e *redisNative) assignResumedDialog(ctx context.Context, store *rediscore.
 	_, sentBy, err := (nativeSIPAdvertisement{contactURI: e.cfg.ContactURI, address: e.cfg.AdvertiseAddress, plainAddress: e.cfg.PlainAdvertiseAddress}).resolve(flow.Transport)
 	if err != nil || facts.ViaSentBy != sentBy {
 		return policyRefusal("resume would change the original Via sent-by")
+	}
+	dialogRecord, err := readPrivateDialogRecord(old.selected.View.Records[metadata.Dialog])
+	if err != nil {
+		return err
+	}
+	dialog := nativeDialogFromPrivate(dialogRecord).Native
+	if !dialog.LocalSet || dialog.LocalCSeq != facts.CSeq || dialog.Phase == portable.DialogEnded {
+		return policyRefusal("resume SIP dialog advanced past the original request")
+	}
+	if err = validateDialogReplacementHop(dialog.Routes, message, flow); err != nil {
+		return err
+	}
+	// Reuse SIP routing construction to prove compatibility with the current
+	// dialog after intervening inbound decisions. The stored request is sent.
+	routing, err := portable.BuildDialogRequestWithHeaders(dialog, facts.Method, facts.CSeq, nil, facts.ViaBranch, nil)
+	if err != nil {
+		return err
+	}
+	routingFacts, err := routing.Facts()
+	if err != nil {
+		return err
+	}
+	retainedRoutes, err := message.HeaderValues("Route")
+	if err != nil {
+		return err
+	}
+	currentRoutes, err := routing.HeaderValues("Route")
+	if err != nil {
+		return err
+	}
+	if facts.URI != routingFacts.URI || !slices.Equal(retainedRoutes, currentRoutes) {
+		return policyRefusal("resume would change the original request routing")
 	}
 	procedure := proto.Clone(old.procedure).(*nativepb.Procedure)
 	procedure.Flow = proto.Clone(flow).(*pb.FlowRef)

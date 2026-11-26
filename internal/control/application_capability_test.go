@@ -107,3 +107,73 @@ func TestApplicationCapabilityNaturalBoundUsesExistingHeartbeatRelease(t *testin
 		t.Fatal("local capability expiry invented a transport failure")
 	}
 }
+
+func TestApplicationAttachmentFencesOneSocketWhileTheSiblingRemainsLive(t *testing.T) {
+	pki := newPKI(t)
+	app := &pb.ProcessRef{InstanceId: "controller", Epoch: "one"}
+	authority := &pb.StateAuthority{Service: "test", Generation: "one", PrimaryId: "primary", SchemaVersion: 1}
+	caps := []string{"sip.v1", StateCapability, NativeCompletionCapability, DialogSocketCapability, ControlAttachmentCapability}
+	closed := make(chan string, 2)
+	lease := &pb.ApplicationLease{Application: app, Authority: authority, Term: "term", CheckedAtMs: 1000, ExpiresAtMs: 31000}
+	configure := func(cfg *Config) {
+		cfg.StateAuthority, cfg.Capabilities = authority, caps
+		cfg.OnControllerSession = func(_ context.Context, _ *Peer, _ *pb.SessionHello) (*pb.ApplicationLease, error) {
+			return lease, nil
+		}
+		cfg.OnControllerRenew = func(_ context.Context, _ *Peer) (*pb.ApplicationLease, error) {
+			return lease, nil
+		}
+		cfg.OnDisconnect = func(peer *Peer) { closed <- peer.SessionID() }
+	}
+	serverA, addressA := testServer(t, pki, 8, configure)
+	serverB, addressB := testServer(t, pki, 8, configure)
+	a, err := pki.dial(addressA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.CloseNow()
+	send(t, a, &pb.Envelope{CorrelationId: "hello-a", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{
+		Controller: app, ConnectionAttempt: 1, Major: 1, Capabilities: caps, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096},
+	}}})
+	aReply, err := receive(a)
+	if err != nil || aReply.GetHelloAck() == nil {
+		t.Fatal("hello A", err)
+	}
+	peerA := waitPublicationPeer(t, serverA, app)
+	if err := serverA.CheckApplicationAttachment(peerA.SessionID()); err != nil {
+		t.Fatal("live A attachment", err)
+	}
+	b, err := pki.dial(addressB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.CloseNow()
+	send(t, b, &pb.Envelope{CorrelationId: "hello-b", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{
+		Controller: app, ConnectionAttempt: 2, Major: 1, Capabilities: caps, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096},
+	}}})
+	bReply, err := receive(b)
+	if err != nil || bReply.GetHelloAck() == nil {
+		t.Fatal("hello B", err)
+	}
+	peerB := waitPublicationPeer(t, serverB, app)
+	if peerA.SessionID() == peerB.SessionID() {
+		t.Fatal("replacement reused the same attachment")
+	}
+	if err := a.CloseNow(); err != nil {
+		t.Fatal("close A", err)
+	}
+	select {
+	case sessionID := <-closed:
+		if sessionID != peerA.SessionID() {
+			t.Fatal("close reported the wrong session", sessionID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("A did not close")
+	}
+	if !errors.Is(serverA.CheckApplicationAttachment(peerA.SessionID()), ErrApplicationLeaseFenced) {
+		t.Fatal("queued write observed the closed attachment as live")
+	}
+	if err := serverB.CheckApplicationAttachment(peerB.SessionID()); err != nil {
+		t.Fatal("closing A fenced B", err)
+	}
+}

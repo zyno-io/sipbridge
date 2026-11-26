@@ -68,6 +68,7 @@ type OutputResult struct {
 	Metadata             []byte
 	WireHash             [32]byte
 	Connection           string
+	Attachment           string
 	DeadlineMS           int64
 	LeaseExpiresMS       int64
 	ApplicationExpiresMS int64
@@ -125,7 +126,7 @@ func (s *Store) ReserveOutput(ctx context.Context, o OutputRef) (OutputResult, e
 		}
 		return OutputResult{Outcome: value}, nil
 	case "OK":
-		if len(v) != 8 {
+		if len(v) != 9 {
 			return OutputResult{}, errors.Join(ErrUnknown, ErrCorrupt)
 		}
 		now, e := responseInt(v[1])
@@ -135,9 +136,10 @@ func (s *Store) ReserveOutput(ctx context.Context, o OutputRef) (OutputResult, e
 		metadata, metadataOK := v[5].(string)
 		wireHash, hashOK := v[6].(string)
 		appExpiry, appErr := responseInt(v[7])
+		attachment, attachmentOK := v[8].(string)
 		elapsed := finish.Sub(start)
 		skew := finish.UnixMilli() - start.UnixMilli() - elapsed.Milliseconds()
-		if e != nil || dueErr != nil || leaseErr != nil || appErr != nil || (o.RequireApplication && appExpiry <= now) || (!o.RequireApplication && appExpiry != 0) || due <= now || leaseExpiry <= now || !ok || len(record) == 0 || len(record) > maxRecordBytes || !metadataOK || len(metadata) == 0 || len(metadata) > storagecodec.MaxNativeOutputBytes || !hashOK || len(wireHash) != 32 || elapsed < 0 || skew < -workerClockTolerance.Milliseconds() || skew > workerClockTolerance.Milliseconds() || now < start.UnixMilli()-workerClockTolerance.Milliseconds() || now > finish.UnixMilli()+workerClockTolerance.Milliseconds() {
+		if e != nil || dueErr != nil || leaseErr != nil || appErr != nil || (o.RequireApplication && appExpiry <= now) || (!o.RequireApplication && appExpiry != 0) || !attachmentOK || attachment != "" && (!o.RequireApplication || !reference(attachment)) || due <= now || leaseExpiry <= now || !ok || len(record) == 0 || len(record) > maxRecordBytes || !metadataOK || len(metadata) == 0 || len(metadata) > storagecodec.MaxNativeOutputBytes || !hashOK || len(wireHash) != 32 || elapsed < 0 || skew < -workerClockTolerance.Milliseconds() || skew > workerClockTolerance.Milliseconds() || now < start.UnixMilli()-workerClockTolerance.Milliseconds() || now > finish.UnixMilli()+workerClockTolerance.Milliseconds() {
 			return OutputResult{}, errors.Join(ErrUnknown, ErrCorrupt)
 		}
 		if ctx.Err() != nil || callCtx.Err() != nil {
@@ -162,7 +164,7 @@ func (s *Store) ReserveOutput(ctx context.Context, o OutputRef) (OutputResult, e
 		if ctx.Err() != nil || callCtx.Err() != nil || !time.Now().Before(until) {
 			return OutputResult{}, ErrUnknown
 		}
-		return OutputResult{Wire: wire, Metadata: []byte(metadata), WireHash: expectedWire, Connection: o.Connection, DeadlineMS: due, LeaseExpiresMS: leaseExpiry, ApplicationExpiresMS: appExpiry, Until: until}, nil
+		return OutputResult{Wire: wire, Metadata: []byte(metadata), WireHash: expectedWire, Connection: o.Connection, Attachment: attachment, DeadlineMS: due, LeaseExpiresMS: leaseExpiry, ApplicationExpiresMS: appExpiry, Until: until}, nil
 	default:
 		return OutputResult{}, status(v)
 	}
@@ -221,11 +223,13 @@ const outputScript = commonScript + namespaceScript + applicationGuardScript + `
 local function output()
  if redis.call('HGET',KEYS[2],'incarnation')~=ARGV[2] then return nil,'AUTHORITY' end
  local prefix='o:'..ARGV[3]..':'
- local a=redis.call('HMGET',KEYS[2],prefix..'a',prefix..'w',prefix..'e',prefix..'c',prefix..'d',prefix..'m',prefix..'h',prefix..'s',prefix..'k',prefix..'n',prefix..'x',prefix..'p',prefix..'q',prefix..'u',prefix..'t',prefix..'g',prefix..'l')
+ local a=redis.call('HMGET',KEYS[2],prefix..'a',prefix..'w',prefix..'e',prefix..'c',prefix..'d',prefix..'m',prefix..'h',prefix..'s',prefix..'k',prefix..'n',prefix..'x',prefix..'p',prefix..'q',prefix..'u',prefix..'t',prefix..'g',prefix..'l',prefix..'z')
  if not a[1] then return nil,'ABSENT' end
  for i=1,17 do if not a[i] then return nil,'CORRUPT' end end
+ if a[18] and (a[13]~='A' or not appRef(a[18])) then return nil,'CORRUPT' end
  if a[1]~=ARGV[4] or a[2]~=ARGV[5] or a[3]~=ARGV[6] or a[4]~=ARGV[7] or a[12]~=ARGV[8] or a[13]~=ARGV[#ARGV-4] then return nil,'CONFLICT' end
- if not number(a[5]) or number(a[5])==0 or #a[7]~=32 or not string.match(a[6],'^r:[A-Za-z0-9_-]+$') or (a[8]~='P' and a[8]~='S' and a[8]~='U' and a[8]~='W' and a[8]~='N') or (a[9]~='0' and a[9]~='1') or (a[10]~='0' and a[10]~='1') or not string.match(a[11],'^r:[A-Za-z0-9_-]+$') or a[11]==a[6] or #a[12]~=32 or (a[13]~='A' and a[13]~='N') or (a[13]=='A' and (not appRef(a[14]) or not appRef(a[15]) or #a[16]~=32)) or (a[13]=='N' and (a[14]~='' or a[15]~='' or a[16]~='')) then return nil,'CORRUPT' end
+ if not number(a[5]) or number(a[5])==0 or #a[7]~=32 or not string.match(a[6],'^r:[A-Za-z0-9_-]+$') or (a[8]~='P' and a[8]~='S' and a[8]~='U' and a[8]~='W' and a[8]~='N' and a[8]~='R') or (a[9]~='0' and a[9]~='1') or (a[10]~='0' and a[10]~='1') or not string.match(a[11],'^r:[A-Za-z0-9_-]+$') or a[11]==a[6] or #a[12]~=32 or (a[13]~='A' and a[13]~='N') or (a[13]=='A' and (not appRef(a[14]) or not appRef(a[15]) or #a[16]~=32)) or (a[13]=='N' and (a[14]~='' or a[15]~='' or a[16]~='')) then return nil,'CORRUPT' end
+ if a[8]=='R' and (a[13]~='A' or a[9]~='0' or a[10]~='0') then return nil,'CORRUPT' end
  local refs={}
  for _,field in ipairs({a[6],a[11]}) do local n=redis.call('HGET',KEYS[2],'ref:'..field);if not n or not number(n) or number(n)<1 then return nil,'CORRUPT' end;refs[field]=number(n) end
  local dependencies={};local dependencyNames={};local seen={}
@@ -244,7 +248,7 @@ local problem=guard(); if problem then return fail(problem) end
 if not kind(KEYS[3],'hash') or not kind(KEYS[4],'zset') then return fail('CORRUPT') end
 local out; out,problem=output(); if problem then return fail(problem) end
 local a=out.values
-if a[8]=='S' or a[8]=='U' then return {'UNKNOWN'} end
+if a[8]=='S' or a[8]=='U' or a[8]=='R' then return {'UNKNOWN'} end
 if a[8]=='W' then return {'DONE','WRITTEN'} elseif a[8]=='N' then return {'DONE','NOT_WRITTEN'} end
 if parked(string.sub(KEYS[1],1,#KEYS[1]-#'core:profile'),ARGV[9],ARGV[2]) then return fail('PARKED') end
 local lo=number(ARGV[10]); local hi=number(ARGV[11]); if not lo or not hi or hi<lo then return fail('CORRUPT') end
@@ -257,6 +261,8 @@ if a[13]=='A' then
  local identity=redis.call('HMGET',KEYS[2],'owner','term');if identity[1]~=a[14] or identity[2]~=a[15] then return fail('AUTHORITY') end
  local root=string.sub(KEYS[1],1,#KEYS[1]-#'core:profile');local appProblem=guardApplication(root,a[14],a[15],now);if appProblem then return fail(appProblem) end
  appExpiry=number(redis.call('HGET',root..'core:owner:'..a[15],'expires_ms'));if not appExpiry or appExpiry<=now then return fail('AUTHORITY') end
+ local attachmentProblem,_,attachmentExpiry=guardApplicationAttachment(root,a[14],a[15],a[18],now);if attachmentProblem then return fail(attachmentProblem) end
+ if attachmentExpiry then appExpiry=math.min(appExpiry,attachmentExpiry) end
  if redis.call('HGET',KEYS[2],'r:delivery-tag')~=a[16] then return fail('AUTHORITY') end
 end
 local member=ARGV[9]..'/'..ARGV[3]; local score=redis.call('ZSCORE',KEYS[4],member)
@@ -266,7 +272,7 @@ local metadata=redis.call('HGET',KEYS[2],a[11]);if not metadata or #metadata==0 
 local ns;ns,problem=nsCurrent(KEYS[5],KEYS[2],0,-#member-8,number(ARGV[#ARGV-2]),number(ARGV[#ARGV-1]),number(ARGV[#ARGV-3]));if problem then return fail(problem) end
 if not redis.acl_check_cmd('HSET',KEYS[2],out.prefix..'s','S') or not redis.acl_check_cmd('ZREM',KEYS[4],member) then return fail('AUTHORITY') end
 redis.call('HSET',KEYS[2],out.prefix..'s','S'); redis.call('ZREM',KEYS[4],member);nsApply(ns)
-return {'OK',string.format('%.0f',now),a[5],lease[2],record,metadata,a[7],string.format('%.0f',appExpiry)}
+return {'OK',string.format('%.0f',now),a[5],lease[2],record,metadata,a[7],string.format('%.0f',appExpiry),a[18] or ''}
 `)
 
 var completeOutputScript = redis.NewScript(outputScript + `
@@ -276,6 +282,7 @@ local out; out,problem=output(); if problem then return fail(problem) end
 local phase=out.values[8]; local requested=ARGV[10]; local next
 if requested=='WRITTEN' then next='W' elseif requested=='NOT_WRITTEN' then next='N' elseif requested=='UNKNOWN' then next='U' else return fail('CORRUPT') end
 if phase=='W' or phase=='N' then if phase==next then return {'OK'} else return fail('CONFLICT') end end
+if phase=='R' then return fail('CONFLICT') end
 if phase=='P' and next~='N' then return fail('CONFLICT') end
 if phase=='U' and next=='U' then return {'OK'} end
 local member=ARGV[9]..'/'..ARGV[3]
@@ -292,6 +299,7 @@ local function outputReleasePlan(out,capacity)
 local a=out.values
 local current=number(redis.call('HGET',KEYS[2],'bytes')); if not current then return nil,'CORRUPT' end
 local suffixes={'a','w','e','c','d','m','h','s','k','n','x','p','q','u','t','g','l'}; local names={}; local removed=0
+if a[18] then suffixes[18]='z' end
 for i,suffix in ipairs(suffixes) do local field=out.prefix..suffix; names[i]=field; removed=removed+#field+#a[i] end
 local refChanges={}
 for _,field in ipairs({a[6],a[11]}) do
@@ -337,11 +345,12 @@ return {'OK'}
 type OutputState string
 
 const (
-	OutputPending    OutputState = "P"
-	OutputStarted    OutputState = "S"
-	OutputUnknown    OutputState = "U"
-	OutputWritten    OutputState = "W"
-	OutputNotWritten OutputState = "N"
+	OutputPending      OutputState = "P"
+	OutputStarted      OutputState = "S"
+	OutputUnknown      OutputState = "U"
+	OutputWritten      OutputState = "W"
+	OutputNotWritten   OutputState = "N"
+	OutputResumeParked OutputState = "R"
 )
 
 type OutputInspection struct {
@@ -385,7 +394,7 @@ func (s *Store) InspectOutput(ctx context.Context, o OutputRef) (OutputInspectio
 	}
 	state := OutputState(phase)
 	switch state {
-	case OutputPending, OutputStarted, OutputUnknown, OutputWritten, OutputNotWritten:
+	case OutputPending, OutputStarted, OutputUnknown, OutputWritten, OutputNotWritten, OutputResumeParked:
 	default:
 		return OutputInspection{}, ErrCorrupt
 	}

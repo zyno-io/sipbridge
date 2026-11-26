@@ -191,7 +191,7 @@ func run() (runErr error) {
 		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ReinviteAckCapability}
 	capabilities = append(capabilities, control.RequestDecisionCapability)
 	if stateConfig.Backend == redisBackend {
-		capabilities = append(capabilities, control.DialogSocketCapability)
+		capabilities = append(capabilities, control.DialogSocketCapability, control.DialogSocketResumeCapability, control.ControlAttachmentCapability)
 	}
 	if authPolicy != nil {
 		capabilities = append(capabilities, engine.LocalChallengeCapability)
@@ -207,6 +207,10 @@ func run() (runErr error) {
 	}, OnDisconnect: func(peer *control.Peer) {
 		lease := peer.ApplicationLease()
 		if stateNative == nil || lease == nil {
+			return
+		}
+		if redis, ok := stateNative.(*engine.RedisNative); ok && peer.HasCapability(control.ControlAttachmentCapability) {
+			_ = redis.DisconnectController(context.Background(), peer)
 			return
 		}
 		_ = stateNative.DisconnectApplication(context.Background(), lease.Application, lease.Term)

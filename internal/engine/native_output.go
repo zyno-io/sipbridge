@@ -240,7 +240,7 @@ func (w nativeRedisWriter) Reserve(ctx context.Context, write *pb.FlowWrite) (*C
 		copy(drain.Transaction[:], d.Transaction)
 		copy(drain.ACK[:], d.Ack)
 	}
-	return &CommittedWrite{Wire: result.Wire, Until: result.Until, Drain: drain}, nil
+	return &CommittedWrite{Wire: result.Wire, Until: result.Until, Drain: drain, attachment: result.Attachment}, nil
 }
 func (w nativeRedisWriter) Complete(ctx context.Context, write *pb.FlowWrite, result *pb.DeliveryResult) error {
 	if w.store == nil || result == nil || !proto.Equal(result.Effect, write.GetEffect()) {

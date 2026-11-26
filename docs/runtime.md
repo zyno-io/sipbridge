@@ -531,9 +531,26 @@ process/epoch. Lifetime is 30 seconds; validated live control exchanges renew at
 session. The hello returns the current lease receipt. Live-term renewal never
 shortens expiry; the receipt allows at most 500 ms additional remaining time for
 bounded Redis clock tolerance. Session fencing and a correlated challenge/reply
-precede renewal; the peer cannot name another process. Closing/draining one control
-socket does not revoke the term. The trusted directory's ten-second process lease
-is routing/business information, not SIP-owner-loss authority.
+precede renewal. The trusted directory's ten-second process lease records routing
+and business liveness.
+
+When `sip.control-attachment.v1` is negotiated with Redis, Hello binds the
+server-issued control session to the application term. A matching Pong renews
+that exact attachment and the term. The attachment expires with its most recent
+renewal. Closing a control socket immediately fences its local capability and
+revokes only its own Redis attachment. Another connection under the same
+application can keep the term alive and control its own work. If all connections
+stop renewing, the existing application deadline drives orphan cleanup. Peers
+using the legacy capability set still expire their exact shared term on close.
+Upgrade controllers for a shared application together before relying on exact
+attachment closure.
+
+Authenticated operations validate the live attachment in addition to the shared
+term when reading or publishing Redis authority. An application output retains
+the attachment that admitted it and validates it atomically at physical
+reservation. The local writer checks the control capability again before
+starting the socket write. Existing native completion and physical outcome
+recording keep their own admission and evidence rules.
 
 Ordinary renewal needs the exact live term. An already connected authenticated
 session can resume that retained term after an outage, even after expiry, until
@@ -763,7 +780,7 @@ No response-scope history is retained.
 With negotiated `sip.dialog-socket.v1`, a shared call DialogRequest with an
 explicit selected flow goes to that flow's exact SIPbridge instance and process
 epoch. Native rejects nonlocal or malformed references before preparing SIP
-state. For TCP/TLS, a verified closed local socket can produce the typed
+state. For TCP/TLS, the dialog's verified closed local socket can produce the typed
 `SOCKET_GONE` refusal once the dialog, controller, sequence and admission have
 been checked. This refusal leaves the original command, CSeq, transactions and
 outputs unconsumed. A transport that closes later follows physical write outcome

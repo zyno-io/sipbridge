@@ -20,6 +20,9 @@ type CommittedWrite struct {
 	Known   bool
 	Outcome pb.DeliveryResult_Outcome
 	Drain   *state.LocalDrainObservation
+
+	attachment      string
+	checkAttachment func() error
 }
 
 // These startup-wired callbacks accept only a committed effect reference/permit.
@@ -271,6 +274,9 @@ func (i *Ingress) committedResult(parent context.Context, cmd *pb.FlowWrite) *pb
 	} else if !flow.admitSIPUse() {
 		result.Outcome = pb.DeliveryResult_NOT_WRITTEN
 		result.Error = "unused flow expired before write"
+	} else if reserved.checkAttachment != nil && reserved.checkAttachment() != nil {
+		result.Outcome = pb.DeliveryResult_NOT_WRITTEN
+		result.Error = "control attachment closed before write"
 	} else {
 		n, writeErr := flow.writeWire(reserved.Wire)
 		if writeErr == nil && n == len(reserved.Wire) {

@@ -13,7 +13,7 @@ import (
 // cannot expire a newer term, and the old owned-context set remains available
 // to the existing owner-expiry scheduler. This never touches SIP output proof.
 func (s *Store) ExpireApplication(ctx context.Context, ref ApplicationLeaseRef) error {
-	if !ref.valid() {
+	if !ref.valid() || ref.Attachment != "" {
 		return ErrConflict
 	}
 	start := time.Now()
@@ -45,6 +45,39 @@ func (s *Store) ExpireApplication(ctx context.Context, ref ApplicationLeaseRef) 
 	}
 	return nil
 }
+
+// CloseApplicationAttachment revokes only its exact session. An application
+// term remains live while a different attachment can renew it.
+func (s *Store) CloseApplicationAttachment(ctx context.Context, ref ApplicationLeaseRef) error {
+	if !ref.valid() || ref.Attachment == "" {
+		return ErrConflict
+	}
+	callCtx, cancel := context.WithTimeout(ctx, workerRedisTimeout)
+	defer cancel()
+	keys := []string{s.profileKey(), s.applicationAttachmentKey(ref.Attachment)}
+	values, err := closeApplicationAttachmentScript.Run(callCtx, s.client, keys, s.profile, ref.Application, ref.Term, ref.Attachment, s.primary).Slice()
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrUnknown, err)
+	}
+	return status(values)
+}
+
+var closeApplicationAttachmentScript = redis.NewScript(primaryScript + applicationGuardScript + `
+local function fail(s) return {s} end
+if not primary(ARGV[5]) then return fail('AUTHORITY') end
+if not appKind(KEYS[1],'string') or redis.call('GET',KEYS[1])~=ARGV[1] then return fail('AUTHORITY') end
+local app,term,attachment=ARGV[2],ARGV[3],ARGV[4]
+if not appRef(app) or not appRef(term) or #term>190 or not appRef(attachment) then return fail('CORRUPT') end
+local root=string.sub(KEYS[1],1,#KEYS[1]-#'core:profile')
+if KEYS[2]~=root..'core:attachment:'..attachment or not appKind(KEYS[2],'string') then return fail('CORRUPT') end
+local value=redis.call('GET',KEYS[2])
+if not value then return {'OK'} end
+local owner,saved,expiry=string.match(value,'^([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)/([0-9]+)$')
+if not owner or not appNumber(expiry) then return fail('CORRUPT') end
+if owner~=app or saved~=term or not redis.acl_check_cmd('DEL',KEYS[2]) then return fail('AUTHORITY') end
+redis.call('DEL',KEYS[2])
+return {'OK'}
+`)
 
 var expireApplicationScript = redis.NewScript(primaryScript + applicationGuardScript + `
 local function fail(s) return {s} end

@@ -47,6 +47,8 @@ func (e *redisNative) Handle(peer *control.Peer, envelope *pb.Envelope) error {
 		var err error
 		if inspect := envelope.GetInspect(); inspect != nil {
 			result, err = e.inspectNativeContext(ctx, peer, inspect.Context, deadline)
+		} else if command != nil && command.GetResumeDialogRequest() != nil {
+			result, err = e.commandResumeDialog(ctx, peer, command, deadline)
 		} else if command != nil && command.GetOpenUac() != nil {
 			result, err = e.commandOpenUAC(ctx, peer, command, correlation, deadline)
 		} else if command != nil && command.GetCancel() != nil {

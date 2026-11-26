@@ -195,9 +195,9 @@ func (s *Store) readSelected(ctx context.Context, id Identity, application *Appl
 		seen[field] = true
 		args = append(args, field)
 	}
-	app, term := "", ""
+	app, term, attachment := "", "", ""
 	if application != nil {
-		app, term = application.Application, application.Term
+		app, term, attachment = application.Application, application.Term, application.Attachment
 	}
 	mode := "exact"
 	if observe && witness {
@@ -207,7 +207,7 @@ func (s *Store) readSelected(ctx context.Context, id Identity, application *Appl
 	} else if witness {
 		mode = "witness"
 	}
-	args = append(args, mode, app, term, s.primary)
+	args = append(args, mode, app, term, attachment, s.primary)
 	result, err := readScript.Run(ctx, s.client, []string{s.profileKey(), s.contextKey(id.Context)}, args...).Slice()
 	if err != nil {
 		return nil, err
@@ -392,14 +392,15 @@ func (s *Store) Commit(ctx context.Context, p Publication) (uint64, error) {
 		}
 		outputIDs[out.ID] = true
 		keys = append(keys, s.workerReadyKey(out.Worker))
-		class, owner, term, tag := "N", "", "", []byte{}
+		class, owner, term, attachment, tag := "N", "", "", "", []byte{}
 		if out.Application != nil {
 			class = "A"
 			owner = out.Application.Application
 			term = out.Application.Term
+			attachment = out.Application.Attachment
 			tag = out.DeliveryTag[:]
 		}
-		args = append(args, out.ID, out.Attempt, out.Worker, out.Epoch, out.Connection, out.Deadline.UnixMilli(), out.MessageField, out.WireHash[:], out.MetadataField, out.ProofHash[:], class, owner, term, tag, strings.Join(out.Dependencies, "\x00"))
+		args = append(args, out.ID, out.Attempt, out.Worker, out.Epoch, out.Connection, out.Deadline.UnixMilli(), out.MessageField, out.WireHash[:], out.MetadataField, out.ProofHash[:], class, owner, term, tag, strings.Join(out.Dependencies, "\x00"), attachment)
 	}
 	if p.Timers == nil {
 		args = append(args, "0")
@@ -435,10 +436,10 @@ func (s *Store) Commit(ctx context.Context, p Publication) (uint64, error) {
 		args = append(args, change.Selector.field(), change.Record, action)
 	}
 	keys = append(keys, s.selectorKey())
-	mode, targetOwner, targetTerm := "none", "", ""
+	mode, targetOwner, targetTerm, targetAttachment := "none", "", "", ""
 	if p.Application != nil {
 		mode = "guard"
-		targetOwner, targetTerm = p.Application.Application, p.Application.Term
+		targetOwner, targetTerm, targetAttachment = p.Application.Application, p.Application.Term, p.Application.Attachment
 	}
 	if p.BindApplication {
 		mode = "bind"
@@ -497,7 +498,7 @@ func (s *Store) Commit(ctx context.Context, p Publication) (uint64, error) {
 		}
 		udpWorker = p.UDPHint.Worker
 	}
-	args = append(args, admission.Instance, string(admission.Class), admission.Source, mode, targetOwner, targetTerm, spend, terminal, p.CreditDelta, s.namespaceContexts, s.namespaceBytes, resultField, hint, udpWorker, udpHint, s.primary)
+	args = append(args, targetAttachment, admission.Instance, string(admission.Class), admission.Source, mode, targetOwner, targetTerm, spend, terminal, p.CreditDelta, s.namespaceContexts, s.namespaceBytes, resultField, hint, udpWorker, udpHint, s.primary)
 	result, err := commitScript.Run(ctx, s.client, keys, args...).Slice()
 	if err != nil {
 		return 0, fmt.Errorf("%w: %w", ErrUnknown, err)
@@ -544,7 +545,7 @@ func commitStatus(result []interface{}) error {
 	}
 	switch reason {
 	case "primary", "profile", "identity", "record-acl", "output-acl", "reference-acl", "dependency-acl",
-		"timer", "selector", "application-term", "application-owner", "output-owner", "binding",
+		"timer", "selector", "application-term", "application-owner", "application-attachment", "output-owner", "binding",
 		"terminal-acl", "result-wake-acl", "udp-wake-acl", "namespace", "context-acl":
 		return fmt.Errorf("%w: commit %s", err, reason)
 	}
@@ -617,8 +618,8 @@ end
 
 var readScript = redis.NewScript(commonScript + applicationGuardScript + `
 local problem=guard(); if problem then return fail(problem) end
-if #ARGV<8 or #ARGV>136 then return fail('CORRUPT') end
-local mode=ARGV[#ARGV-3];local v
+if #ARGV<9 or #ARGV>137 then return fail('CORRUPT') end
+local mode=ARGV[#ARGV-4];local v
 if mode=='exact' or mode=='witness' then v,problem=identity();if problem then return fail(problem) end
 elseif mode=='observe' or mode=='observe-witness' then
  v=redis.call('HMGET',KEYS[2],'incarnation','owner','term','revision','bytes','reserved')
@@ -626,16 +627,17 @@ elseif mode=='observe' or mode=='observe-witness' then
  if v[1]~=ARGV[2] then return fail('AUTHORITY') end
  if type(v[2])~='string' or type(v[3])~='string' or (v[2]=='')~=(v[3]=='') or not decimal(v[4]) or v[4]=='0' or not number(v[5]) or not number(v[6]) then return fail('CORRUPT') end
 else return fail('CORRUPT') end
-local app,term=ARGV[#ARGV-2],ARGV[#ARGV-1]
-if (app=='')~=(term=='') then return fail('CORRUPT') end
+local app,term,attachment=ARGV[#ARGV-3],ARGV[#ARGV-2],ARGV[#ARGV-1]
+if (app=='')~=(term=='') or app=='' and attachment~='' then return fail('CORRUPT') end
 if (mode=='witness' or mode=='observe-witness') and app=='' then return fail('CORRUPT') end
 if app~='' then
  if mode~='witness' and mode~='observe-witness' and v[2]~='' and (v[2]~=app or v[3]~=term) then return fail('AUTHORITY') end
  local root=string.sub(KEYS[1],1,#KEYS[1]-#'core:profile');local clock=redis.call('TIME');local now=tonumber(clock[1])*1000+math.floor(tonumber(clock[2])/1000)
  problem=guardApplication(root,app,term,now);if problem then return fail(problem) end
+ problem=guardApplicationAttachment(root,app,term,attachment,now);if problem then return fail(problem) end
 end
 local total=0; local seen={}
-for i=5,#ARGV-4 do
+for i=5,#ARGV-5 do
  local field=ARGV[i]
  if #field<3 or #field>194 or not string.match(field,'^r:[A-Za-z0-9_-]+$') or seen[field] then return fail('CORRUPT') end
  seen[field]=true
@@ -646,7 +648,7 @@ end
 local timer=redis.call('HMGET',KEYS[2],'timer:worker','timer:epoch','timer:term')
 if (timer[1] or timer[2] or timer[3]) and (not timer[1] or not timer[2] or not timer[3]) then return fail('CORRUPT') end
 local out={'OK',v[4],v[5],v[6],timer[1] or '',timer[2] or '',timer[3] or ''}
-for i=5,#ARGV-4 do out[#out+1]=redis.call('HGET',KEYS[2],ARGV[i]) end
+for i=5,#ARGV-5 do out[#out+1]=redis.call('HGET',KEYS[2],ARGV[i]) end
 out[#out+1]=v[2];out[#out+1]=v[3]
 return out
 `)
@@ -673,11 +675,11 @@ local offset=11+3*count; local context=ARGV[offset]; local outputCount=number(AR
 if not outputCount or outputCount>32 or not context or #context>192 or not string.match(context,'^[A-Za-z0-9_-]+$') then return fail('CORRUPT') end
 local root=string.sub(KEYS[1],1,#KEYS[1]-#'core:profile')
 if not creating and parked(root,context,ARGV[2]) then return fail('PARKED') end
-local timerBase=outputBase+15*outputCount; local hasTimers=ARGV[timerBase]
+local timerBase=outputBase+16*outputCount; local hasTimers=ARGV[timerBase]
 if hasTimers~='0' and hasTimers~='1' then return fail('CORRUPT') end
 local timerCount=hasTimers=='1' and number(ARGV[timerBase+8]) or 0
 if not timerCount or timerCount>128 or (hasTimers=='1' and timerCount==0) or #KEYS~=4+outputCount+(hasTimers=='1' and 6 or 0) then return fail('CORRUPT') end
-local selectorBase=timerBase+(hasTimers=='1' and 9+3*timerCount or 1);local selectorCount=number(ARGV[selectorBase]);if not selectorCount or selectorCount>128 or #ARGV~=selectorBase+3*selectorCount+16 then return fail('CORRUPT') end
+local selectorBase=timerBase+(hasTimers=='1' and 9+3*timerCount or 1);local selectorCount=number(ARGV[selectorBase]);if not selectorCount or selectorCount>128 or #ARGV~=selectorBase+3*selectorCount+17 then return fail('CORRUPT') end
 local clock=redis.call('TIME'); local now=tonumber(clock[1])*1000+math.floor(tonumber(clock[2])/1000)
 if deadline<=now then return fail('EXPIRED') end
 local total=number(v[5]); local seen={}; local pending={}; local inputBytes=0
@@ -703,9 +705,10 @@ end
 local ids={}; local refs={}; local dependencyRefs={}; local writes={}
 local function ref(s) return s and #s>0 and #s<=192 and string.match(s,'^[A-Za-z0-9_-]+$') end
 for i=1,outputCount do
- local pos=outputBase+(i-1)*15; local id,attempt,worker,epoch,connection,due,field,hash,meta,proof,class,app,term,tag,dependencies=unpack(ARGV,pos,pos+14); local dueNum=number(due)
+ local pos=outputBase+(i-1)*16; local id,attempt,worker,epoch,connection,due,field,hash,meta,proof,class,app,term,tag,dependencies,attachment=unpack(ARGV,pos,pos+15); local dueNum=number(due)
  if not ref(id) or not ref(attempt) or not ref(worker) or not ref(epoch) or not ref(connection) or not dueNum or dueNum<=now or not field or #field<3 or #field>194 or not string.match(field,'^r:[A-Za-z0-9_-]+$') or #hash~=32 or #proof~=32 or not meta or meta==field or #meta<3 or #meta>194 or not string.match(meta,'^r:[A-Za-z0-9_-]+$') or (class~='A' and class~='N') or (class=='A' and (not ref(app) or not ref(term) or #tag~=32)) or (class=='N' and (app~='' or term~='' or tag~='')) or ids[id] then return fail('CONFLICT') end
  ids[id]=true; if KEYS[2+i]~=root..'core:ready:'..worker or not kind(KEYS[2+i],'zset') then return fail('CORRUPT') end
+ if attachment~='' and (class~='A' or not appRef(attachment)) then return fail('CONFLICT') end
  local value=pending[field]; if value==false then return fail('CONFLICT') elseif value==nil then value=redis.call('HGET',KEYS[2],field) end
  if not value or #value==0 then return fail('CONFLICT') end
  local prefix='o:'..id..':'
@@ -729,12 +732,13 @@ for i=1,outputCount do
   if prior>=4096 then return fail('CAPACITY') end;refs[rfield]=prior+1
  end
  local parts={a=attempt,w=worker,e=epoch,c=connection,d=due,m=field,h=hash,s='P',k='0',n='0',x=meta,p=proof,q=class,u=app,t=term,g=tag,l=dependencies}
+ if attachment~='' then parts.z=attachment end
  for suffix,val in pairs(parts) do local k=prefix..suffix; if redis.call('HEXISTS',KEYS[2],k)~=0 then return fail('CORRUPT') end; total=total+#k+#val; records=records+1 end
  local member=context..'/'..id; local wake=root..'core:wake:'..worker
  indexes=indexes+#member+8
  if redis.call('ZSCORE',KEYS[2+i],member) then return fail('CORRUPT') end
  if not redis.acl_check_cmd('ZADD',KEYS[2+i],due,member) or not redis.acl_check_cmd('PUBLISH',wake,'1') then return refuse('AUTHORITY','output-acl') end
- writes[i]={key=KEYS[2+i],member=member,wake=wake,due=due,prefix=prefix,parts=parts,class=class,app=app,term=term}
+ writes[i]={key=KEYS[2+i],member=member,wake=wake,due=due,prefix=prefix,parts=parts,class=class,app=app,term=term,attachment=attachment}
 end
 for field,n in pairs(refs) do
  local old=redis.call('HGET',KEYS[2],field); local value=string.format('%.0f',n)
@@ -765,6 +769,7 @@ if KEYS[#KEYS-1]~=root..'core:selectors' then return fail('CORRUPT') end
 local selectorChanges={};for i=1,selectorCount do local pos=selectorBase+1+(i-1)*3;selectorChanges[i]={ARGV[pos],ARGV[pos+1],ARGV[pos+2]} end
 local selectors;selectors,problem=selectorPrepare(KEYS[#KEYS-1],context,ARGV[2],pending,selectorChanges);if problem then return refuse(problem,'selector') end
 total=total+selectors.byteDelta;records=records+selectors.fieldDelta;indexes=indexes+selectors.indexDelta
+local targetAttachment=ARGV[#ARGV-16]
 local bindingMode=ARGV[#ARGV-12];local targetOwner=ARGV[#ARGV-11];local targetTerm=ARGV[#ARGV-10];local spend=ARGV[#ARGV-9];local terminal=ARGV[#ARGV-8]
 local creditText=ARGV[#ARGV-7];local creditDelta=tonumber(creditText)
 if not creditDelta or creditDelta~=math.floor(creditDelta) or math.abs(creditDelta)>9007199254740991 or not string.match(creditText,'^-?[0-9]+$') then return fail('CORRUPT') end
@@ -777,6 +782,7 @@ if creating then oldOwner,oldTerm='','' end
 if bindingMode=='guard' or bindingMode=='bind' or bindingMode=='witness' then
  if bindingMode=='witness' and (creating or terminal or seen['r:delivery-tag']) then return fail('CONFLICT') end
  local appProblem,appReason=guardApplication(root,targetOwner,targetTerm,now);if appProblem then return refuse(appProblem,appReason) end
+ appProblem,appReason=guardApplicationAttachment(root,targetOwner,targetTerm,targetAttachment,now);if appProblem then return refuse(appProblem,appReason) end
  if bindingMode=='guard' and ARGV[3]~='' and (targetOwner~=ARGV[3] or targetTerm~=ARGV[4]) then return fail('CONFLICT') end
  if bindingMode=='bind' then if creating or (oldOwner==targetOwner and oldTerm==targetTerm) then return fail('CONFLICT') end;nextOwner,nextTerm=targetOwner,targetTerm end
 elseif bindingMode=='release' then if creating then return fail('CONFLICT') end;nextOwner,nextTerm='',''
@@ -784,7 +790,9 @@ elseif creating and (ARGV[3]~='' or ARGV[4]~='') then return fail('CONFLICT') en
 if terminal then nextOwner,nextTerm='','' end
 for _,w in ipairs(writes) do if w.class=='A' then
  if w.app~=nextOwner or w.term~=nextTerm then return refuse('AUTHORITY','output-owner') end
+ if targetAttachment~='' and not (w.app==targetOwner and w.term==targetTerm and w.attachment==targetAttachment) then return refuse('AUTHORITY','application-attachment') end
  local appProblem,appReason=guardApplication(root,w.app,w.term,now);if appProblem then return refuse(appProblem,appReason) end
+ appProblem,appReason=guardApplicationAttachment(root,w.app,w.term,w.attachment,now);if appProblem then return refuse(appProblem,appReason) end
 end end
 local binding;binding,problem=bindingPrepare(root,context,oldOwner,oldTerm,nextOwner,nextTerm,now,bindingMode=='release');if problem then return refuse(problem,'binding') end
 indexes=indexes+binding.indexDelta

@@ -15,14 +15,19 @@ import (
 const nativeResultWaiterLimit = 1024
 
 type nativeResultWaiter struct {
-	changed chan struct{}
-	users   int
+	changed                 chan struct{}
+	users                   int
+	allowDialogResume       bool
+	dialogResumeFingerprint [32]byte
+	dialogResumeID          string
+	dialogResumeRef         rediscore.OutputRef
 }
 
 type redisNotifyWaitCapture struct {
 	state       *pb.StateRef
 	sequence    uint64
 	fingerprint [32]byte
+	allowResume bool
 }
 
 func captureRedisNotifyWait(command *pb.Command) (redisNotifyWaitCapture, error) {

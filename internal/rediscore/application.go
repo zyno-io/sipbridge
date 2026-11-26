@@ -17,10 +17,13 @@ const (
 
 // ApplicationLeaseRef identifies a non-recoverable process-bound term.
 // The same non-reused term names its private owned-context scope.
-type ApplicationLeaseRef struct{ Application, Term string }
+type ApplicationLeaseRef struct {
+	Application, Term string
+	Attachment        string
+}
 
 func (r ApplicationLeaseRef) valid() bool {
-	return reference(r.Application) && validApplicationTerm(r.Term)
+	return reference(r.Application) && validApplicationTerm(r.Term) && (r.Attachment == "" || reference(r.Attachment))
 }
 func validApplicationTerm(s string) bool { return len(s) <= 190 && reference(s) }
 
@@ -34,15 +37,24 @@ func (s *Store) applicationKey(id string) string        { return s.root + "core:
 func (s *Store) applicationOwnerKey(term string) string { return s.root + "core:owner:" + term }
 func (s *Store) applicationOwnedKey(term string) string { return s.root + "core:owned:" + term }
 func (s *Store) applicationAdmissionKey() string        { return s.root + "core:applications" }
+func (s *Store) applicationAttachmentKey(id string) string {
+	return s.root + "core:attachment:" + id
+}
 
 // AcquireApplication shares a live current term, or atomically creates a new
 // candidate term after expiry. Candidates must be fresh non-reused values.
 // A lost response is UNKNOWN; observe current authority before any retry.
 func (s *Store) AcquireApplication(ctx context.Context, application, candidateTerm string) (ApplicationLease, error) {
+	return s.AcquireAttachedApplication(ctx, application, candidateTerm, "")
+}
+
+// AcquireAttachedApplication publishes the exact server-issued control attachment
+// with the shared application term. Another attachment can use the same live term.
+func (s *Store) AcquireAttachedApplication(ctx context.Context, application, candidateTerm, attachment string) (ApplicationLease, error) {
 	if !reference(application) || !validApplicationTerm(candidateTerm) {
 		return ApplicationLease{}, ErrConflict
 	}
-	return s.applicationLease(ctx, application, "acquire", "", candidateTerm)
+	return s.applicationLease(ctx, application, "acquire", "", candidateTerm, attachment)
 }
 
 // RenewApplication extends only the same currently live term.
@@ -50,7 +62,7 @@ func (s *Store) RenewApplication(ctx context.Context, ref ApplicationLeaseRef) (
 	if !ref.valid() {
 		return ApplicationLease{}, ErrConflict
 	}
-	return s.applicationLease(ctx, ref.Application, "renew", ref.Term, "")
+	return s.applicationLease(ctx, ref.Application, "renew", ref.Term, "", ref.Attachment)
 }
 
 // ObserveApplication reads the live current term without creating or renewing
@@ -59,10 +71,20 @@ func (s *Store) ObserveApplication(ctx context.Context, application string) (App
 	if !reference(application) {
 		return ApplicationLease{}, ErrConflict
 	}
-	return s.applicationLease(ctx, application, "observe", "", "")
+	return s.applicationLease(ctx, application, "observe", "", "", "")
 }
 
-func (s *Store) applicationLease(ctx context.Context, app, mode, term, candidateTerm string) (ApplicationLease, error) {
+func (s *Store) ObserveAttachedApplication(ctx context.Context, ref ApplicationLeaseRef) (ApplicationLease, error) {
+	if !ref.valid() {
+		return ApplicationLease{}, ErrConflict
+	}
+	return s.applicationLease(ctx, ref.Application, "observe", ref.Term, "", ref.Attachment)
+}
+
+func (s *Store) applicationLease(ctx context.Context, app, mode, term, candidateTerm, attachment string) (ApplicationLease, error) {
+	if attachment != "" && !reference(attachment) {
+		return ApplicationLease{}, ErrConflict
+	}
 	start := time.Now()
 	deadline := start.Add(workerRedisTimeout)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
@@ -72,7 +94,11 @@ func (s *Store) applicationLease(ctx context.Context, app, mode, term, candidate
 	defer cancel()
 	low := start.UnixMilli() - workerClockTolerance.Milliseconds()
 	high := start.UnixMilli() + max(int64(0), deadline.Sub(start).Milliseconds()) + workerClockTolerance.Milliseconds()
-	v, err := applicationLeaseScript.Run(callCtx, s.client, []string{s.profileKey(), s.applicationKey(app), s.ownerExpiryKey(), s.applicationAdmissionKey()}, s.profile, app, mode, term, candidateTerm, low, high, ApplicationMaxGroups, ApplicationIdleLifetime.Milliseconds(), s.primary).Slice()
+	keys := []string{s.profileKey(), s.applicationKey(app), s.ownerExpiryKey(), s.applicationAdmissionKey()}
+	if attachment != "" {
+		keys = append(keys, s.applicationAttachmentKey(attachment))
+	}
+	v, err := applicationLeaseScript.Run(callCtx, s.client, keys, s.profile, app, mode, term, candidateTerm, low, high, ApplicationMaxGroups, ApplicationIdleLifetime.Milliseconds(), s.primary, attachment).Slice()
 	finish := time.Now()
 	if err != nil {
 		if mode == "observe" {
@@ -107,7 +133,7 @@ func (s *Store) applicationLease(ctx context.Context, app, mode, term, candidate
 	if ctx.Err() != nil || callCtx.Err() != nil || !time.Now().Before(until) {
 		return invalid(ErrExpired)
 	}
-	return ApplicationLease{ApplicationLeaseRef: ApplicationLeaseRef{Application: app, Term: gotTerm}, CheckedAtMS: now, ExpiresAtMS: expiry, Until: until}, nil
+	return ApplicationLease{ApplicationLeaseRef: ApplicationLeaseRef{Application: app, Term: gotTerm, Attachment: attachment}, CheckedAtMS: now, ExpiresAtMS: expiry, Until: until}, nil
 }
 
 // applicationGuardScript is a read-only preflight for a future atomic native
@@ -131,6 +157,24 @@ local function guardApplication(root,app,term,now)
  if appNumber(v[2])<=now then return 'EXPIRED' end
  return nil
 end
+local function attachmentValue(root,attachment)
+ local key=root..'core:attachment:'..attachment
+ if not appKind(key,'string') then return nil,'CORRUPT' end
+ local value=redis.call('GET',key)
+ if not value then return nil,'AUTHORITY' end
+ return value,nil
+end
+local function guardApplicationAttachment(root,app,term,attachment,now)
+ if not attachment or attachment=='' then return nil end
+ if not appRef(attachment) then return 'CORRUPT' end
+ local value,problem=attachmentValue(root,attachment)
+ if problem then return problem,'application-attachment' end
+ local owner,saved,expiry=string.match(value,'^([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)/([0-9]+)$')
+ if not owner or not appNumber(expiry) then return 'CORRUPT' end
+ if owner~=app or saved~=term then return 'AUTHORITY','application-attachment' end
+ if appNumber(expiry)<=now then return 'EXPIRED','application-attachment' end
+ return nil,nil,appNumber(expiry)
+end
 `
 
 var applicationLeaseScript = redis.NewScript(primaryScript + applicationGuardScript + `
@@ -144,6 +188,10 @@ if not appRef(app) or not low or not high or high<low then return fail('CORRUPT'
 local clock=redis.call('TIME'); local now=tonumber(clock[1])*1000+math.floor(tonumber(clock[2])/1000)
 if now<low or now>high or now>9007199254620991 then return fail('EXPIRED') end
 local root=string.sub(KEYS[1],1,#KEYS[1]-#'core:profile')
+local attachment=ARGV[11]
+if attachment~='' then
+ if not appRef(attachment) or #KEYS~=5 or KEYS[5]~=root..'core:attachment:'..attachment or not appKind(KEYS[5],'string') then return fail('CORRUPT') end
+elseif #KEYS~=4 then return fail('CORRUPT') end
 local current=redis.call('GET',KEYS[2]); local savedExpiry,savedRefs
 if current then
  if not appRef(current) or #current>190 then return fail('CORRUPT') end
@@ -156,7 +204,10 @@ if current then
 end
 if mode=='observe' then
  if not current then return fail('ABSENT') end
+ if ARGV[4]~='' and current~=ARGV[4] then return fail('AUTHORITY') end
  if savedExpiry<=now then return fail('EXPIRED') end
+ local problem,_,attachmentExpiry=guardApplicationAttachment(root,app,current,attachment,now);if problem then return fail(problem) end
+ if attachmentExpiry then savedExpiry=math.min(savedExpiry,attachmentExpiry) end
  return {'OK',current,string.format('%.0f',now),string.format('%.0f',savedExpiry)}
 end
 local count=redis.call('ZCARD',KEYS[4]);if count>maxGroups then return fail('CORRUPT') end
@@ -173,8 +224,10 @@ local chosen,refs
 if mode=='renew' then
  if not current or current~=ARGV[4] then return fail('AUTHORITY') end
  if savedExpiry<=now then return fail('EXPIRED') end
+ local problem=guardApplicationAttachment(root,app,current,attachment,now);if problem then return fail(problem) end
  chosen,refs=current,savedRefs
 elseif mode=='acquire' then
+ if attachment~='' and redis.call('EXISTS',KEYS[5])~=0 then return fail('CONFLICT') end
  if current and savedExpiry>now then chosen,refs=current,savedRefs
  else
   chosen,refs=ARGV[5],0
@@ -186,6 +239,9 @@ else return fail('CORRUPT') end
 local owner=root..'core:owner:'..chosen; local owned=root..'core:owned:'..chosen
 if not appKind(owner,'hash') or not appKind(owned,'set') then return fail('CORRUPT') end
 local expires=now+30000; if chosen==current and savedExpiry>expires then expires=savedExpiry end; local member='a-'..chosen
+local attachmentExpires=string.format('%.0f',now+30000)
+local attachmentRecord=app..'/'..chosen..'/'..attachmentExpires
+if attachment~='' and not redis.acl_check_cmd('SET',KEYS[5],attachmentRecord,'PXAT',attachmentExpires) then return fail('AUTHORITY') end
 local oldEmpty=current and current~=chosen and savedRefs==0
 if oldEmpty and redis.call('ZSCORE',KEYS[3],'a-'..current) then return fail('CORRUPT') end
 if oldEmpty and not redis.acl_check_cmd('DEL',root..'core:owner:'..current) then return fail('AUTHORITY') end
@@ -203,7 +259,8 @@ redis.call('ZADD',KEYS[4],admissionScore,app)
 if oldEmpty then redis.call('DEL',root..'core:owner:'..current) end
 redis.call('SET',KEYS[2],chosen)
 redis.call('HSET',owner,'application',app,'expires_ms',string.format('%.0f',expires))
+if attachment~='' then redis.call('SET',KEYS[5],attachmentRecord,'PXAT',attachmentExpires) end
 if refs>0 then redis.call('PERSIST',owner); redis.call('ZADD',KEYS[3],expires,member)
 else redis.call('PEXPIRE',owner,idleMS); redis.call('PEXPIRE',KEYS[2],idleMS); redis.call('ZREM',KEYS[3],member) end
-return {'OK',chosen,string.format('%.0f',now),string.format('%.0f',expires)}
+return {'OK',chosen,string.format('%.0f',now),attachment~='' and attachmentExpires or string.format('%.0f',expires)}
 `)

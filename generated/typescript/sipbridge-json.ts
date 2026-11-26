@@ -549,6 +549,10 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             state: {
                 kind: 'message',
                 message: '.sipbridge.control.v1.StateRef'
+            },
+            opaqueDialogId: {
+                kind: 'string',
+                alias: 'opaque_dialog_id'
             }
         },
         oneofs: []

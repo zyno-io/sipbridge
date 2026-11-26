@@ -519,6 +519,7 @@ func (DialogEvent_Kind) EnumDescriptor() ([]byte, []int) {
 // Application families require the explicitly negotiated sip.v1 capability.
 // PROTOCOL.md and ARCHITECTURE.md in sipbridge own
 // behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
+// ContextRef.opaque_dialog_id uses a separate 441-byte bound.
 type Envelope struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	CorrelationId     string                 `protobuf:"bytes,1,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
@@ -2179,12 +2180,14 @@ func (x *StateRef) GetPartition() uint32 {
 }
 
 type ContextRef struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Owner         *ProcessRef            `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
-	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	State         *StateRef              `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Owner *ProcessRef            `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
+	Id    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	State *StateRef              `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	// sip.dialog-id.v1 wire projection. Never persisted as native state.
+	OpaqueDialogId string `protobuf:"bytes,4,opt,name=opaque_dialog_id,json=opaqueDialogId,proto3" json:"opaque_dialog_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ContextRef) Reset() {
@@ -2236,6 +2239,13 @@ func (x *ContextRef) GetState() *StateRef {
 		return x.State
 	}
 	return nil
+}
+
+func (x *ContextRef) GetOpaqueDialogId() string {
+	if x != nil {
+		return x.OpaqueDialogId
+	}
+	return ""
 }
 
 type Header struct {
@@ -5524,12 +5534,13 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12 \n" +
 	"\vincarnation\x18\x03 \x01(\tR\vincarnation\x12\x17\n" +
 	"\acall_id\x18\x04 \x01(\tR\x06callId\x12\x1c\n" +
-	"\tpartition\x18\x05 \x01(\rR\tpartition\"\x8a\x01\n" +
+	"\tpartition\x18\x05 \x01(\rR\tpartition\"\xb4\x01\n" +
 	"\n" +
 	"ContextRef\x126\n" +
 	"\x05owner\x18\x01 \x01(\v2 .sipbridge.control.v1.ProcessRefR\x05owner\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x124\n" +
-	"\x05state\x18\x03 \x01(\v2\x1e.sipbridge.control.v1.StateRefR\x05state\"2\n" +
+	"\x05state\x18\x03 \x01(\v2\x1e.sipbridge.control.v1.StateRefR\x05state\x12(\n" +
+	"\x10opaque_dialog_id\x18\x04 \x01(\tR\x0eopaqueDialogId\"2\n" +
 	"\x06Header\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"\xad\x01\n" +

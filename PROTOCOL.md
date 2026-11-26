@@ -59,6 +59,27 @@ term plus exact attachment when admitting stateful work and reserving writes.
 Closure revokes that attachment only. Legacy negotiation keeps shared-term
 closure and the wire lease receipt remains available to compatible clients.
 
+The Redis serving profile can negotiate `sip.dialog-id.v1` with exact control
+attachments. Native adds an opaque `ContextRef.opaqueDialogId` to each scoped
+context reference at the wire boundary. The value identifies one native
+context incarnation and stays stable across serving replicas and socket moves.
+It is separate from SIP Call-ID and SIP dialog tags. Controllers treat the value
+as opaque and keep sending the legacy reference during this compatibility phase.
+A returned value must authenticate the same native scope and incarnation as the
+accompanying reference. The session removes the field before native command
+or storage processing. This phase requires the legacy reference. Peers without
+the capability exchange legacy references. The field uses the form
+`d1.<lookup data>.<authentication tag>`, with both components in unpadded
+base64url and a maximum of 441 ASCII bytes. Consumers preserve the value
+verbatim and validate its own bound.
+
+The handle requires no new native index or stored field. This additive control
+schema still changes the descriptor that the current storage profile binds, so
+a deployed Redis cohort needs a fresh generation under the normal profile
+rollout procedure. The first dual-reference build defaults to generation 4.
+Dual references preserve legacy client interoperability at the control boundary
+of that cohort.
+
 | Identity | Authority and lifetime |
 | --- | --- |
 | Physical flow | Exact live ingress process epoch/socket or UDP listener/peer tuple; sockets never migrate. |
@@ -251,6 +272,7 @@ representations rather than JavaScript floating-point conversion.
 The session subset restricts reference/correlation strings to
 `[A-Za-z0-9_.:@+-]{1,96}`. Numeric source addresses and workload URI SANs are
 different fields/credentials and are not validated as opaque session references.
+`ContextRef.opaqueDialogId` uses its own 441-byte bound.
 
 Readable diagnostic projections do not authorize logging message contents. SIP bodies, digest
 credentials, authorization headers, private keys and opaque
@@ -958,6 +980,7 @@ are in [Runtime](docs/runtime.md#business-selection-and-subscriptions).
 | --- | --- |
 | Envelope / SIP frame | 1 MiB / 64 KiB; negotiation can reduce envelope size. |
 | Session reference/correlation | `[A-Za-z0-9_.:@+-]{1,96}`; other address/URI fields use their own validation. |
+| Opaque dialog ID | `d1` followed by two dot-separated unpadded base64url components, at most 441 ASCII bytes. |
 | Hello / writer | At most 5 seconds / at most 2 seconds including token waiting. |
 | Route lookup | Original 2 seconds including UDP queueing/ingest; at most two redirects, no repeated ProcessRef. |
 | Commands | Up to 40 seconds only with negotiated command-budget capability. |

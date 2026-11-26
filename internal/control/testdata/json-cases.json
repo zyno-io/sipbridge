@@ -288,5 +288,15 @@
         "name": "invalid re-INVITE CSeq",
         "valid": false,
         "json": "{\"correlationId\":\"event-ack\",\"dialogEvent\":{\"kind\":\"ACKNOWLEDGED\",\"inviteCseq\":-1}}"
+    },
+    {
+        "name": "dual opaque dialog reference",
+        "valid": true,
+        "json": "{\"correlationId\":\"inspect\",\"inspect\":{\"context\":{\"id\":\"logical-context\",\"opaqueDialogId\":\"d1.lookup.signature\",\"state\":{\"groupId\":\"logical-context\",\"incarnation\":\"incarnation\"}}}}"
+    },
+    {
+        "name": "opaque dialog ID requires a string",
+        "valid": false,
+        "json": "{\"correlationId\":\"inspect\",\"inspect\":{\"context\":{\"id\":\"logical-context\",\"opaqueDialogId\":{\"value\":\"invalid\"}}}}"
     }
 ]

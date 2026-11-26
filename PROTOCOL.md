@@ -69,9 +69,14 @@ A returned value must authenticate the same native scope and incarnation as the
 accompanying reference. The session removes the field before native command
 or storage processing. This phase requires the legacy reference. Peers without
 the capability exchange legacy references. The field uses the form
-`d1.<lookup data>.<authentication tag>`, with both components in unpadded
-base64url and a maximum of 441 ASCII bytes. Consumers preserve the value
-verbatim and validate its own bound.
+`d1.<directory key digest>.<native locator>.<authentication tag>`, at most
+506 ASCII bytes. The digest is lowercase hex SHA-256 of the UTF-8 compact JSON
+array of strings in this order: service, generation, primary ID, group ID,
+incarnation, SIP Call-ID, decimal partition and context ID. JSON string escaping
+follows ECMAScript JSON serialization. The locator and tag use unpadded
+base64url. The tag binds the directory digest and locator to the native scope.
+Consumers may use the digest directly as the existing directory key suffix
+during compatibility. They preserve the complete handle when echoing it.
 
 The handle requires no new native index or stored field. This additive control
 schema still changes the descriptor that the current storage profile binds, so
@@ -272,7 +277,7 @@ representations rather than JavaScript floating-point conversion.
 The session subset restricts reference/correlation strings to
 `[A-Za-z0-9_.:@+-]{1,96}`. Numeric source addresses and workload URI SANs are
 different fields/credentials and are not validated as opaque session references.
-`ContextRef.opaqueDialogId` uses its own 441-byte bound.
+`ContextRef.opaqueDialogId` uses its own 506-byte bound.
 
 Readable diagnostic projections do not authorize logging message contents. SIP bodies, digest
 credentials, authorization headers, private keys and opaque
@@ -980,7 +985,7 @@ are in [Runtime](docs/runtime.md#business-selection-and-subscriptions).
 | --- | --- |
 | Envelope / SIP frame | 1 MiB / 64 KiB; negotiation can reduce envelope size. |
 | Session reference/correlation | `[A-Za-z0-9_.:@+-]{1,96}`; other address/URI fields use their own validation. |
-| Opaque dialog ID | `d1` followed by two dot-separated unpadded base64url components, at most 441 ASCII bytes. |
+| Opaque dialog ID | `d1` followed by a hex directory digest and two dot-separated unpadded base64url components, at most 506 ASCII bytes. |
 | Hello / writer | At most 5 seconds / at most 2 seconds including token waiting. |
 | Route lookup | Original 2 seconds including UDP queueing/ingest; at most two redirects, no repeated ProcessRef. |
 | Commands | Up to 40 seconds only with negotiated command-budget capability. |

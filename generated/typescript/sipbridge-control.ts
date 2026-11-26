@@ -13,7 +13,7 @@
  * Application families require the explicitly negotiated sip.v1 capability.
  * PROTOCOL.md and ARCHITECTURE.md in sipbridge own
  * behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
- * ContextRef.opaque_dialog_id uses a separate 441-byte bound.
+ * ContextRef.opaque_dialog_id uses a separate 506-byte bound.
  */
 export interface Envelope {
     correlationId: string;
@@ -194,7 +194,7 @@ export interface ContextRef {
     id: string;
     state?: StateRef | undefined;
     /** sip.dialog-id.v1 wire projection. Never persisted as native state. */
-    opaqueDialogId: string;
+    opaqueDialogId?: string;
 }
 
 export interface Header {
@@ -1940,7 +1940,7 @@ export const ContextRef: MessageFns<ContextRef> = {
         if (message.state !== undefined) {
             obj.state = StateRef.toJSON(message.state);
         }
-        if (message.opaqueDialogId !== '') {
+        if (message.opaqueDialogId) {
             obj.opaqueDialogId = message.opaqueDialogId;
         }
         return obj;

@@ -13,6 +13,20 @@ import (
 	pb "sipbridge/internal/controlpb"
 )
 
+func TestDialogDirectoryDigestMatchesNexusJSON(t *testing.T) {
+	authority := &pb.StateAuthority{Service: "redis", Generation: "4", PrimaryId: "primary", SchemaVersion: 1}
+	ref := &pb.ContextRef{Id: "dialog", State: &pb.StateRef{Authority: authority, GroupId: "group", Incarnation: "incarnation", Partition: 2}}
+	for _, tc := range []struct{ callID, digest string }{
+		{"phone@example.test", "75017a2167f17040cd1842484166b402d1b6501a7d9ba49653a996c14c262922"},
+		{"<x>&\"quote\"\\u2028\u2028\u2029@phone.test", "0b3b373b4528a516ed495b255f9e7a4808b4181e86bb9130a0eab1081939e87e"},
+	} {
+		ref.State.CallId = tc.callID
+		if digest := dialogDirectoryDigest(ref); digest != tc.digest {
+			t.Fatalf("directory key mismatch: %s != %s", digest, tc.digest)
+		}
+	}
+}
+
 func TestDialogIDProjectionPreservesNativeReference(t *testing.T) {
 	key := bytes.Repeat([]byte{1}, 32)
 	authority := &pb.StateAuthority{Service: "redis", Generation: "three", PrimaryId: "run", SchemaVersion: 1}

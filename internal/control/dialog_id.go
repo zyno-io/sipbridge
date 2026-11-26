@@ -1,9 +1,12 @@
 package control
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -15,7 +18,7 @@ import (
 
 const DialogIDCapability = "sip.dialog-id.v1"
 const dialogIDVersion = "d1"
-const maxDialogIDLength = 441
+const maxDialogIDLength = 506
 
 func dialogIDFor(authority *pb.StateAuthority, key []byte, ref *pb.ContextRef) (string, error) {
 	state := ref.GetState()
@@ -28,12 +31,44 @@ func dialogIDFor(authority *pb.StateAuthority, key []byte, ref *pb.ContextRef) (
 	// The handle carries only lookup coordinates. Domain and epoch fencing are
 	// authenticated by the accompanying native authority, not taken from it.
 	payload := strings.Join([]string{ref.Id, state.GroupId, state.Incarnation, strconv.FormatUint(uint64(state.Partition), 10)}, "\x00")
+	digest := dialogDirectoryDigest(ref)
 	mac := hmac.New(sha256.New, key)
 	for _, field := range []string{DialogIDCapability, dialogIDVersion, authority.Service, authority.Generation,
-		authority.PrimaryId, strconv.FormatUint(uint64(authority.SchemaVersion), 10), payload} {
+		authority.PrimaryId, strconv.FormatUint(uint64(authority.SchemaVersion), 10), digest, payload} {
 		_, _ = fmt.Fprintf(mac, "%d:%s", len(field), field)
 	}
-	return dialogIDVersion + "." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+	return dialogIDVersion + "." + digest + "." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+}
+
+// Use the same byte representation as the existing Nexus directory key.
+func dialogDirectoryDigest(ref *pb.ContextRef) string {
+	state := ref.State
+	authority := state.Authority
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	// An array of strings written into a buffer cannot fail to encode.
+	_ = encoder.Encode([]string{authority.Service, authority.Generation, authority.PrimaryId, state.GroupId,
+		state.Incarnation, state.CallId, strconv.FormatUint(uint64(state.Partition), 10), ref.Id})
+	raw := bytes.TrimSuffix(buffer.Bytes(), []byte{'\n'})
+	// Go escapes these separators in JSON. ECMAScript writes them literally.
+	// An escaped backslash is consumed as a pair so a literal "\\u2028" stays literal.
+	normalized := make([]byte, 0, len(raw))
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == '\\' {
+			if i+6 <= len(raw) && bytes.Equal(raw[i:i+5], []byte(`\u202`)) && (raw[i+5] == '8' || raw[i+5] == '9') {
+				normalized = append(normalized, 0xe2, 0x80, 0xa8+raw[i+5]-'8')
+				i += 5
+				continue
+			}
+			normalized = append(normalized, raw[i], raw[i+1])
+			i++
+			continue
+		}
+		normalized = append(normalized, raw[i])
+	}
+	digest := sha256.Sum256(normalized)
+	return hex.EncodeToString(digest[:])
 }
 
 // Only these control fields carry ContextRef. Inspect both references where a

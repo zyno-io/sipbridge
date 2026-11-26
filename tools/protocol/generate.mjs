@@ -59,6 +59,9 @@ try {
     const safeJson = generated
         .replaceAll(/fromJSON\(object: any\): (\w+) \{/g, 'fromJSON(value: unknown): $1 {\nconst object = isObject(value) ? value : {};')
         .replaceAll('const obj: any = {};', 'const obj: Record<string, unknown> = {};')
+        // Mixed-version consumers can construct a legacy reference with no projected ID.
+        .replace('opaqueDialogId: string;', 'opaqueDialogId?: string;')
+        .replace('if (message.opaqueDialogId !== "") {', 'if (message.opaqueDialogId) {')
         .replaceAll(': any', ': unknown')
         .replaceAll(', any', ', unknown')
         .replace('function isObject(value: unknown): boolean', 'function isObject(value: unknown): value is Record<string, unknown>')

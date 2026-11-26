@@ -2,15 +2,50 @@ package engine
 
 import (
 	"math"
+	"net"
 	"strconv"
 	"strings"
 
+	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/nativepb"
 	"sipbridge/internal/rediscore"
 )
+
+// A matching registration authorizes direct delivery to a UA. A retained SIP
+// route still requires the selected socket to reach the SDK's first hop.
+func validateDialogReplacementHop(routes []string, request portable.Message, flow *pb.FlowRef) error {
+	if len(routes) == 0 && request.Destination() == "" {
+		return nil
+	}
+	refusal := policyRefusal("replacement socket cannot prove the first SIP next hop")
+	if len(routes) == 0 || request.Transport() != flow.GetTransport() {
+		return refusal
+	}
+	var route sip.Uri
+	if _, err := sip.ParseAddressValue(routes[0], &route, nil); err != nil || route.HostPort() != request.Destination() {
+		return refusal
+	}
+	if route.IsEncrypted() && flow.Transport != "tls" {
+		return refusal
+	}
+	for _, param := range route.UriParams {
+		if strings.EqualFold(param.K, "maddr") || strings.EqualFold(param.K, "transport") && !strings.EqualFold(param.V, flow.Transport) {
+			return refusal
+		}
+	}
+	host := strings.TrimSuffix(strings.TrimPrefix(route.Host, "["), "]")
+	port := route.Port
+	if port == 0 {
+		port = sip.DefaultPort(flow.Transport)
+	}
+	if address := net.ParseIP(host); address == nil || !address.Equal(net.ParseIP(flow.SourceIp)) || port != int(flow.SourcePort) {
+		return refusal
+	}
+	return nil
+}
 
 func validRegistrationFallbackDelivery(policy *pb.CommandAdmission) bool {
 	candidate := policy.GetFallbackDelivery()

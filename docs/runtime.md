@@ -765,6 +765,21 @@ Plaintext replacement needs exact current flow or matching authenticated binding
 TLS continuity needs full directional identity, actual TLS and lifecycle proof.
 Retained transport class never changes.
 
+A fresh registration fallback or a prepared resume preserves any retained
+loose or strict first route. Native matches a numeric first-hop address and
+port against the exact live replacement socket's observed remote endpoint,
+using the retained transport's default SIP port when the route omits a port.
+An incompatible transport or an alternate or unverifiable hop refuses before
+publishing a fresh write or reassigning a parked write. An empty route set
+allows the authorized direct UA socket even when its publisher's Contact does
+not describe the observed remote tuple.
+
+A newer inbound decision can advance the context command sequence while a
+prepared request is parked. Its original receipt still selects the operation.
+Reassignment requires that the dialog's local SIP CSeq, request target and
+route set still match the frozen request and that the original attempt still
+has unreserved parked proof.
+
 ## Business selection and subscriptions
 
 Respond/OpenUac/DialogRequest require bounded command-time admission: directory

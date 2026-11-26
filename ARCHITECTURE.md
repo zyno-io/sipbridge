@@ -202,6 +202,13 @@ from handset-flow publication and never adopts an INVITE call. Unregistered
 network targets use controller-selected URI/proxy, actual transport and an opaque
 credential reference; clear credentials are ephemeral lookup results only.
 
+Registration fallback and prepared dialog resume preserve the native first SIP
+hop. A dialog with an empty route set can use its authorized direct UA socket.
+For a retained route set, a replacement must prove it reaches the first route
+on the original transport before native publishes or reassigns a write. A
+duplicate resume on the assigned socket may observe the same pending result
+after native consumes the physical proof.
+
 ## Recovery and process lifecycle
 
 Memory executes process-local indexed deadlines without shared scheduling. In

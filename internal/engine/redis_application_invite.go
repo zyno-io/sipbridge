@@ -111,6 +111,18 @@ func publishRedisApplicationInvite(ctx context.Context, store *rediscore.Store, 
 	if err != nil {
 		return publishRedisApplicationByeRefusal(ctx, store, selected, current, lease, command, capture, operation, policy, executor, deadline, err)
 	}
+	flow := current.Flow
+	if policy.SelectedFlow != nil {
+		flow = policy.SelectedFlow
+	}
+	if !validPolicyFlow(flow) || flow.Transport != current.Transport {
+		return publishRedisApplicationByeRefusal(ctx, store, selected, current, lease, command, capture, operation, policy, executor, deadline, errors.New("INVITE output flow unavailable"))
+	}
+	if policy.RegistrationFallback {
+		if err = validateDialogReplacementHop(native.Routes, tx.Origin, flow); err != nil {
+			return zero, err
+		}
+	}
 	previousDialog, err := readPrivateDialogRecord(lookup.View.Records[field])
 	if err != nil {
 		return zero, err
@@ -144,13 +156,6 @@ func publishRedisApplicationInvite(ctx context.Context, store *rediscore.Store, 
 	}
 	if len(absent.Records[procField])+len(absent.Records[wireField])+len(absent.Records[outputField]) != 0 {
 		return zero, rediscore.ErrConflict
-	}
-	flow := current.Flow
-	if policy.SelectedFlow != nil {
-		flow = policy.SelectedFlow
-	}
-	if !validPolicyFlow(flow) || flow.Transport != current.Transport {
-		return publishRedisApplicationByeRefusal(ctx, store, selected, current, lease, command, capture, operation, policy, executor, deadline, errors.New("INVITE output flow unavailable"))
 	}
 	nextContext := proto.Clone(current).(*nativepb.Context)
 	nextContext.CommandSequence = command.Sequence

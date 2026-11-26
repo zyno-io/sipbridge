@@ -6,7 +6,7 @@
   "protoc_gen_go": "1.36.12",
   "ts_proto": "2.18.3",
   "generated_go_sha256": "6114871defd5b6a8332383e7725960465158cae5823e379ec19a8a865dc94fb6",
-  "generated_ts_sha256": "7e9fe68adc83d8341dcde307a146a532a3b73de0375f493c48a7cb2d83b92099",
+  "generated_ts_sha256": "ab8184bbadfe63ad850d20cc269c135a7155fee487f77fed237c4b24ec0840a5",
   "generated_json_validation_sha256": "5ae82b8618c3fcdc5081bec0e0bafa00125dd0aa0b6cd1f304a9cd04a7f4ad70",
   "typescript_validator_sha256": "c0c2c1671e87252b08904f2f82d08d24f979cd5d22bf5f942e81f8e1e1ff7888",
   "json_cases_sha256": "82156c52926168cb39cd39d0a7cc583a17f349c63698f5d1fe326b83b2a28018",

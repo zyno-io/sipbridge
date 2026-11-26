@@ -1921,11 +1921,9 @@ export const ContextRef: MessageFns<ContextRef> = {
             owner: isSet(object.owner) ? ProcessRef.fromJSON(object.owner) : undefined,
             id: isSet(object.id) ? globalThis.String(object.id) : '',
             state: isSet(object.state) ? StateRef.fromJSON(object.state) : undefined,
-            opaqueDialogId: isSet(object.opaqueDialogId)
-                ? globalThis.String(object.opaqueDialogId)
-                : isSet(object.opaque_dialog_id)
-                  ? globalThis.String(object.opaque_dialog_id)
-                  : ''
+            ...(isSet(object.opaqueDialogId ?? object.opaque_dialog_id)
+                ? { opaqueDialogId: globalThis.String(object.opaqueDialogId ?? object.opaque_dialog_id) }
+                : {})
         };
     },
 

@@ -61,6 +61,10 @@ try {
         .replaceAll('const obj: any = {};', 'const obj: Record<string, unknown> = {};')
         // Mixed-version consumers can construct a legacy reference with no projected ID.
         .replace('opaqueDialogId: string;', 'opaqueDialogId?: string;')
+        .replace(
+            /opaqueDialogId: isSet\(object\.opaqueDialogId\)[\s\S]*?: "",/,
+            '...(isSet(object.opaqueDialogId ?? object.opaque_dialog_id) ? { opaqueDialogId: globalThis.String(object.opaqueDialogId ?? object.opaque_dialog_id) } : {}),'
+        )
         .replace('if (message.opaqueDialogId !== "") {', 'if (message.opaqueDialogId) {')
         .replaceAll(': any', ': unknown')
         .replaceAll(', any', ', unknown')
@@ -74,6 +78,8 @@ try {
             'globalThis.Object.defineProperty(obj.$1 as Record<string, unknown>, k, { value: $2, enumerable: true, configurable: true, writable: true });'
         );
     if (/\bany\b/.test(safeJson)) throw new Error('review untyped JSON generator output');
+    if (!safeJson.includes('...(isSet(object.opaqueDialogId ?? object.opaque_dialog_id)'))
+        throw new Error('review optional dialog ID JSON projection');
     writeFileSync(tsGenerated, safeJson);
     format(tsGenerated);
     const tsHash = install(tsGenerated, tsTarget);

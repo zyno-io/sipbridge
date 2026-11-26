@@ -191,7 +191,8 @@ func run() (runErr error) {
 		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ReinviteAckCapability}
 	capabilities = append(capabilities, control.RequestDecisionCapability)
 	if stateConfig.Backend == redisBackend {
-		capabilities = append(capabilities, control.DialogSocketCapability, control.DialogSocketResumeCapability, control.ControlAttachmentCapability, control.DialogIDCapability)
+		capabilities = append(capabilities, control.DialogSocketCapability, control.DialogSocketResumeCapability,
+			control.ControlAttachmentCapability, control.DialogIDCapability, control.DialogIDOnlyCapability)
 	}
 	if authPolicy != nil {
 		capabilities = append(capabilities, engine.LocalChallengeCapability)

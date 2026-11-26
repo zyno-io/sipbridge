@@ -118,7 +118,7 @@ func NewServer(cfg Config) (*Server, error) {
 			cfg.OnControllerSession == nil || cfg.OnControllerRenew == nil || cfg.OnDisconnect == nil) {
 		return nil, errors.New("exact control attachments require native dialog socket handling and controller lifecycle hooks")
 	}
-	if slices.Contains(cfg.Capabilities, DialogIDCapability) {
+	if dialogIDMode(cfg.Capabilities) != "" {
 		if !slices.Contains(cfg.Capabilities, ControlAttachmentCapability) || len(cfg.DialogIDKey) < 32 || len(cfg.DialogIDKey) > 1024 {
 			return nil, errors.New("dialog IDs require exact control attachments and native identity key")
 		}
@@ -497,7 +497,7 @@ func (p *session) read(ctx context.Context) (*pb.Envelope, error) {
 		p.diagnostic("read-envelope", nil, e, false)
 		return nil, errors.New("invalid envelope")
 	}
-	if err := normalizeDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, slices.Contains(p.capabilities, DialogIDCapability)); err != nil {
+	if err := normalizeDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, dialogIDMode(p.capabilities)); err != nil {
 		p.diagnostic("read-dialog-id", err, e, false)
 		return nil, err
 	}
@@ -564,8 +564,8 @@ func (p *session) writeAdmitted(transport, caller context.Context, e *pb.Envelop
 		e.RemainingBudgetMs = uint32(remaining / time.Millisecond)
 	}
 	e.SessionId = p.id
-	if slices.Contains(p.capabilities, DialogIDCapability) {
-		wire, err := projectDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey)
+	if mode := dialogIDMode(p.capabilities); mode != "" {
+		wire, err := projectDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, mode)
 		if err != nil {
 			return err
 		}
@@ -637,7 +637,7 @@ func (p *session) hello() error {
 	if slices.Contains(p.capabilities, ControlAttachmentCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {
 		return errors.New("exact control attachments require dialog socket handling")
 	}
-	if slices.Contains(p.capabilities, DialogIDCapability) && !slices.Contains(p.capabilities, ControlAttachmentCapability) {
+	if dialogIDMode(p.capabilities) != "" && !slices.Contains(p.capabilities, ControlAttachmentCapability) {
 		return errors.New("dialog IDs require exact control attachments")
 	}
 	if slices.Contains(p.capabilities, DialogSocketResumeCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,16 @@ import (
 const DialogIDCapability = "sip.dialog-id.v1"
 const dialogIDVersion = "d1"
 const maxDialogIDLength = 506
+
+func dialogIDMode(capabilities []string) string {
+	if slices.Contains(capabilities, DialogIDOnlyCapability) {
+		return DialogIDOnlyCapability
+	}
+	if slices.Contains(capabilities, DialogIDCapability) {
+		return DialogIDCapability
+	}
+	return ""
+}
 
 func dialogIDFor(authority *pb.StateAuthority, key []byte, ref *pb.ContextRef) (string, error) {
 	state := ref.GetState()
@@ -32,12 +43,16 @@ func dialogIDFor(authority *pb.StateAuthority, key []byte, ref *pb.ContextRef) (
 	// authenticated by the accompanying native authority, not taken from it.
 	payload := strings.Join([]string{ref.Id, state.GroupId, state.Incarnation, strconv.FormatUint(uint64(state.Partition), 10)}, "\x00")
 	digest := dialogDirectoryDigest(ref)
+	return encodeDialogID(DialogIDCapability, dialogIDVersion, authority, key, digest, payload), nil
+}
+
+func encodeDialogID(capability, version string, authority *pb.StateAuthority, key []byte, digest, payload string) string {
 	mac := hmac.New(sha256.New, key)
-	for _, field := range []string{DialogIDCapability, dialogIDVersion, authority.Service, authority.Generation,
+	for _, field := range []string{capability, version, authority.Service, authority.Generation,
 		authority.PrimaryId, strconv.FormatUint(uint64(authority.SchemaVersion), 10), digest, payload} {
 		_, _ = fmt.Fprintf(mac, "%d:%s", len(field), field)
 	}
-	return dialogIDVersion + "." + digest + "." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+	return version + "." + digest + "." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 // Use the same byte representation as the existing Nexus directory key.
@@ -122,7 +137,7 @@ func flowWriteDialogReferences(write *pb.FlowWrite) []*pb.ContextRef {
 	return []*pb.ContextRef{write.GetEffect().GetContext(), write.GetPermit().GetAuthorization().GetEffect().GetContext()}
 }
 
-func projectDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte) (*pb.Envelope, error) {
+func projectDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte, mode string) (*pb.Envelope, error) {
 	var wire *pb.Envelope
 	for _, ref := range envelopeDialogReferences(e) {
 		if ref.GetState() != nil {
@@ -137,6 +152,14 @@ func projectDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte) 
 		if ref.GetState() == nil {
 			continue
 		}
+		if mode == DialogIDOnlyCapability {
+			id, err := dialogIDOnlyFor(authority, key, ref)
+			if err != nil {
+				return nil, err
+			}
+			ref.Owner, ref.Id, ref.State, ref.OpaqueDialogId = nil, "", nil, id
+			continue
+		}
 		id, err := dialogIDFor(authority, key, ref)
 		if err != nil {
 			return nil, err
@@ -146,13 +169,24 @@ func projectDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte) 
 	return wire, nil
 }
 
-func normalizeDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte, negotiated bool) error {
+func normalizeDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte, mode string) error {
 	for _, ref := range envelopeDialogReferences(e) {
 		if ref.GetOpaqueDialogId() == "" {
 			continue
 		}
-		if !negotiated {
+		if mode == "" {
 			return errors.New("dialog IDs were not negotiated")
+		}
+		if mode == DialogIDOnlyCapability {
+			if ref.Id != "" || ref.Owner != nil || ref.State != nil {
+				return errors.New("ID-only dialog reference carries legacy fields")
+			}
+			normalized, err := decodeDialogIDOnly(authority, key, ref.OpaqueDialogId)
+			if err != nil {
+				return err
+			}
+			ref.Owner, ref.Id, ref.State, ref.OpaqueDialogId = normalized.Owner, normalized.Id, normalized.State, ""
+			continue
 		}
 		if len(ref.OpaqueDialogId) > maxDialogIDLength {
 			return errors.New("dialog ID exceeds its wire bound")

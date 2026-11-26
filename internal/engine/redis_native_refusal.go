@@ -115,7 +115,7 @@ func (e *redisNative) rejectInitialNative(parent context.Context, flow *pb.FlowR
 	id, incarnation, requestID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	ref := &pb.ContextRef{Id: id, Owner: proto.Clone(e.cfg.Process).(*pb.ProcessRef), State: &pb.StateRef{
 		Authority: e.StateAuthority(), GroupId: id, Incarnation: incarnation, CallId: facts.CallID}}
-	localTag := nativeIdentity(e.cfg.StateIdentityKey, "native-refusal-tag", id, incarnation)
+	localTag := nativeCompactIdentity(e.cfg.StateIdentityKey, "native-refusal-tag", id, incarnation)
 	if facts.ToTag != "" {
 		localTag = facts.ToTag
 	}

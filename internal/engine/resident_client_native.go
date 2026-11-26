@@ -25,7 +25,7 @@ func (e *ResidentMemory) prepareResidentClientStart(open *pb.OpenUac, ref *pb.Co
 	if err != nil {
 		return nil, nil, err
 	}
-	tag := e.id("tag", ref.State.Incarnation, ref.Id)[:32]
+	tag := nativeDialogTag(e.cfg.StateIdentityKey, "tag", ref.State.Incarnation, ref.Id)
 	branch := sip.RFC3261BranchMagicCookie + e.id("branch", ref.State.Incarnation, operation)[:32]
 	next, effects, err := nativePrepareClientStart(open, ref, flow, tag, branch, contact, sentBy, now)
 	if err != nil {

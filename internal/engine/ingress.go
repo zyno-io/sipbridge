@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
-	"encoding/hex"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
@@ -763,7 +763,7 @@ func (i *Ingress) localResponseParsedWithin(ctx context.Context, flow *physicalF
 	if prefix != "" {
 		if to := response.To(); to != nil && req.To() != nil && !req.To().Params.Has("tag") {
 			sum := sha256.Sum256(message.Wire)
-			to.Params.Add("tag", prefix+hex.EncodeToString(sum[:12]))
+			to.Params.Add("tag", prefix+base64.RawURLEncoding.EncodeToString(sum[:12]))
 			if len(tagger) > 0 {
 				to.Params.Add("tag", tagger[0](req))
 			}

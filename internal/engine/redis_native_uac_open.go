@@ -35,7 +35,7 @@ func (e *redisNative) commandOpenUAC(parent context.Context, peer *control.Peer,
 	application := peer.Application()
 	incarnation := uuid.NewString()
 	authority := e.StateAuthority()
-	callID := nativeIdentity(e.cfg.StateIdentityKey, "outbound-call", application.InstanceId, application.Epoch, cmd.Context.Id, incarnation) + "@sipbridge"
+	callID := nativeCompactIdentity(e.cfg.StateIdentityKey, "outbound-call", application.InstanceId, application.Epoch, cmd.Context.Id, incarnation) + "@sipbridge"
 	ref := &pb.ContextRef{Owner: proto.Clone(e.cfg.Process).(*pb.ProcessRef), Id: cmd.Context.Id, State: &pb.StateRef{Authority: authority, GroupId: cmd.Context.Id, Incarnation: incarnation, CallId: callID}}
 	snapshot := &pb.ContextSnapshot{Context: ref, Application: application, ApplicationLeaseTerm: witness.Term, Executor: e.cfg.Process, Kind: pb.ContextSnapshot_UAC, CallId: callID, Transport: uacTransport(open)}
 	if err = validateNativeCommandPolicy(snapshot, cmd, operation, time.Now(), deadline); err != nil {

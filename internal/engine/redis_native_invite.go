@@ -36,7 +36,8 @@ func (e *redisNative) receiveInitialInvite(parent context.Context, peer *control
 	defer cancel()
 	id, incarnation, requestID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	ref := &pb.ContextRef{Id: id, Owner: proto.Clone(e.cfg.Process).(*pb.ProcessRef), State: &pb.StateRef{Authority: e.StateAuthority(), GroupId: id, Incarnation: incarnation, CallId: facts.CallID}}
-	presentation, err := receiveRedisInvite(ctx, store, redisRegisterReceive{IdentityKey: e.cfg.StateIdentityKey, Context: ref, Authority: e.StateAuthority(), Application: peer.Application(), Executor: e.cfg.Process, Lease: witness, Flow: flow, Message: message, RequestID: requestID, LocalTag: nativeIdentity(e.cfg.StateIdentityKey, "native-invite-tag", id, incarnation), Timer: rediscore.TimerAssignment{Worker: e.worker, Epoch: e.cfg.Process.Epoch, Term: e.cfg.Process.Epoch}, Deadline: deadline})
+	localTag := nativeCompactIdentity(e.cfg.StateIdentityKey, "native-invite-tag", id, incarnation)
+	presentation, err := receiveRedisInvite(ctx, store, redisRegisterReceive{IdentityKey: e.cfg.StateIdentityKey, Context: ref, Authority: e.StateAuthority(), Application: peer.Application(), Executor: e.cfg.Process, Lease: witness, Flow: flow, Message: message, RequestID: requestID, LocalTag: localTag, Timer: rediscore.TimerAssignment{Worker: e.worker, Epoch: e.cfg.Process.Epoch, Term: e.cfg.Process.Epoch}, Deadline: deadline})
 	if err != nil {
 		return err
 	}

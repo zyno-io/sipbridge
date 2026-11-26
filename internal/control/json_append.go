@@ -18,7 +18,8 @@ func appendJSONMessage(dst []byte, message protoreflect.Message, depth int) ([]b
 	}
 	oneofs := message.Descriptor().Oneofs()
 	for i := 0; i < oneofs.Len(); i++ {
-		if message.WhichOneof(oneofs.Get(i)) == nil {
+		oneof := oneofs.Get(i)
+		if !oneof.IsSynthetic() && message.WhichOneof(oneof) == nil {
 			return nil, errors.New("missing JSON variant")
 		}
 	}

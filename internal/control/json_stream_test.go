@@ -140,7 +140,7 @@ func normalizeJSONStreamFixture(message protoreflect.Message) {
 	oneofs := message.Descriptor().Oneofs()
 	for i := 0; i < oneofs.Len(); i++ {
 		oneof := oneofs.Get(i)
-		if message.WhichOneof(oneof) == nil {
+		if !oneof.IsSynthetic() && message.WhichOneof(oneof) == nil {
 			field := oneof.Fields().Get(0)
 			message.Set(field, message.NewField(field))
 		}

@@ -257,6 +257,9 @@ accepts both the hexadecimal and base64url encodings of the same proof.
 
 ### JSON WebSocket framing
 
+Proto3 optional scalar fields retain presence and may be omitted. Required
+JSON variants correspond to explicit protocol oneofs.
+
 The controller opens `/v1/control` and negotiates `sipbridge.control.json.v1`.
 TLS transport uses `wss:` and validates the server chain and endpoint DNS SAN.
 Default mTLS authentication also validates the client chain and exact allowed

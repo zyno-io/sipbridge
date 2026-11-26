@@ -5,6 +5,21 @@
         "json": "{\"correlationId\":\"case\",\"hello\":{\"controller\":{\"instanceId\":\"controller\",\"epoch\":\"epoch\"},\"connectionAttempt\":\"18446744073709551615\",\"major\":1,\"bounds\":{\"maxEnvelopeBytes\":4096}}}"
     },
     {
+        "name": "outbound Call-ID omitted",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"command\":{\"openUac\":{\"method\":\"INVITE\"}}}"
+    },
+    {
+        "name": "outbound Call-ID present",
+        "valid": true,
+        "json": "{\"correlationId\":\"case\",\"command\":{\"openUac\":{\"outboundCallId\":\"fixture-obl-0123456789abcdef\"}}}"
+    },
+    {
+        "name": "outbound Call-ID must be a string",
+        "valid": false,
+        "json": "{\"correlationId\":\"case\",\"command\":{\"openUac\":{\"outboundCallId\":7}}}"
+    },
+    {
         "name": "optional unknown fields",
         "valid": true,
         "json": "{\"correlationId\":\"case\",\"ping\":{\"nonce\":\"ping\",\"future\":{\"value\":[true,null,4]}},\"future\":{\"enabled\":true}}"

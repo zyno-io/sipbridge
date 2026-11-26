@@ -1074,11 +1074,10 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             outboundCallId: {
                 kind: 'string',
-                oneof: '_outbound_call_id',
                 alias: 'outbound_call_id'
             }
         },
-        oneofs: ['_outbound_call_id']
+        oneofs: []
     },
     '.sipbridge.control.v1.DialogRequest': {
         fields: {

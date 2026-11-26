@@ -64,7 +64,8 @@ func validateJSONStreamContainer(decoder *json.Decoder, opening json.Delim, dept
 	}
 	if descriptor != nil {
 		for i := 0; i < descriptor.Oneofs().Len(); i++ {
-			if !oneofs[descriptor.Oneofs().Get(i).FullName()] {
+			oneof := descriptor.Oneofs().Get(i)
+			if !oneof.IsSynthetic() && !oneofs[oneof.FullName()] {
 				return errors.New("missing JSON variant")
 			}
 		}

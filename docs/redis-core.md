@@ -67,14 +67,30 @@ no recovery queue, historical RPC receipt, registration or subscription state.
 
 ## Control disconnect
 
-Application control is disposable. Disconnecting an established control session ends its application's calls in that native pool. Reconnecting admits fresh work under a fresh term; it does not restore calls, reconcile earlier commands, transfer application state or replay a command/event history. Do not advertise controller reattachment, persist recovery handles or retain results for a later session. Native phone TLS reconnection is independent: a phone may reach another worker and continue its dialog while its application control term remains live.
+With `sip.control-attachment.v1`, each authenticated control session has its
+own attachment. Closing a session immediately fences its in-process capability
+and revokes its exact Redis attachment. Live sibling connections can continue
+renewing and using the shared application term. When renewal stops, the
+existing deadline expires the term after the last valid heartbeat and schedules
+orphan cleanup. A legacy session close expires its shared term immediately.
+
+A new controller admits fresh work under its own term with fresh application
+state. Controller checkpoint recovery belongs to the separate fixture protocol.
+Native phone TLS reconnection is independent. A phone can reach another
+SIPbridge instance and continue its native dialog while its application
+control term remains live.
 
 Renewal that definitively observes missing, expired or invalid application authority
 closes the control session so the application can admit fresh work. A transport
 failure or uncertain renewal keeps its existing bounded lease; it does not recreate
 missing authority or establish that an earlier write failed.
 
-Reuse the existing application term and owned-context set. A disconnect expires that exact term atomically and wakes the existing owner-expiry scheduler. Because peers in one native pool share the term, this deliberately ends that application's calls throughout the affected pool; it needs no per-session call index. An old disconnect cannot expire a newer term. A control handshake that was never established triggers no disconnect mutation. Redis failure leaves the existing finite lease expiry as the fallback, without a retry queue or new polling timer. For each expired call, inspect its bounded actual dialog references at the same revision and stage a native cleanup BYE for each eligible confirmed dialog in the same expired-term-fenced publication that releases its application membership. An incoming 2xx awaiting ACK keeps its original native ACK deadline; if that ACK arrives after release, its publication atomically stages the cleanup BYE on the validated completion flow. Existing UAC ACK output requires its own positive WRITTEN proof before cleanup. If an already-selected winning initial UAC late offer has no selected ACK and still needs an application answer when control is lost, terminate that exact native dialog without fabricating an ACK or BYE; preserve the original transaction and other fork duties. A later new unwanted late-offer branch follows the shared [native rejecting ACK contract](runtime.md#forks-cancellation-and-outbound-setup). Native physical uncertainty remains owned and is never retried merely because control disconnected.
+The owner-expiry scheduler uses the shared term's existing owned-context set.
+Disconnect mutations are scoped to the exact negotiated attachment or legacy
+term, and require a completed control handshake. The established lease
+deadline bounds authority even if Redis is unavailable during disconnect.
+
+For each expired call, inspect its bounded actual dialog references at the same revision and stage a native cleanup BYE for each eligible confirmed dialog in the same expired-term-fenced publication that releases its application membership. An incoming 2xx awaiting ACK keeps its original native ACK deadline; if that ACK arrives after release, its publication atomically stages the cleanup BYE on the validated completion flow. Existing UAC ACK output requires its own positive WRITTEN proof before cleanup. If an already-selected winning initial UAC late offer has no selected ACK and still needs an application answer when control is lost, terminate that exact native dialog without fabricating an ACK or BYE; preserve the original transaction and other fork duties. A later new unwanted late-offer branch follows the shared [native rejecting ACK contract](runtime.md#forks-cancellation-and-outbound-setup). Native physical uncertainty remains owned and is never retried merely because control disconnected.
 
 
 For an initial late-offer UAC whose application answer ACK has UNKNOWN physical evidence, control loss may abandon that setup only after the original physical deadline plus two minutes and the first call-end cutoff plus two minutes. Require an unowned ended context, the exact initial winning dialog and ACK as the sole remaining output, and closure of every other native, event and waiter duty. First forget only that exact obsolete UNKNOWN proof under its existing native fences; a definite W/N that wins the race still takes its normal consumer path. After proven proof absence, one revision/assignment-fenced publication applies the SDK dialog termination, removes the exact ACK output and actual owner references, and clears its result backlink. Do not separate those changes or extend either cutoff. This adds no marker, history, ACK-written inference, BYE or established-call exception.

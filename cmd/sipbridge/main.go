@@ -190,6 +190,9 @@ func run() (runErr error) {
 	capabilities := []string{engine.Capability, control.CommandBudgetCapability, engine.DialogContinuityCapability,
 		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ReinviteAckCapability}
 	capabilities = append(capabilities, control.RequestDecisionCapability)
+	if stateConfig.Backend == redisBackend {
+		capabilities = append(capabilities, control.DialogSocketCapability)
+	}
 	if authPolicy != nil {
 		capabilities = append(capabilities, engine.LocalChallengeCapability)
 	}

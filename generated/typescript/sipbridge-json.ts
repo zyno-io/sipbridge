@@ -1110,6 +1110,24 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
                 kind: 'message',
                 message: '.sipbridge.control.v1.ContextDelivery',
                 alias: 'expected_delivery'
+            },
+            registrationFallback: {
+                kind: 'boolean',
+                alias: 'registration_fallback'
+            },
+            fallbackDelivery: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.ContextDelivery',
+                alias: 'fallback_delivery'
+            }
+        },
+        oneofs: []
+    },
+    '.sipbridge.control.v1.ResumeDialogRequest': {
+        fields: {
+            operationId: {
+                kind: 'string',
+                alias: 'operation_id'
             }
         },
         oneofs: []
@@ -1148,6 +1166,12 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
                 kind: 'message',
                 message: '.sipbridge.control.v1.Cancel',
                 oneof: 'action'
+            },
+            resumeDialogRequest: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.ResumeDialogRequest',
+                oneof: 'action',
+                alias: 'resume_dialog_request'
             }
         },
         oneofs: ['action']
@@ -1181,6 +1205,24 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
                 kind: 'message',
                 message: '.sipbridge.control.v1.ContextRetirementProof',
                 alias: 'retirement_proof'
+            },
+            dialogRecovery: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.DialogRecovery',
+                alias: 'dialog_recovery'
+            }
+        },
+        oneofs: []
+    },
+    '.sipbridge.control.v1.DialogRecovery': {
+        fields: {
+            disposition: {
+                kind: 'enum',
+                values: ['UNSPECIFIED', 'SOCKET_GONE', 'RESUMABLE']
+            },
+            operationId: {
+                kind: 'string',
+                alias: 'operation_id'
             }
         },
         oneofs: []

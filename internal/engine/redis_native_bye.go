@@ -29,6 +29,9 @@ func (e *redisNative) commandApplicationBye(parent context.Context, peer *contro
 	if command == nil || command.GetDialogRequest() == nil || !redisApplicationClientMethod(command.GetDialogRequest().Method) && command.GetDialogRequest().Method != "INVITE" || command.Context == nil || command.Context.State == nil || !state.ValidReference(command.Context.Id) || command.Context.State.GroupId != command.Context.Id || command.Context.State.Partition != 0 || !state.ValidReference(command.Context.State.Incarnation) || !proto.Equal(command.Context.State.Authority, e.StateAuthority()) || command.Sequence == 0 || command.Sequence > 1<<53-1 || !validSendText(operation, 160, false) {
 		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "invalid dialog command"}, nil
 	}
+	if command.GetAdmission().GetRegistrationFallback() && !peer.HasCapability(control.DialogSocketCapability) {
+		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "dialog socket recovery was not negotiated"}, nil
+	}
 	lease, err := e.controllerWitness(peer)
 	if err != nil {
 		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "controller attachment unavailable"}, nil
@@ -89,6 +92,11 @@ func (e *redisNative) commandApplicationBye(parent context.Context, peer *contro
 		if current.CommandSequence >= 1<<53-1 || current.CommandSequence+1 != command.Sequence {
 			return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "stale command sequence or sequence gap"}, nil
 		}
+		if peer.HasCapability(control.DialogSocketCapability) {
+			if refused := e.checkDialogSocket(command, current, operation, deadline); refused != nil {
+				return refused, nil
+			}
+		}
 		if command.GetDialogRequest().Method == "INVITE" {
 			identity, x = publishRedisApplicationInvite(ctx, store, e.cfg.StateIdentityKey, peer.Application(), lease, command, capture, operation, rediscore.TimerAssignment{Worker: e.worker, Epoch: e.cfg.Process.Epoch, Term: e.cfg.Process.Epoch}, deadline, until)
 		} else {
@@ -111,6 +119,35 @@ func (e *redisNative) commandApplicationBye(parent context.Context, peer *contro
 	method := command.GetDialogRequest().Method
 	command = nil
 	return e.awaitRedisApplicationByeResult(ctx, store, identity, lease, capture, operation, deadline, until, waiter, method)
+}
+
+func (e *redisNative) checkDialogSocket(command *pb.Command, current *nativepb.Context, operation string, deadline time.Time) *pb.OperationResult {
+	flow := command.GetAdmission().GetSelectedFlow()
+	if flow == nil {
+		return nil
+	}
+	if !validPolicyFlow(flow) || !sameProcess(flow.Ingress, e.cfg.Process) {
+		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "dialog socket is not owned by this process"}
+	}
+	if flow.Transport == "udp" {
+		return nil
+	}
+	if e.cfg.LiveFlow == nil {
+		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "dialog socket state unavailable"}
+	}
+	if e.cfg.LiveFlow(flow) {
+		return nil
+	}
+	if current.Ended || current.Kind != pb.ContextSnapshot_UAS && current.Kind != pb.ContextSnapshot_UAC {
+		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "dialog unavailable"}
+	}
+	snapshot := &pb.ContextSnapshot{BindingId: current.BindingId, Transport: current.Transport,
+		ApplicationLeaseTerm: current.ApplicationLeaseTerm, DirectoryEpoch: current.DirectoryEpoch, Delivery: current.Delivery}
+	if err := validateNativeCommandPolicy(snapshot, command, operation, time.Now(), deadline); err != nil {
+		return commandRefusal(err)
+	}
+	return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "dialog socket gone",
+		DialogRecovery: &pb.DialogRecovery{Disposition: pb.DialogRecovery_SOCKET_GONE}}
 }
 
 func (e *redisNative) awaitRedisApplicationByeResult(ctx context.Context, store *rediscore.Store, identity rediscore.Identity, lease rediscore.ApplicationLeaseRef, capture redisNotifyWaitCapture, operation string, deadline, leaseUntil time.Time, waiter *nativeResultWaiter, method string) (*pb.OperationResult, error) {

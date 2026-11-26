@@ -216,16 +216,28 @@ message Cancel {}
 message CommandAdmission {
   string directory_epoch = 1; uint64 expires_at_ms = 2;
   FlowRef selected_flow = 3; ContextDelivery expected_delivery = 4;
+  // Nexus authorized the selected current registration after the dialog socket closed.
+  bool registration_fallback = 5;
+  // Candidate publication data for a verified fallback response on selected_flow.
+  ContextDelivery fallback_delivery = 6;
 }
+// Identifies a prepared native operation whose previous write assignment is fenced.
+message ResumeDialogRequest { string operation_id = 1; }
 message Command {
   ContextRef context = 1; uint64 sequence = 2; CommandAdmission admission = 3;
-  oneof action { Respond respond = 10; OpenUac open_uac = 11; DialogRequest dialog_request = 12; Cancel cancel = 13; }
+  oneof action { Respond respond = 10; OpenUac open_uac = 11; DialogRequest dialog_request = 12; Cancel cancel = 13; ResumeDialogRequest resume_dialog_request = 14; }
 }
 message OperationResult {
   enum Certainty { UNSPECIFIED = 0; NOT_ACCEPTED = 1; ACCEPTED = 2; COMPLETED = 3; UNKNOWN = 4; }
   Certainty certainty = 1; string error = 2; uint32 sip_status = 3;
   ContextSnapshot snapshot = 4; SipMessage request = 5; SipMessage response = 6;
   ContextRetirementProof retirement_proof = 7;
+  DialogRecovery dialog_recovery = 8;
+}
+message DialogRecovery {
+  enum Disposition { UNSPECIFIED = 0; SOCKET_GONE = 1; RESUMABLE = 2; }
+  Disposition disposition = 1;
+  string operation_id = 2;
 }
 // Positive current-authority absence evidence for deferred trusted bookkeeping.
 // Neither a timeout nor a generic SIP error is a retirement proof.

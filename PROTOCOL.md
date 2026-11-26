@@ -33,6 +33,24 @@ owns field behavior; other SIP server protocols are separate APIs.
 
 ## 2. Identity, execution and capabilities
 
+The `sip.dialog-socket.v1` capability denotes exact socket-owner dispatch for
+ordinary established-dialog requests. The controller selects and authorizes the
+socket. SIPbridge verifies the exact ingress process, epoch, and connection
+before admission. An exact local socket that is gone before any native admission
+can produce `DialogRecovery.SOCKET_GONE` with `NOT_ACCEPTED`. This disposition
+does not authorize recovery from a generic refusal or an uncertain write. A
+controller may send the original command once on a proven replacement, with
+`CommandAdmission.registration_fallback` set when it selected the account's
+current registration as the candidate.
+
+The separate `sip.dialog-socket-resume.v1` capability covers a prepared
+operation. `DialogRecovery.RESUMABLE` identifies an already admitted operation
+whose prior physical write assignment can no longer start. `ResumeDialogRequest`
+reuses that operation and its command sequence, transaction branch, CSeq, and
+deadline with a new physical write bound to the controller-selected socket.
+Unknown or possibly started writes cannot yield a resumable result. The existing
+SIP transaction routing governs native ACK, CANCEL and responses.
+
 | Identity | Authority and lifetime |
 | --- | --- |
 | Physical flow | Exact live ingress process epoch/socket or UDP listener/peer tuple; sockets never migrate. |

@@ -734,12 +734,19 @@ fencing a separate original-owner flow-adoption effect may proceed, without bloc
 completion; owner loss abandons that proposal. Native callbacks retain the original
 application identity, never that of a submitting relay.
 
-TCP/TLS response continuity records only transaction/branch completion flow. Native
-ACK/CANCEL/retransmission and each fork's cleanup use that proof, not ordinary
-context delivery. Ordinary successful dialog-flow publication advances only the
-selected branch's completion flow. Plaintext replacement needs exact current flow
-or matching authenticated binding; TLS continuity needs full directional identity,
-actual TLS and lifecycle proof. Retained transport class never changes.
+Ordinary TCP/TLS response continuity records transaction and branch completion
+flow for ACK, CANCEL, retransmission and each fork's cleanup. A negotiated call
+command can also carry a controller-authorized registration fallback candidate
+for its exact selected socket. A matching 2xx response on that socket, with full
+directional dialog and transaction identity, may promote its candidate to context
+delivery in the same native commit as the response. Promotion requires the
+original expected delivery to remain current, a live dialog, and the next native
+delivery revision in the same directory epoch. Terminal BYE and failed responses
+retain ordinary transaction completion. The command result exposes the exact
+promoted receipt so the controller can publish it in its own directory.
+Plaintext replacement needs exact current flow or matching authenticated binding;
+TLS continuity needs full directional identity, actual TLS and lifecycle proof.
+Retained transport class never changes.
 
 ## Business selection and subscriptions
 
@@ -752,6 +759,16 @@ The admission wrapper is at most 4 KiB, clamped to original control deadline and
 retained only with the current/deferred transaction or initial open intent. Digest
 inherits that selection. Later commands cannot refresh earlier setup/deferred work.
 No response-scope history is retained.
+
+With negotiated `sip.dialog-socket.v1`, a shared call DialogRequest with an
+explicit selected flow goes to that flow's exact SIPbridge instance and process
+epoch. Native rejects nonlocal or malformed references before preparing SIP
+state. For TCP/TLS, a verified closed local socket can produce the typed
+`SOCKET_GONE` refusal once the dialog, controller, sequence and admission have
+been checked. This refusal leaves the original command, CSeq, transactions and
+outputs unconsumed. A transport that closes later follows physical write outcome
+handling. UDP, absent selected flow, transaction-bound ACK and CANCEL, and the
+resident subscription domain retain their existing routing rules.
 
 Each APPLICATION emission matches its selected command/transaction, uses the exact
 selected/response-return flow, and starts by the minimum of semantic expiry, Redis

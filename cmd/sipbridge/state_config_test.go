@@ -42,7 +42,7 @@ func TestStateConfigurationRequiresRedisAndDiscovery(t *testing.T) {
 	}
 	delete(values, "SIPBRIDGE_STATE_GENERATION")
 	delete(values, "SIPBRIDGE_STATE_NAMESPACE")
-	if cfg, err = stateConfiguration(get, read); err != nil || cfg.Generation != "1" || cfg.binaryConnectionConfig().Profile.Root != "sipstate:v1:sipbridge:1:" {
+	if cfg, err = stateConfiguration(get, read); err != nil || cfg.Generation != "2" || cfg.binaryConnectionConfig().Profile.Root != "sipstate:v1:sipbridge:2:" {
 		t.Fatal("configuration defaults failed", err)
 	}
 

@@ -205,7 +205,7 @@ func completeRedisApplicationInviteResponse(ctx context.Context, store *rediscor
 		}
 		current.LocalSdp, current.RemoteSdp, current.RemoteTarget = body, remote, candidate.Dialog.Target
 	}
-	deliveryChanges, err := adoptRegistrationFallback(current, procedure.Metadata, previous, flow, message, facts.Status)
+	deliveryChanges, err := adoptRegistrationFallback(current, procedure.Metadata, previous, flow, message, facts.Status, selected.Identity.Term)
 	if err != nil {
 		return true, err
 	}

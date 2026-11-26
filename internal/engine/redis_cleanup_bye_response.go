@@ -185,7 +185,7 @@ func completeRedisCleanupByeResponse(ctx context.Context, store *rediscore.Store
 	current.Revision++
 	changes := []rediscore.Change{{Field: selected.Record, Value: procBytes}, {Field: responseField, Value: responseBytes}}
 	if generic {
-		deliveryChanges, x := adoptRegistrationFallback(current, procedure.Metadata, dialog.Native, flow, message, facts.Status)
+		deliveryChanges, x := adoptRegistrationFallback(current, procedure.Metadata, dialog.Native, flow, message, facts.Status, selected.Identity.Term)
 		if x != nil {
 			return true, x
 		}

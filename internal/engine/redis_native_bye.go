@@ -141,6 +141,9 @@ func (e *redisNative) checkDialogSocket(command *pb.Command, current *nativepb.C
 	if current.Ended || current.Kind != pb.ContextSnapshot_UAS && current.Kind != pb.ContextSnapshot_UAC {
 		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "dialog unavailable"}
 	}
+	if !proto.Equal(flow, current.Flow) {
+		return &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "selected socket unavailable"}
+	}
 	snapshot := &pb.ContextSnapshot{BindingId: current.BindingId, Transport: current.Transport,
 		ApplicationLeaseTerm: current.ApplicationLeaseTerm, DirectoryEpoch: current.DirectoryEpoch, Delivery: current.Delivery}
 	if err := validateNativeCommandPolicy(snapshot, command, operation, time.Now(), deadline); err != nil {

@@ -9,43 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
-	"strings"
 
 	"google.golang.org/protobuf/proto"
 	pb "sipbridge/internal/controlpb"
 )
 
-const DialogIDCapability = "sip.dialog-id.v1"
 const DialogRetirementCapability = "sip.dialog-retirement.v1"
-const dialogIDVersion = "d1"
-const maxDialogIDLength = 506
-
-func dialogIDMode(capabilities []string) string {
-	if slices.Contains(capabilities, DialogIDOnlyCapability) {
-		return DialogIDOnlyCapability
-	}
-	if slices.Contains(capabilities, DialogIDCapability) {
-		return DialogIDCapability
-	}
-	return ""
-}
-
-func dialogIDFor(authority *pb.StateAuthority, key []byte, ref *pb.ContextRef) (string, error) {
-	state := ref.GetState()
-	if authority == nil || state == nil || !proto.Equal(state.Authority, authority) ||
-		!reference.MatchString(ref.Id) || !reference.MatchString(state.GroupId) ||
-		!reference.MatchString(state.Incarnation) || state.Partition > 4095 {
-		return "", errors.New("invalid scoped dialog reference")
-	}
-
-	// The handle carries only lookup coordinates. Domain and epoch fencing are
-	// authenticated by the accompanying native authority, not taken from it.
-	payload := strings.Join([]string{ref.Id, state.GroupId, state.Incarnation, strconv.FormatUint(uint64(state.Partition), 10)}, "\x00")
-	digest := dialogDirectoryDigest(ref)
-	return encodeDialogID(DialogIDCapability, dialogIDVersion, authority, key, digest, payload), nil
-}
 
 func encodeDialogID(capability, version string, authority *pb.StateAuthority, key []byte, digest, payload string) string {
 	mac := hmac.New(sha256.New, key)
@@ -138,73 +108,47 @@ func flowWriteDialogReferences(write *pb.FlowWrite) []*pb.ContextRef {
 	return []*pb.ContextRef{write.GetEffect().GetContext(), write.GetPermit().GetAuthorization().GetEffect().GetContext()}
 }
 
-func projectDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte, mode string, compactRetirement bool) (*pb.Envelope, error) {
-	proof := e.GetResult().GetRetirementProof()
-	if compactRetirement && proof != nil &&
-		(mode != DialogIDOnlyCapability || proof.GetContext().GetState() == nil || !proto.Equal(proof.Authority, authority)) {
+func projectDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte) (*pb.Envelope, error) {
+	if proof := e.GetResult().GetRetirementProof(); proof != nil &&
+		(proof.GetContext().GetState() == nil || proof.GetAuthority() != nil) {
 		return nil, errors.New("invalid scoped dialog retirement proof")
 	}
-	var wire *pb.Envelope
 	for _, ref := range envelopeDialogReferences(e) {
-		if ref.GetState() != nil {
-			wire = proto.Clone(e).(*pb.Envelope)
-			break
-		}
-	}
-	if wire == nil {
-		return e, nil
-	}
-	if compactRetirement && proof != nil {
-		wire.GetResult().GetRetirementProof().Authority = nil
-	}
-	for _, ref := range envelopeDialogReferences(wire) {
 		if ref.GetState() == nil {
 			continue
 		}
-		if mode == DialogIDOnlyCapability {
-			id, err := dialogIDOnlyFor(authority, key, ref)
+		wire := proto.Clone(e).(*pb.Envelope)
+		for _, scoped := range envelopeDialogReferences(wire) {
+			if scoped.GetState() == nil {
+				continue
+			}
+			id, err := dialogIDOnlyFor(authority, key, scoped)
 			if err != nil {
 				return nil, err
 			}
-			ref.Owner, ref.Id, ref.State, ref.OpaqueDialogId = nil, "", nil, id
-			continue
+			scoped.Owner, scoped.Id, scoped.State, scoped.OpaqueDialogId = nil, "", nil, id
 		}
-		id, err := dialogIDFor(authority, key, ref)
-		if err != nil {
-			return nil, err
-		}
-		ref.OpaqueDialogId = id
+		return wire, nil
 	}
-	return wire, nil
+	return e, nil
 }
 
-func normalizeDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte, mode string) error {
+func normalizeDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte, enabled bool) error {
 	for _, ref := range envelopeDialogReferences(e) {
 		if ref.GetOpaqueDialogId() == "" {
 			continue
 		}
-		if mode == "" {
+		if !enabled {
 			return errors.New("dialog IDs were not negotiated")
 		}
-		if mode == DialogIDOnlyCapability {
-			if ref.Id != "" || ref.Owner != nil || ref.State != nil {
-				return errors.New("ID-only dialog reference carries legacy fields")
-			}
-			normalized, err := decodeDialogIDOnly(authority, key, ref.OpaqueDialogId)
-			if err != nil {
-				return err
-			}
-			ref.Owner, ref.Id, ref.State, ref.OpaqueDialogId = normalized.Owner, normalized.Id, normalized.State, ""
-			continue
+		if ref.Id != "" || ref.Owner != nil || ref.State != nil {
+			return errors.New("ID-only dialog reference carries companion fields")
 		}
-		if len(ref.OpaqueDialogId) > maxDialogIDLength {
-			return errors.New("dialog ID exceeds its wire bound")
+		normalized, err := decodeDialogIDOnly(authority, key, ref.OpaqueDialogId)
+		if err != nil {
+			return err
 		}
-		id, err := dialogIDFor(authority, key, ref)
-		if err != nil || !hmac.Equal([]byte(id), []byte(ref.OpaqueDialogId)) {
-			return errors.New("dialog ID does not match native reference")
-		}
-		ref.OpaqueDialogId = ""
+		ref.Owner, ref.Id, ref.State, ref.OpaqueDialogId = normalized.Owner, normalized.Id, normalized.State, ""
 	}
 	return nil
 }

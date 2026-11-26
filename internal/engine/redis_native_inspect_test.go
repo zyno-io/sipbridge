@@ -41,7 +41,7 @@ func assertRedisNativeJSONInspection(t *testing.T, ctx context.Context, ws *webs
 		}
 		if name == "absent" {
 			if result.Certainty != pb.OperationResult_COMPLETED || result.RetirementProof == nil ||
-				!proto.Equal(result.RetirementProof.Context, candidate) || !proto.Equal(result.RetirementProof.Authority, candidate.State.Authority) ||
+				!proto.Equal(result.RetirementProof.Context, candidate) || result.RetirementProof.Authority != nil ||
 				result.RetirementProof.Reason != pb.ContextRetirementProof_CONTEXT_ABSENT {
 				t.Fatal("exact absence lacked positive proof", result)
 			}

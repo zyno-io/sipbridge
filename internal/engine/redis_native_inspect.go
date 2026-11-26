@@ -31,7 +31,7 @@ func (e *redisNative) inspectNativeContext(parent context.Context, peer *control
 	selected, err := store.ObserveApplicationWitness(ctx, ref.Id, ref.State.Incarnation, witness, "r:context")
 	if errors.Is(err, rediscore.ErrAbsent) {
 		return &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, RetirementProof: &pb.ContextRetirementProof{
-			Context: proto.Clone(ref).(*pb.ContextRef), Authority: e.StateAuthority(), Reason: pb.ContextRetirementProof_CONTEXT_ABSENT}}, nil
+			Context: proto.Clone(ref).(*pb.ContextRef), Reason: pb.ContextRetirementProof_CONTEXT_ABSENT}}, nil
 	}
 	if err != nil {
 		return nil, err

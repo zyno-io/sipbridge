@@ -99,7 +99,7 @@ func (e *ResidentMemory) inspectResident(ctx context.Context, application *pb.Pr
 	c, err := e.findContext(ref)
 	if errors.Is(err, state.ErrNotFound) {
 		return &pb.OperationResult{Certainty: pb.OperationResult_COMPLETED, RetirementProof: &pb.ContextRetirementProof{
-			Context: proto.Clone(ref).(*pb.ContextRef), Authority: e.StateAuthority(), Reason: pb.ContextRetirementProof_CONTEXT_ABSENT}}, nil
+			Context: proto.Clone(ref).(*pb.ContextRef), Reason: pb.ContextRetirementProof_CONTEXT_ABSENT}}, nil
 	}
 	if err != nil {
 		return nil, err

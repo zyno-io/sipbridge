@@ -43,7 +43,7 @@ func (e *ResidentMemory) commandResidentClient(ctx context.Context, peer *contro
 		}
 		app := peer.Application()
 		incarnation := uuid.NewString()
-		callID := e.id("outbound-call", app.InstanceId, app.Epoch, ref.Id, incarnation) + "@sipbridge"
+		callID := nativeCompactIdentity(e.cfg.StateIdentityKey, "outbound-call", app.InstanceId, app.Epoch, ref.Id, incarnation) + "@sipbridge"
 		fullRef := e.contextRef(callID, ref.Id)
 		fullRef.State.Incarnation = incarnation
 		c = &residentContext{snapshot: &pb.ContextSnapshot{Context: fullRef, Application: proto.Clone(app).(*pb.ProcessRef), ApplicationLeaseTerm: peer.ApplicationLease().Term,

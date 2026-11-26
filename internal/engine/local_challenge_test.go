@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -298,8 +299,18 @@ func TestChallengeACKProofDoesNotAuthorizeAnotherFlowOrTransaction(t *testing.T)
 	parsed, _ := sip.ParseMessage(message.Wire)
 	request := parsed.(*sip.Request)
 	flow := &pb.FlowRef{Ingress: &pb.ProcessRef{InstanceId: "sip", Epoch: "epoch"}, ConnectionId: "flow", SourceIp: "192.0.2.1", SourcePort: 5060, Transport: "tls"}
-	request.To().Params.Add("tag", localChallengeTag(policy.SigningKey, request, flow))
+	compact := localChallengeTag(policy.SigningKey, request, flow)
+	legacy := localChallengeTagPrefix + hex.EncodeToString(localChallengeACKProof(policy.SigningKey, request, flow))
+	if len(compact) != len(localChallengeTagPrefix)+22 {
+		t.Fatalf("local challenge tag is not compact: %q", compact)
+	}
 	request.Method, request.CSeq().MethodName = sip.ACK, sip.ACK
+	request.To().Params.Add("tag", legacy)
+	legacyACK, err := Observe([]byte(request.String()), false)
+	if err != nil || !ingress.localChallengeACK(legacyACK, flow, nil) {
+		t.Fatal("ACK for a previous-format challenge was not consumed", err)
+	}
+	request.To().Params.Add("tag", compact)
 	ack, err := Observe([]byte(request.String()), false)
 	if err != nil || !ingress.localChallengeACK(ack, flow, nil) {
 		t.Fatal("valid local challenge ACK was not consumed", err)

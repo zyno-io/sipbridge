@@ -24,7 +24,8 @@ import (
 
 var challengeAuthority = regexp.MustCompile(`(?i)sips?:[^@;>\s]+@([^;>\s]+)`)
 var challengePort = regexp.MustCompile(`:\d+$`)
-var challengeTag = regexp.MustCompile(`^local-auth-[0-9a-f]{32}$`)
+
+const localChallengeTagPrefix = "local-auth-"
 
 type challengeKey struct {
 	key   []byte
@@ -158,14 +159,42 @@ func localChallengeNonce(policy *pb.DigestChallengePolicy, message *pb.SipMessag
 }
 
 func localChallengeTag(key []byte, request *sip.Request, flow *pb.FlowRef) string {
-	if request.CallID() == nil || request.From() == nil || request.Via() == nil || request.CSeq() == nil {
+	proof := localChallengeACKProof(key, request, flow)
+	if proof == nil {
 		return ""
+	}
+	return localChallengeTagPrefix + base64.RawURLEncoding.EncodeToString(proof)
+}
+
+func localChallengeACKProof(key []byte, request *sip.Request, flow *pb.FlowRef) []byte {
+	if request.CallID() == nil || request.From() == nil || request.Via() == nil || request.CSeq() == nil {
+		return nil
 	}
 	identity, _ := json.Marshal([]string{flow.Ingress.GetInstanceId(), flow.Ingress.GetEpoch(), flow.ConnectionId, flow.Transport, flow.SourceIp,
 		strconv.FormatUint(uint64(flow.SourcePort), 10), request.Recipient.String(), request.CallID().Value(), request.From().Params.GetOr("tag", ""),
 		request.Via().Params.GetOr("branch", ""), strconv.FormatUint(uint64(request.CSeq().SeqNo), 10)})
 	proof := challengeMAC(key, "sipbridge-local-challenge-ack-v1\n"+string(identity))
-	return "local-auth-" + hex.EncodeToString(proof[:16])
+	return proof[:16]
+}
+
+func parseLocalChallengeTag(tag string) []byte {
+	text, ok := strings.CutPrefix(tag, localChallengeTagPrefix)
+	if !ok {
+		return nil
+	}
+	var proof []byte
+	var err error
+	switch {
+	case len(text) == base64.RawURLEncoding.EncodedLen(16):
+		proof, err = base64.RawURLEncoding.Strict().DecodeString(text)
+	case len(text) == hex.EncodedLen(16) && text == strings.ToLower(text):
+		// Keep consuming ACKs for challenges issued in the previous format.
+		proof, err = hex.DecodeString(text)
+	}
+	if err != nil || len(proof) != 16 {
+		return nil
+	}
+	return proof
 }
 
 func (i *Ingress) localChallengeACK(message *pb.SipMessage, flow *pb.FlowRef, parsed sip.Message) bool {
@@ -183,19 +212,19 @@ func (i *Ingress) localChallengeACK(message *pb.SipMessage, flow *pb.FlowRef, pa
 	if !ok || request.To() == nil {
 		return false
 	}
-	tag := request.To().Params.GetOr("tag", "")
-	if !challengeTag.MatchString(tag) {
+	proof := parseLocalChallengeTag(request.To().Params.GetOr("tag", ""))
+	if proof == nil {
 		return false
 	}
 	now := time.Now()
 	i.challenges.mu.Lock()
 	defer i.challenges.mu.Unlock()
 	if policy := i.challenges.policy; policy != nil && now.Before(i.challenges.until.Add(121*time.Second)) &&
-		hmac.Equal([]byte(localChallengeTag(policy.SigningKey, request, flow)), []byte(tag)) {
+		hmac.Equal(localChallengeACKProof(policy.SigningKey, request, flow), proof) {
 		return true
 	}
 	for _, retired := range i.challenges.retired {
-		if now.Before(retired.until) && hmac.Equal([]byte(localChallengeTag(retired.key, request, flow)), []byte(tag)) {
+		if now.Before(retired.until) && hmac.Equal(localChallengeACKProof(retired.key, request, flow), proof) {
 			return true
 		}
 	}
@@ -228,7 +257,7 @@ func (i *Ingress) challengeLocally(ctx context.Context, flow *physicalFlow, mess
 	bucket := time.Now().Unix() / 120 * 120
 	nonce := localChallengeNonce(policy, message, bucket)
 	challenge := fmt.Sprintf("Digest realm=%q, nonce=%q, algorithm=MD5, qop=\"auth\"", policy.Realm, nonce)
-	i.localResponseWithParsedWithin(ctx, flow, message, parsed, 401, "local-auth-", []*pb.Header{{Name: "WWW-Authenticate", Value: challenge}}, func(request *sip.Request) string {
+	i.localResponseWithParsedWithin(ctx, flow, message, parsed, 401, localChallengeTagPrefix, []*pb.Header{{Name: "WWW-Authenticate", Value: challenge}}, func(request *sip.Request) string {
 		return localChallengeTag(policy.SigningKey, request, flow.ref)
 	})
 }

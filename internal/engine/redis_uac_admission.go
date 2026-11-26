@@ -74,7 +74,7 @@ func admitRedisUACStart(ctx context.Context, store *rediscore.Store, in redisUAC
 	if err != nil {
 		return nil, err
 	}
-	tag := nativeIdentity(in.Key, "tag", in.Context.State.Incarnation, in.Context.Id)[:32]
+	tag := nativeDialogTag(in.Key, "tag", in.Context.State.Incarnation, in.Context.Id)
 	branch := sip.RFC3261BranchMagicCookie + nativeIdentity(in.Key, "branch", in.Context.State.Incarnation, in.Operation)[:32]
 	tx, effects, err := nativePrepareClientStart(open, in.Context, in.Flow, tag, branch, contact, sentBy, now)
 	if err != nil {

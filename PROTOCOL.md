@@ -240,6 +240,12 @@ verifiable ACKs for those challenges. An authenticated retry's new CSeq routes
 normally. The bounded proof only identifies a rejected local transaction; it
 cannot authorize a SIP dialog or account, and does not create a resident FSM.
 
+The serving profiles encode newly generated SIP dialog tags and outbound
+Call-IDs in unpadded base64url. A 128-bit tag occupies 22 characters and a full
+256-bit digest occupies 43. Outbound Call-IDs retain the `@sipbridge` suffix.
+Retained dialogs use the original wire values. Local challenge ACK validation
+accepts both the hexadecimal and base64url encodings of the same proof.
+
 ### JSON WebSocket framing
 
 The controller opens `/v1/control` and negotiates `sipbridge.control.json.v1`.

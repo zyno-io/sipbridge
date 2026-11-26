@@ -81,7 +81,7 @@ func (e *ResidentMemory) prepareResidentServerParsed(in *pb.OwnerIngest, deadlin
 	if request == nil || request.To() == nil || request.From() == nil || request.CallID() == nil || request.CallID().Value() != in.Context.State.CallId || tag(request.To().Params) != "" && !(taggedRefusal && request.Method == sip.SUBSCRIBE && sameProcess(in.Application, e.cfg.Process)) || request.IsAck() || request.IsCancel() {
 		return nil, nil, nil, errors.New("invalid initial request identity")
 	}
-	localTag := e.id("resident-tag", in.Context.State.Incarnation, in.Context.Id)[:32]
+	localTag := nativeDialogTag(e.cfg.StateIdentityKey, "resident-tag", in.Context.State.Incarnation, in.Context.Id)
 	requestID := "r-" + e.id("resident-request", in.Context.State.Incarnation, in.Context.Id, string(in.Wire))[:48]
 	presentDeadline := now.Add(2 * time.Second)
 	if deadline.Before(presentDeadline) {

@@ -191,12 +191,12 @@ func run() (runErr error) {
 		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ReinviteAckCapability}
 	capabilities = append(capabilities, control.RequestDecisionCapability)
 	if stateConfig.Backend == redisBackend {
-		capabilities = append(capabilities, control.DialogSocketCapability, control.DialogSocketResumeCapability, control.ControlAttachmentCapability)
+		capabilities = append(capabilities, control.DialogSocketCapability, control.DialogSocketResumeCapability, control.ControlAttachmentCapability, control.DialogIDCapability)
 	}
 	if authPolicy != nil {
 		capabilities = append(capabilities, engine.LocalChallengeCapability)
 	}
-	server, err := control.NewServer(control.Config{Process: process, TLS: controlSecurity.TLS, Authenticator: controlSecurity.Authenticator, AllowPlain: controlSecurity.AllowPlain, AllowedURIs: controlSecurity.AllowedURIs, Capabilities: capabilities, StateAuthority: authority, InboundAuthPolicy: authPolicy, OnMessage: func(peer *control.Peer, envelope *pb.Envelope) error {
+	server, err := control.NewServer(control.Config{Process: process, TLS: controlSecurity.TLS, Authenticator: controlSecurity.Authenticator, AllowPlain: controlSecurity.AllowPlain, AllowedURIs: controlSecurity.AllowedURIs, Capabilities: capabilities, StateAuthority: authority, DialogIDKey: stateConfig.NamespaceKey, InboundAuthPolicy: authPolicy, OnMessage: func(peer *control.Peer, envelope *pb.Envelope) error {
 		if envelope.GetWrite() != nil {
 			return ingress.Write(peer, envelope)
 		}

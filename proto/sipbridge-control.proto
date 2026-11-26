@@ -9,6 +9,7 @@ option go_package = "sipbridge/internal/controlpb";
 // Application families require the explicitly negotiated sip.v1 capability.
 // PROTOCOL.md and ARCHITECTURE.md in sipbridge own
 // behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
+// ContextRef.opaque_dialog_id uses a separate 506-byte bound.
 message Envelope {
   string correlation_id = 1;
   string session_id = 2;
@@ -151,7 +152,13 @@ message FlowRef { ProcessRef ingress = 1; string connection_id = 2; string sourc
 // owner remains physical executor metadata for either profile.
 message StateAuthority { string service = 1; string generation = 2; string primary_id = 3; uint32 schema_version = 4; }
 message StateRef { StateAuthority authority = 1; string group_id = 2; string incarnation = 3; string call_id = 4; uint32 partition = 5; }
-message ContextRef { ProcessRef owner = 1; string id = 2; StateRef state = 3; }
+message ContextRef {
+  ProcessRef owner = 1;
+  string id = 2;
+  StateRef state = 3;
+  // sip.dialog-id.v1 wire projection. Never persisted as native state.
+  string opaque_dialog_id = 4;
+}
 message Header { string name = 1; string value = 2; }
 message Address { string name = 1; string uri = 2; map<string,string> params = 3; }
 message AddressList { repeated Address values = 1; }

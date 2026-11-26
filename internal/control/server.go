@@ -37,6 +37,7 @@ type Config struct {
 	Capabilities                                                                    []string
 	InboundAuthPolicy                                                               *pb.InboundAuthPolicy
 	StateAuthority                                                                  *pb.StateAuthority
+	DialogIDKey                                                                     []byte
 	OnMessage                                                                       func(*Peer, *pb.Envelope) error
 	OnStatus                                                                        func(*Peer, *pb.SessionStatus) error
 	OnDisconnect                                                                    func(*Peer)
@@ -116,6 +117,12 @@ func NewServer(cfg Config) (*Server, error) {
 		(!slices.Contains(cfg.Capabilities, NativeCompletionCapability) || !slices.Contains(cfg.Capabilities, DialogSocketCapability) ||
 			cfg.OnControllerSession == nil || cfg.OnControllerRenew == nil || cfg.OnDisconnect == nil) {
 		return nil, errors.New("exact control attachments require native dialog socket handling and controller lifecycle hooks")
+	}
+	if slices.Contains(cfg.Capabilities, DialogIDCapability) {
+		if !slices.Contains(cfg.Capabilities, ControlAttachmentCapability) || len(cfg.DialogIDKey) < 32 || len(cfg.DialogIDKey) > 1024 {
+			return nil, errors.New("dialog IDs require exact control attachments and native identity key")
+		}
+		cfg.DialogIDKey = append([]byte(nil), cfg.DialogIDKey...)
 	}
 	if slices.Contains(cfg.Capabilities, RequestDecisionCapability) {
 		for _, required := range requestDecisionDependencies {
@@ -490,6 +497,10 @@ func (p *session) read(ctx context.Context) (*pb.Envelope, error) {
 		p.diagnostic("read-envelope", nil, e, false)
 		return nil, errors.New("invalid envelope")
 	}
+	if err := normalizeDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, slices.Contains(p.capabilities, DialogIDCapability)); err != nil {
+		p.diagnostic("read-dialog-id", err, e, false)
+		return nil, err
+	}
 	return e, nil
 }
 
@@ -553,6 +564,13 @@ func (p *session) writeAdmitted(transport, caller context.Context, e *pb.Envelop
 		e.RemainingBudgetMs = uint32(remaining / time.Millisecond)
 	}
 	e.SessionId = p.id
+	if slices.Contains(p.capabilities, DialogIDCapability) {
+		wire, err := projectDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey)
+		if err != nil {
+			return err
+		}
+		e = wire
+	}
 	data, err := encodeJSONEnvelope(e)
 	if err != nil {
 		return err
@@ -618,6 +636,9 @@ func (p *session) hello() error {
 	}
 	if slices.Contains(p.capabilities, ControlAttachmentCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {
 		return errors.New("exact control attachments require dialog socket handling")
+	}
+	if slices.Contains(p.capabilities, DialogIDCapability) && !slices.Contains(p.capabilities, ControlAttachmentCapability) {
+		return errors.New("dialog IDs require exact control attachments")
 	}
 	if slices.Contains(p.capabilities, DialogSocketResumeCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {
 		return errors.New("dialog socket resume requires direct socket routing")

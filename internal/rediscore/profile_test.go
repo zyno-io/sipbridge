@@ -104,20 +104,22 @@ func TestSelectedSchemaDigestBindsFieldsNotJustVersion(t *testing.T) {
 	}
 }
 
-// Workers must agree on call abandonment and reverse selector encoding.
-func TestParkedCallAbandonmentChangesBaselineProfile(t *testing.T) {
+// An additive control field still changes the selected native descriptor.
+func TestOpaqueDialogIDChangesBaselineProfile(t *testing.T) {
 	binding, err := BindProfile(profileFixture())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprintf("%x", binding.Value) == "96d1d72378690958fe4a6f0aadc0da6b55462b020bc303593ed77e72c97d1fd9" ||
-		binding.Authority.PrimaryId == "9d212cd50187f9a5fd94e4fd39c8a8e7e64c31bf" {
-		t.Fatal("automatic retirement retained the previous profile or authority")
+	profile := fmt.Sprintf("%x", binding.Value)
+	authority := binding.Authority.PrimaryId
+	if profile == "1f43d0d1f70fa9be83678531b2c73b3d977848e7c71cad5bad2ebe95bce0206e" ||
+		authority == "260c54e6aaeab75e84bcde81822fe08aecedfde7" {
+		t.Fatal("would alias the generation-3 profile or authority")
 	}
 	for _, check := range []struct{ name, got, want string }{
-		{"selected schema digest", fmt.Sprintf("%x", selectedSchemaDigest), "29e7076b73166bd7e764425a88994ff57027c6231c44b5f975708c1418f57f55"},
-		{"profile", fmt.Sprintf("%x", binding.Value), "1f43d0d1f70fa9be83678531b2c73b3d977848e7c71cad5bad2ebe95bce0206e"},
-		{"StateAuthority.PrimaryId", binding.Authority.PrimaryId, "260c54e6aaeab75e84bcde81822fe08aecedfde7"},
+		{"selected schema digest", fmt.Sprintf("%x", selectedSchemaDigest), "37f81007b838e24409516863042536285dcbd16d6ea3099d5c8e631029129b56"},
+		{"profile", profile, "9d643b0aca755aa49224a0d672dfb3423dfe216e9d2db71e7a47bcc1f99a9d45"},
+		{"StateAuthority.PrimaryId", authority, "8ead7dcc9dcc0ddd06b76f6e52b6ab803bc0d1c5"},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s changed: got %s, want %s", check.name, check.got, check.want)

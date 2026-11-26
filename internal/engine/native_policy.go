@@ -36,7 +36,7 @@ func nativePolicyValid(decision *pb.CommandAdmission, command, term string) bool
 		!state.ValidReference(d.DirectoryEpoch) || !validSendText(d.RegistrationTicket, 256, false)) {
 		return false
 	}
-	return true
+	return validRegistrationFallbackDelivery(decision)
 }
 
 func validateNativeCommandPolicy(snapshot *pb.ContextSnapshot, cmd *pb.Command, operation string, now, deadline time.Time) error {

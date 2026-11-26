@@ -205,6 +205,10 @@ func completeRedisApplicationInviteResponse(ctx context.Context, store *rediscor
 		}
 		current.LocalSdp, current.RemoteSdp, current.RemoteTarget = body, remote, candidate.Dialog.Target
 	}
+	deliveryChanges, err := adoptRegistrationFallback(current, procedure.Metadata, previous, flow, message, facts.Status, selected.Identity.Term)
+	if err != nil {
+		return true, err
+	}
 	var outputs []rediscore.OutputIntent
 	var outputChanges []rediscore.Change
 	var timers []rediscore.TimerChange
@@ -270,6 +274,7 @@ func completeRedisApplicationInviteResponse(ctx context.Context, store *rediscor
 		return true, err
 	}
 	changes := []rediscore.Change{{Field: selected.Record, Value: procData}, {Field: output.Dialog, Value: dialogData}, {Field: "r:context", Value: contextData}, {Field: responseField, Value: response}}
+	changes = append(changes, deliveryChanges...)
 	changes = append(changes, outputChanges...)
 	changes = append(changes, paired.changes...)
 	outputs = append(outputs, paired.outputs...)

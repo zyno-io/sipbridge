@@ -592,6 +592,11 @@ Measure selected records/bytes decoded and encoded, round trips, retained bytes,
 
 Sipbridge owns the default Redis generation, starting at `1`. Keep it for
 compatible releases and increase it when a release requires fresh Redis state.
+Dialog socket recovery adds fields to persisted command admission and uses
+default generation `2`. Drain active calls before moving a pool to that
+generation. Restart the pool on homogeneous SIPbridge builds and allow its
+endpoints to register again. Established dialogs belong to their original
+generation.
 `SIPBRIDGE_STATE_GENERATION` overrides the built-in value for a deliberate
 reset or an incompatible rollback. Choose a canonical positive decimal ID
 above every previously opened generation in that pool for a fresh override.

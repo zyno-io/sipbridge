@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"sipbridge/internal/rediscore"
 )
 
 func TestNativeFixtureConfigurationMatchesBinaryRootAndRequiresExplicitTLS(t *testing.T) {
@@ -26,7 +28,7 @@ func TestNativeFixtureConfigurationMatchesBinaryRootAndRequiresExplicitTLS(t *te
 	}
 	delete(values, "SIPBRIDGE_STATE_GENERATION")
 	config, err = nativeFixtureConfiguration(get, noFile)
-	if err != nil || config.Profile.Root != "sipstate:v1:fixture:1:" {
+	if err != nil || config.Profile.Root != "sipstate:v1:fixture:"+rediscore.DefaultGeneration+":" {
 		t.Fatal("fixture Redis generation default", err)
 	}
 }

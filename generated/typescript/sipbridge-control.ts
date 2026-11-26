@@ -565,6 +565,15 @@ export interface CommandAdmission {
     expiresAtMs: bigint;
     selectedFlow?: FlowRef | undefined;
     expectedDelivery?: ContextDelivery | undefined;
+    /** Nexus authorized the selected current registration after the dialog socket closed. */
+    registrationFallback: boolean;
+    /** Candidate publication data for a verified fallback response on selected_flow. */
+    fallbackDelivery?: ContextDelivery | undefined;
+}
+
+/** Identifies a prepared native operation whose previous write assignment is fenced. */
+export interface ResumeDialogRequest {
+    operationId: string;
 }
 
 export interface Command {
@@ -576,6 +585,7 @@ export interface Command {
         | { $case: 'openUac'; openUac: OpenUac }
         | { $case: 'dialogRequest'; dialogRequest: DialogRequest }
         | { $case: 'cancel'; cancel: Cancel }
+        | { $case: 'resumeDialogRequest'; resumeDialogRequest: ResumeDialogRequest }
         | undefined;
 }
 
@@ -587,6 +597,7 @@ export interface OperationResult {
     request?: SipMessage | undefined;
     response?: SipMessage | undefined;
     retirementProof?: ContextRetirementProof | undefined;
+    dialogRecovery?: DialogRecovery | undefined;
 }
 
 export enum OperationResult_Certainty {
@@ -635,6 +646,50 @@ export function operationResult_CertaintyToJSON(object: OperationResult_Certaint
         case OperationResult_Certainty.UNKNOWN:
             return 'UNKNOWN';
         case OperationResult_Certainty.UNRECOGNIZED:
+        default:
+            return 'UNRECOGNIZED';
+    }
+}
+
+export interface DialogRecovery {
+    disposition: DialogRecovery_Disposition;
+    operationId: string;
+}
+
+export enum DialogRecovery_Disposition {
+    UNSPECIFIED = 0,
+    SOCKET_GONE = 1,
+    RESUMABLE = 2,
+    UNRECOGNIZED = -1
+}
+
+export function dialogRecovery_DispositionFromJSON(object: unknown): DialogRecovery_Disposition {
+    switch (object) {
+        case 0:
+        case 'UNSPECIFIED':
+            return DialogRecovery_Disposition.UNSPECIFIED;
+        case 1:
+        case 'SOCKET_GONE':
+            return DialogRecovery_Disposition.SOCKET_GONE;
+        case 2:
+        case 'RESUMABLE':
+            return DialogRecovery_Disposition.RESUMABLE;
+        case -1:
+        case 'UNRECOGNIZED':
+        default:
+            return DialogRecovery_Disposition.UNRECOGNIZED;
+    }
+}
+
+export function dialogRecovery_DispositionToJSON(object: DialogRecovery_Disposition): string {
+    switch (object) {
+        case DialogRecovery_Disposition.UNSPECIFIED:
+            return 'UNSPECIFIED';
+        case DialogRecovery_Disposition.SOCKET_GONE:
+            return 'SOCKET_GONE';
+        case DialogRecovery_Disposition.RESUMABLE:
+            return 'RESUMABLE';
+        case DialogRecovery_Disposition.UNRECOGNIZED:
         default:
             return 'UNRECOGNIZED';
     }
@@ -2902,6 +2957,16 @@ export const CommandAdmission: MessageFns<CommandAdmission> = {
                 ? ContextDelivery.fromJSON(object.expectedDelivery)
                 : isSet(object.expected_delivery)
                   ? ContextDelivery.fromJSON(object.expected_delivery)
+                  : undefined,
+            registrationFallback: isSet(object.registrationFallback)
+                ? globalThis.Boolean(object.registrationFallback)
+                : isSet(object.registration_fallback)
+                  ? globalThis.Boolean(object.registration_fallback)
+                  : false,
+            fallbackDelivery: isSet(object.fallbackDelivery)
+                ? ContextDelivery.fromJSON(object.fallbackDelivery)
+                : isSet(object.fallback_delivery)
+                  ? ContextDelivery.fromJSON(object.fallback_delivery)
                   : undefined
         };
     },
@@ -2919,6 +2984,33 @@ export const CommandAdmission: MessageFns<CommandAdmission> = {
         }
         if (message.expectedDelivery !== undefined) {
             obj.expectedDelivery = ContextDelivery.toJSON(message.expectedDelivery);
+        }
+        if (message.registrationFallback !== false) {
+            obj.registrationFallback = message.registrationFallback;
+        }
+        if (message.fallbackDelivery !== undefined) {
+            obj.fallbackDelivery = ContextDelivery.toJSON(message.fallbackDelivery);
+        }
+        return obj;
+    }
+};
+
+export const ResumeDialogRequest: MessageFns<ResumeDialogRequest> = {
+    fromJSON(value: unknown): ResumeDialogRequest {
+        const object = isObject(value) ? value : {};
+        return {
+            operationId: isSet(object.operationId)
+                ? globalThis.String(object.operationId)
+                : isSet(object.operation_id)
+                  ? globalThis.String(object.operation_id)
+                  : ''
+        };
+    },
+
+    toJSON(message: ResumeDialogRequest): unknown {
+        const obj: Record<string, unknown> = {};
+        if (message.operationId !== '') {
+            obj.operationId = message.operationId;
         }
         return obj;
     }
@@ -2943,7 +3035,17 @@ export const Command: MessageFns<Command> = {
                         ? { $case: 'dialogRequest', dialogRequest: DialogRequest.fromJSON(object.dialog_request) }
                         : isSet(object.cancel)
                           ? { $case: 'cancel', cancel: Cancel.fromJSON(object.cancel) }
-                          : undefined
+                          : isSet(object.resumeDialogRequest)
+                            ? {
+                                  $case: 'resumeDialogRequest',
+                                  resumeDialogRequest: ResumeDialogRequest.fromJSON(object.resumeDialogRequest)
+                              }
+                            : isSet(object.resume_dialog_request)
+                              ? {
+                                    $case: 'resumeDialogRequest',
+                                    resumeDialogRequest: ResumeDialogRequest.fromJSON(object.resume_dialog_request)
+                                }
+                              : undefined
         };
     },
 
@@ -2966,6 +3068,8 @@ export const Command: MessageFns<Command> = {
             obj.dialogRequest = DialogRequest.toJSON(message.action.dialogRequest);
         } else if (message.action?.$case === 'cancel') {
             obj.cancel = Cancel.toJSON(message.action.cancel);
+        } else if (message.action?.$case === 'resumeDialogRequest') {
+            obj.resumeDialogRequest = ResumeDialogRequest.toJSON(message.action.resumeDialogRequest);
         }
         return obj;
     }
@@ -2989,6 +3093,11 @@ export const OperationResult: MessageFns<OperationResult> = {
                 ? ContextRetirementProof.fromJSON(object.retirementProof)
                 : isSet(object.retirement_proof)
                   ? ContextRetirementProof.fromJSON(object.retirement_proof)
+                  : undefined,
+            dialogRecovery: isSet(object.dialogRecovery)
+                ? DialogRecovery.fromJSON(object.dialogRecovery)
+                : isSet(object.dialog_recovery)
+                  ? DialogRecovery.fromJSON(object.dialog_recovery)
                   : undefined
         };
     },
@@ -3015,6 +3124,34 @@ export const OperationResult: MessageFns<OperationResult> = {
         }
         if (message.retirementProof !== undefined) {
             obj.retirementProof = ContextRetirementProof.toJSON(message.retirementProof);
+        }
+        if (message.dialogRecovery !== undefined) {
+            obj.dialogRecovery = DialogRecovery.toJSON(message.dialogRecovery);
+        }
+        return obj;
+    }
+};
+
+export const DialogRecovery: MessageFns<DialogRecovery> = {
+    fromJSON(value: unknown): DialogRecovery {
+        const object = isObject(value) ? value : {};
+        return {
+            disposition: isSet(object.disposition) ? dialogRecovery_DispositionFromJSON(object.disposition) : 0,
+            operationId: isSet(object.operationId)
+                ? globalThis.String(object.operationId)
+                : isSet(object.operation_id)
+                  ? globalThis.String(object.operation_id)
+                  : ''
+        };
+    },
+
+    toJSON(message: DialogRecovery): unknown {
+        const obj: Record<string, unknown> = {};
+        if (message.disposition !== 0) {
+            obj.disposition = dialogRecovery_DispositionToJSON(message.disposition);
+        }
+        if (message.operationId !== '') {
+            obj.operationId = message.operationId;
         }
         return obj;
     }

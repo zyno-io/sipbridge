@@ -22,6 +22,11 @@ import (
 
 func peerACKRedisFixture(t *testing.T, optIn bool) (*redisNative, *control.Peer, *websocket.Conn, context.Context, string, *pb.FlowRef, <-chan []byte) {
 	t.Helper()
+	return peerACKRedisFixtureWithCapabilities(t, optIn, nil)
+}
+
+func peerACKRedisFixtureWithCapabilities(t *testing.T, optIn bool, liveFlow func(*pb.FlowRef) bool, extraCapabilities ...string) (*redisNative, *control.Peer, *websocket.Conn, context.Context, string, *pb.FlowRef, <-chan []byte) {
+	t.Helper()
 	address := os.Getenv("SIPBRIDGE_CORE_TEST_REDIS")
 	if address == "" {
 		t.Skip("isolated Redis fixture required")
@@ -62,6 +67,7 @@ func peerACKRedisFixture(t *testing.T, optIn bool) (*redisNative, *control.Peer,
 	}
 	var e *redisNative
 	capabilities := []string{Capability, control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability, control.CommandBudgetCapability, control.DialogContinuityCapability, control.RequestDecisionCapability}
+	capabilities = append(capabilities, extraCapabilities...)
 	if optIn {
 		capabilities = append(capabilities, control.ReinviteAckCapability)
 	}
@@ -81,7 +87,7 @@ func peerACKRedisFixture(t *testing.T, optIn bool) (*redisNative, *control.Peer,
 	}
 	t.Cleanup(server.Close)
 	written := make(chan []byte, 32)
-	cfg := Config{Process: process, AdvertiseAddress: "sip.example.test:5061", ContactURI: "sips:sip.example.test:5061", StateIdentityKey: key}
+	cfg := Config{Process: process, AdvertiseAddress: "sip.example.test:5061", ContactURI: "sips:sip.example.test:5061", StateIdentityKey: key, LiveFlow: liveFlow}
 	cfg.OnNativeDriverDiagnostic = func(d rediscore.DriverDiagnostic) { t.Logf("fixture driver: %s/%s", d.Stage, d.Category) }
 	cfg.WriteCommitted = func(ctx context.Context, write *pb.FlowWrite) *pb.DeliveryResult {
 		result := &pb.DeliveryResult{Effect: write.Effect, Outcome: pb.DeliveryResult_NOT_WRITTEN}

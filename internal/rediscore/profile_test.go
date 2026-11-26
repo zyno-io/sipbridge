@@ -115,9 +115,9 @@ func TestParkedCallAbandonmentChangesBaselineProfile(t *testing.T) {
 		t.Fatal("automatic retirement retained the previous profile or authority")
 	}
 	for _, check := range []struct{ name, got, want string }{
-		{"selected schema digest", fmt.Sprintf("%x", selectedSchemaDigest), "3f9edbced4a0fdfe3930b3f96427170172d551e1fbd8df8a8fb76c04fc795cfc"},
-		{"profile", fmt.Sprintf("%x", binding.Value), "304693bd2d2afcaf7ef7eb2aa6ed46adc09251b7f8204188fc1b8934dd4d7f92"},
-		{"StateAuthority.PrimaryId", binding.Authority.PrimaryId, "22c568c1c807b4d89859e9dd590640e6fdb8523e"},
+		{"selected schema digest", fmt.Sprintf("%x", selectedSchemaDigest), "29e7076b73166bd7e764425a88994ff57027c6231c44b5f975708c1418f57f55"},
+		{"profile", fmt.Sprintf("%x", binding.Value), "10704423a2c3edac29c5b4cd98c2f3027c52c78f090095a03dae6f3b4dea8a82"},
+		{"StateAuthority.PrimaryId", binding.Authority.PrimaryId, "8d4d43b1fbbb349151e45874127fb2944b71c960"},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s changed: got %s, want %s", check.name, check.got, check.want)

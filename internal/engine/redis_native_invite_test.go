@@ -246,6 +246,7 @@ func testRedisNativeInitialInviteJSONDecisionAndRespond(t *testing.T, crossWorke
 		}
 	}
 	assertRedisNativeJSONInspection(t, ctx, ws, ack.SessionId, result.Snapshot, issuer)
+	assertRedisNativeRetirementInspection(t, ctx, e, peer, result.Snapshot.Context)
 	store, _, _, err = e.driver.Current()
 	if err != nil {
 		t.Fatal(err)

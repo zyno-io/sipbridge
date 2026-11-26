@@ -99,6 +99,14 @@ validates and expands the handle before handing the envelope to the native
 runtime. The usual exact-attachment and native retirement checks still apply.
 A v2 handle accompanied by legacy fields is a protocol error.
 
+Peers that also negotiate `sip.dialog-retirement.v1` receive context
+retirement proofs with the v2 dialog ID and the reason. This capability
+requires `sip.dialog-id.v2`. The proof applies to the dialog inspected on that
+authenticated control session, correlated by the request. SIPbridge verifies
+the proof's native state scope before projecting the result onto the wire.
+Peers that rely on the original proof format receive its authority fields.
+The native retirement rules and stored proof format stay the same.
+
 A controller can use the existing scoped reference by itself when addressing
 compatible stored metadata that predates the handle. It receives only the
 v2 handle on the next native projection of that context. Unscoped bootstrap

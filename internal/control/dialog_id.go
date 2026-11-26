@@ -18,6 +18,7 @@ import (
 )
 
 const DialogIDCapability = "sip.dialog-id.v1"
+const DialogRetirementCapability = "sip.dialog-retirement.v1"
 const dialogIDVersion = "d1"
 const maxDialogIDLength = 506
 
@@ -137,7 +138,12 @@ func flowWriteDialogReferences(write *pb.FlowWrite) []*pb.ContextRef {
 	return []*pb.ContextRef{write.GetEffect().GetContext(), write.GetPermit().GetAuthorization().GetEffect().GetContext()}
 }
 
-func projectDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte, mode string) (*pb.Envelope, error) {
+func projectDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte, mode string, compactRetirement bool) (*pb.Envelope, error) {
+	proof := e.GetResult().GetRetirementProof()
+	if compactRetirement && proof != nil &&
+		(mode != DialogIDOnlyCapability || proof.GetContext().GetState() == nil || !proto.Equal(proof.Authority, authority)) {
+		return nil, errors.New("invalid scoped dialog retirement proof")
+	}
 	var wire *pb.Envelope
 	for _, ref := range envelopeDialogReferences(e) {
 		if ref.GetState() != nil {
@@ -147,6 +153,9 @@ func projectDialogIDs(e *pb.Envelope, authority *pb.StateAuthority, key []byte, 
 	}
 	if wire == nil {
 		return e, nil
+	}
+	if compactRetirement && proof != nil {
+		wire.GetResult().GetRetirementProof().Authority = nil
 	}
 	for _, ref := range envelopeDialogReferences(wire) {
 		if ref.GetState() == nil {

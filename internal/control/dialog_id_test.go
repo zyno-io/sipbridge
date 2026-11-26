@@ -35,7 +35,7 @@ func TestDialogIDProjectionPreservesNativeReference(t *testing.T) {
 	frame := &pb.Envelope{CorrelationId: "inspect", Payload: &pb.Envelope_Result{Result: &pb.OperationResult{
 		Snapshot: &pb.ContextSnapshot{Context: ref}, RetirementProof: &pb.ContextRetirementProof{Context: ref},
 	}}}
-	projected, err := projectDialogIDs(frame, authority, key, DialogIDCapability)
+	projected, err := projectDialogIDs(frame, authority, key, DialogIDCapability, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,6 +56,33 @@ func TestDialogIDProjectionPreservesNativeReference(t *testing.T) {
 	}
 	if err := normalizeDialogIDs(projected, authority, key, DialogIDCapability); err != nil || !proto.Equal(frame, projected) {
 		t.Fatal("normalization did not restore the exact native envelope", err)
+	}
+}
+
+func TestCompactRetirementProofRemovesOnlyRedundantAuthority(t *testing.T) {
+	authority := &pb.StateAuthority{Service: "redis", Generation: "4", PrimaryId: "primary", SchemaVersion: 1}
+	key := bytes.Repeat([]byte{3}, 32)
+	ref := &pb.ContextRef{Id: "dialog", State: &pb.StateRef{Authority: authority, GroupId: "call", Incarnation: "one", CallId: "phone@example.test"}}
+	proof := &pb.ContextRetirementProof{Context: ref, Authority: authority, Reason: pb.ContextRetirementProof_CONTEXT_ABSENT}
+	frame := &pb.Envelope{Payload: &pb.Envelope_Result{Result: &pb.OperationResult{RetirementProof: proof}}}
+	legacy, err := projectDialogIDs(frame, authority, key, DialogIDOnlyCapability, false)
+	if err != nil || !proto.Equal(legacy.GetResult().GetRetirementProof().GetAuthority(), authority) {
+		t.Fatal("an ID-only peer using the original proof format lost its authority", err)
+	}
+	compact, err := projectDialogIDs(frame, authority, key, DialogIDOnlyCapability, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := compact.GetResult().GetRetirementProof()
+	if sent.Authority != nil || sent.Reason != proof.Reason || proof.Authority == nil {
+		t.Fatal("projection altered native proof or failed to compact the wire proof")
+	}
+	if err := normalizeDialogIDs(compact, authority, key, DialogIDOnlyCapability); err != nil || !proto.Equal(sent.Context, ref) {
+		t.Fatal("compact proof did not identify the original dialog", err)
+	}
+	proof.Authority = &pb.StateAuthority{Service: authority.Service, Generation: authority.Generation, PrimaryId: "another", SchemaVersion: 1}
+	if _, err := projectDialogIDs(frame, authority, key, DialogIDOnlyCapability, true); err == nil {
+		t.Fatal("compact proof masked a mismatched native authority")
 	}
 }
 

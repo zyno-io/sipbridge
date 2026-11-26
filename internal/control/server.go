@@ -124,6 +124,9 @@ func NewServer(cfg Config) (*Server, error) {
 		}
 		cfg.DialogIDKey = append([]byte(nil), cfg.DialogIDKey...)
 	}
+	if slices.Contains(cfg.Capabilities, DialogRetirementCapability) && !slices.Contains(cfg.Capabilities, DialogIDOnlyCapability) {
+		return nil, errors.New("compact dialog retirement requires ID-only dialog references")
+	}
 	if slices.Contains(cfg.Capabilities, RequestDecisionCapability) {
 		for _, required := range requestDecisionDependencies {
 			if !slices.Contains(cfg.Capabilities, required) {
@@ -565,7 +568,8 @@ func (p *session) writeAdmitted(transport, caller context.Context, e *pb.Envelop
 	}
 	e.SessionId = p.id
 	if mode := dialogIDMode(p.capabilities); mode != "" {
-		wire, err := projectDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, mode)
+		wire, err := projectDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, mode,
+			slices.Contains(p.capabilities, DialogRetirementCapability))
 		if err != nil {
 			return err
 		}
@@ -639,6 +643,9 @@ func (p *session) hello() error {
 	}
 	if dialogIDMode(p.capabilities) != "" && !slices.Contains(p.capabilities, ControlAttachmentCapability) {
 		return errors.New("dialog IDs require exact control attachments")
+	}
+	if slices.Contains(p.capabilities, DialogRetirementCapability) && !slices.Contains(p.capabilities, DialogIDOnlyCapability) {
+		return errors.New("compact dialog retirement requires ID-only dialog references")
 	}
 	if slices.Contains(p.capabilities, DialogSocketResumeCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {
 		return errors.New("dialog socket resume requires direct socket routing")

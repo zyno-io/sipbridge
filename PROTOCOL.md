@@ -78,12 +78,40 @@ base64url. The tag binds the directory digest and locator to the native scope.
 Consumers may use the digest directly as the existing directory key suffix
 during compatibility. They preserve the complete handle when echoing it.
 
+Redis peers can also negotiate `sip.dialog-id.v2` with exact control
+attachments. If both ID capabilities are offered, v2 governs the session.
+SIPbridge sends a scoped context as `{ "opaqueDialogId": "d2.…" }`.
+The handle carries the same directory digest and the native lookup
+coordinates needed to dispatch the request, including the exact accepting
+process for a resident phone context. The issuing reference's process is a
+routing hint for a shared dialog. The directory digest remains the identity
+when a reference was stored without that hint.
+
+The v2 handle has the same four dot-separated segments as v1 and a
+2,131-byte ASCII bound. Its unpadded base64url locator encodes seven UTF-8
+strings separated by NUL: context ID, group ID, incarnation, canonical
+decimal partition, SIP Call-ID, owner instance ID and owner epoch. Both owner
+strings are empty when no owner is recorded. SIP Call-ID is nonempty and
+limited to 1,024 UTF-8 bytes. The HMAC uses the same length-delimited fields as
+v1 with the v2 capability and version. It binds the locator and digest to the
+authority negotiated on the authenticated connection. On receipt SIPbridge
+validates and expands the handle before handing the envelope to the native
+runtime. The usual exact-attachment and native retirement checks still apply.
+A v2 handle accompanied by legacy fields is a protocol error.
+
+A controller can use the existing scoped reference by itself when addressing
+compatible stored metadata that predates the handle. It receives only the
+v2 handle on the next native projection of that context. Unscoped bootstrap
+references for new transactions retain their existing shape. A v2 handle must
+never be echoed to a peer that did not negotiate v2. Negotiating only v1
+continues to use the dual-reference contract.
+
 The handle requires no new native index or stored field. This additive control
 schema still changes the descriptor that the current storage profile binds, so
 a deployed Redis cohort needs a fresh generation under the normal profile
 rollout procedure. The first dual-reference build defaults to generation 4.
 Dual references preserve legacy client interoperability at the control boundary
-of that cohort.
+of that cohort. The v2 capability reuses the same field and storage descriptor.
 
 | Identity | Authority and lifetime |
 | --- | --- |
@@ -277,7 +305,8 @@ representations rather than JavaScript floating-point conversion.
 The session subset restricts reference/correlation strings to
 `[A-Za-z0-9_.:@+-]{1,96}`. Numeric source addresses and workload URI SANs are
 different fields/credentials and are not validated as opaque session references.
-`ContextRef.opaqueDialogId` uses its own 506-byte bound.
+`ContextRef.opaqueDialogId` uses its own bound, 506 bytes for v1 and 2,131 bytes
+for v2.
 
 Readable diagnostic projections do not authorize logging message contents. SIP bodies, digest
 credentials, authorization headers, private keys and opaque

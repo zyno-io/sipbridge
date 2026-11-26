@@ -35,7 +35,7 @@ func TestDialogIDProjectionPreservesNativeReference(t *testing.T) {
 	frame := &pb.Envelope{CorrelationId: "inspect", Payload: &pb.Envelope_Result{Result: &pb.OperationResult{
 		Snapshot: &pb.ContextSnapshot{Context: ref}, RetirementProof: &pb.ContextRetirementProof{Context: ref},
 	}}}
-	projected, err := projectDialogIDs(frame, authority, key)
+	projected, err := projectDialogIDs(frame, authority, key, DialogIDCapability)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestDialogIDProjectionPreservesNativeReference(t *testing.T) {
 	if err != nil || movedID == id {
 		t.Fatal("a new native incarnation reused its predecessor's dialog ID", err)
 	}
-	if err := normalizeDialogIDs(projected, authority, key, true); err != nil || !proto.Equal(frame, projected) {
+	if err := normalizeDialogIDs(projected, authority, key, DialogIDCapability); err != nil || !proto.Equal(frame, projected) {
 		t.Fatal("normalization did not restore the exact native envelope", err)
 	}
 }
@@ -72,12 +72,12 @@ func TestDialogIDUsesDedicatedWireBoundAndNativeDomain(t *testing.T) {
 	ref.OpaqueDialogId = id
 	ref.State.Authority = two
 	frame := &pb.Envelope{Payload: &pb.Envelope_Inspect{Inspect: &pb.ContextInspect{Context: ref}}}
-	if err := normalizeDialogIDs(frame, two, key, true); err == nil {
+	if err := normalizeDialogIDs(frame, two, key, DialogIDCapability); err == nil {
 		t.Fatal("dialog ID escaped its native domain")
 	}
 	ref.State.Authority = one
 	ref.OpaqueDialogId = id + "x"
-	if err := normalizeDialogIDs(frame, one, key, true); err == nil {
+	if err := normalizeDialogIDs(frame, one, key, DialogIDCapability); err == nil {
 		t.Fatal("overlong dialog ID was accepted")
 	}
 }
@@ -89,7 +89,8 @@ func TestDialogIDControlNegotiation(t *testing.T) {
 	ref := &pb.ContextRef{Id: "call", Owner: &pb.ProcessRef{InstanceId: "sip", Epoch: "sip-epoch"},
 		State: &pb.StateRef{Authority: authority, GroupId: "call", Incarnation: "one", CallId: "call@example.test"}}
 	shared := []string{"sip.v1", StateCapability, NativeCompletionCapability, DialogSocketCapability, ControlAttachmentCapability}
-	capabilities := append(slices.Clone(shared), DialogIDCapability)
+	dual := append(slices.Clone(shared), DialogIDCapability)
+	capabilities := append(slices.Clone(dual), DialogIDOnlyCapability)
 	lease := func(app *pb.ProcessRef) *pb.ApplicationLease {
 		now := uint64(time.Now().UnixMilli())
 		return &pb.ApplicationLease{Application: app, Authority: authority, Term: "term", CheckedAtMs: now, ExpiresAtMs: now + 30000}
@@ -115,10 +116,11 @@ func TestDialogIDControlNegotiation(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		caps []string
-		want bool
+		mode string
 	}{
-		{name: "legacy", caps: shared, want: false},
-		{name: "dual", caps: capabilities, want: true},
+		{name: "legacy", caps: shared},
+		{name: "dual", caps: dual, mode: DialogIDCapability},
+		{name: "id-only", caps: capabilities, mode: DialogIDOnlyCapability},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			conn, err := pki.dial(address)
@@ -135,7 +137,7 @@ func TestDialogIDControlNegotiation(t *testing.T) {
 				t.Fatal("hello failed", err)
 			}
 			ack := first.GetHelloAck()
-			if slices.Contains(ack.Capabilities, DialogIDCapability) != tc.want {
+			if dialogIDMode(ack.Capabilities) != tc.mode {
 				t.Fatal("incorrect dialog ID negotiation")
 			}
 			inspect := func(r *pb.ContextRef) {
@@ -147,7 +149,20 @@ func TestDialogIDControlNegotiation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tc.want {
+			if tc.mode == DialogIDOnlyCapability {
+				id, err = dialogIDOnlyFor(authority, key, ref)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Old persisted references can still request a fresh projection.
+				inspect(input)
+				resolved, receiveErr := receive(conn)
+				if receiveErr != nil || resolved.GetResult().GetSnapshot().GetContext().GetOpaqueDialogId() != id {
+					t.Fatal("ID-only session failed to resolve a legacy reference", receiveErr)
+				}
+				<-handled
+				input = &pb.ContextRef{OpaqueDialogId: id}
+			} else if tc.mode == DialogIDCapability {
 				input.OpaqueDialogId = id
 			}
 			inspect(input)
@@ -156,8 +171,11 @@ func TestDialogIDControlNegotiation(t *testing.T) {
 				t.Fatal("compatible reference was rejected", err)
 			}
 			wire := reply.GetResult().GetSnapshot().GetContext()
-			if wire == nil || (wire.GetOpaqueDialogId() != "") != tc.want || tc.want && wire.GetOpaqueDialogId() != id {
+			if wire == nil || (wire.GetOpaqueDialogId() != "") != (tc.mode != "") || tc.mode != "" && wire.GetOpaqueDialogId() != id {
 				t.Fatal("incorrect wire reference")
+			}
+			if tc.mode == DialogIDOnlyCapability && (wire.GetId() != "" || wire.GetOwner() != nil || wire.GetState() != nil) {
+				t.Fatal("ID-only wire reference carried legacy fields")
 			}
 			select {
 			case native := <-handled:
@@ -168,7 +186,9 @@ func TestDialogIDControlNegotiation(t *testing.T) {
 				t.Fatal("inspection was never handled")
 			}
 
-			if tc.want {
+			if tc.mode == DialogIDOnlyCapability {
+				input.Id = ref.Id
+			} else if tc.mode == DialogIDCapability {
 				input.State.Incarnation = "recycled"
 			} else {
 				input.OpaqueDialogId = id
@@ -181,6 +201,41 @@ func TestDialogIDControlNegotiation(t *testing.T) {
 				t.Fatal("invalid reference reached the native engine")
 			}
 		})
+	}
+}
+
+func TestDialogIDOnlyBindsFullLocatorAndScope(t *testing.T) {
+	key := bytes.Repeat([]byte{3}, 32)
+	authority := &pb.StateAuthority{Service: "redis", Generation: "4", PrimaryId: "primary", SchemaVersion: 1}
+	long := strings.Repeat("a", 96)
+	ref := &pb.ContextRef{
+		Id: long, Owner: &pb.ProcessRef{InstanceId: long, Epoch: long},
+		State: &pb.StateRef{Authority: authority, GroupId: long, Incarnation: long, CallId: strings.Repeat("é", 512), Partition: 4095},
+	}
+	id, err := dialogIDOnlyFor(authority, key, ref)
+	if err != nil || len(id) != maxDialogIDOnlyLength {
+		t.Fatalf("maximum sized ID has wrong size: %d: %v", len(id), err)
+	}
+	decoded, err := decodeDialogIDOnly(authority, key, id)
+	if err != nil || !proto.Equal(decoded, ref) {
+		t.Fatal("ID-only locator did not preserve its native reference", err)
+	}
+	decoded.State.Authority.Generation = "5"
+	if authority.Generation != "4" {
+		t.Fatal("normalized context mutated the negotiated authority")
+	}
+	if _, err := decodeDialogIDOnly(decoded.State.Authority, key, id); err == nil {
+		t.Fatal("ID-only locator accepted in a different state scope")
+	}
+	parts := strings.Split(id, ".")
+	parts[2] = "A" + parts[2][1:]
+	if _, err := decodeDialogIDOnly(authority, key, strings.Join(parts, ".")); err == nil {
+		t.Fatal("tampered locator was accepted")
+	}
+	ref.Owner = nil
+	ownerless, err := dialogIDOnlyFor(authority, key, ref)
+	if err != nil || strings.Split(ownerless, ".")[1] != parts[1] {
+		t.Fatal("omitting the owner hint changed the directory digest", err)
 	}
 }
 

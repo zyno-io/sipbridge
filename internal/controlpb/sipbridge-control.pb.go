@@ -519,7 +519,7 @@ func (DialogEvent_Kind) EnumDescriptor() ([]byte, []int) {
 // Application families require the explicitly negotiated sip.v1 capability.
 // PROTOCOL.md and ARCHITECTURE.md in sipbridge own
 // behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
-// ContextRef.opaque_dialog_id uses a separate 506-byte bound.
+// ContextRef.opaque_dialog_id uses the bound of its negotiated ID capability.
 type Envelope struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	CorrelationId     string                 `protobuf:"bytes,1,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
@@ -2184,7 +2184,7 @@ type ContextRef struct {
 	Owner *ProcessRef            `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
 	Id    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	State *StateRef              `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
-	// sip.dialog-id.v1 wire projection. Never persisted as native state.
+	// Negotiated sip.dialog-id wire projection. Never persisted as native state.
 	OpaqueDialogId string `protobuf:"bytes,4,opt,name=opaque_dialog_id,json=opaqueDialogId,proto3" json:"opaque_dialog_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache

@@ -204,6 +204,10 @@ func testRedisNativeOpenUACCommand(t *testing.T, cancelLookup int) {
 	}
 	command := func(id string, selected *pb.FlowRef) *pb.Command {
 		out := &pb.Command{Context: &pb.ContextRef{Id: id}, Sequence: 1, Admission: &pb.CommandAdmission{DirectoryEpoch: "directory", ExpiresAtMs: uint64(time.Now().Add(3 * time.Second).UnixMilli()), SelectedFlow: selected}, Action: &pb.Command_OpenUac{OpenUac: &pb.OpenUac{Uri: "sip:phone@example.test", Transport: transport, Network: &pb.NetworkTarget{Transport: transport, Credential: &pb.CredentialRef{Id: "carrier", Version: "one"}}, Headers: []*pb.Header{{Name: "From", Value: "<sip:service@example.test>"}}}}}
+		if id == "outbound" && cancelLookup == 0 {
+			out.GetOpenUac().OutboundCallId = proto.String("01a219eb-7ae6-70ea-a6b7-5d192b330ab2-obl-0123456789abcdef")
+		}
+
 		if previousACK != nil {
 			out.GetOpenUac().Body = []byte("v=0\r\ns=offer\r\n")
 			out.GetOpenUac().Headers = append(out.GetOpenUac().Headers, &pb.Header{Name: "Content-Type", Value: "application/sdp"})
@@ -295,6 +299,13 @@ func testRedisNativeOpenUACCommand(t *testing.T, cancelLookup int) {
 		t.Fatal(err)
 	}
 	witness := rediscore.ApplicationLeaseRef{Application: appID, Term: hello.ApplicationLease.Term}
+	if cancelLookup == 0 {
+		const expected = "01a219eb-7ae6-70ea-a6b7-5d192b330ab2-obl-0123456789abcdef"
+		if result.Snapshot.CallId != expected || result.Snapshot.Context.State.CallId != expected ||
+			!bytes.Contains(result.Request.Wire, []byte("Call-ID: "+expected+"\r\n")) {
+			t.Fatal("accepted request and native context must use the controller-assigned wire Call-ID")
+		}
+	}
 	identity := rediscore.Identity{Context: "outbound", Incarnation: result.Snapshot.Context.State.Incarnation, Owner: appID, Term: witness.Term}
 	view, err := store.ReadApplication(ctx, identity, witness, "r:context")
 	credit := redisInviteCompletionCredit(flow.Transport)

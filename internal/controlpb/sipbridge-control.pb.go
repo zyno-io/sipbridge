@@ -3761,17 +3761,18 @@ func (x *NetworkTarget) GetCredential() *CredentialRef {
 }
 
 type OpenUac struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Uri           string                 `protobuf:"bytes,1,opt,name=uri,proto3" json:"uri,omitempty"`
-	Body          []byte                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
-	Headers       []*Header              `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty"`
-	BindingId     string                 `protobuf:"bytes,4,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
-	PrincipalId   string                 `protobuf:"bytes,5,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
-	Network       *NetworkTarget         `protobuf:"bytes,6,opt,name=network,proto3" json:"network,omitempty"`
-	Transport     string                 `protobuf:"bytes,7,opt,name=transport,proto3" json:"transport,omitempty"`
-	Method        string                 `protobuf:"bytes,8,opt,name=method,proto3" json:"method,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Uri            string                 `protobuf:"bytes,1,opt,name=uri,proto3" json:"uri,omitempty"`
+	Body           []byte                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
+	Headers        []*Header              `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty"`
+	BindingId      string                 `protobuf:"bytes,4,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
+	PrincipalId    string                 `protobuf:"bytes,5,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	Network        *NetworkTarget         `protobuf:"bytes,6,opt,name=network,proto3" json:"network,omitempty"`
+	Transport      string                 `protobuf:"bytes,7,opt,name=transport,proto3" json:"transport,omitempty"`
+	Method         string                 `protobuf:"bytes,8,opt,name=method,proto3" json:"method,omitempty"`
+	OutboundCallId *string                `protobuf:"bytes,9,opt,name=outbound_call_id,json=outboundCallId,proto3,oneof" json:"outbound_call_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *OpenUac) Reset() {
@@ -3856,6 +3857,13 @@ func (x *OpenUac) GetTransport() string {
 func (x *OpenUac) GetMethod() string {
 	if x != nil {
 		return x.Method
+	}
+	return ""
+}
+
+func (x *OpenUac) GetOutboundCallId() string {
+	if x != nil && x.OutboundCallId != nil {
+		return *x.OutboundCallId
 	}
 	return ""
 }
@@ -5714,7 +5722,7 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\ttransport\x18\x02 \x01(\tR\ttransport\x12C\n" +
 	"\n" +
 	"credential\x18\x05 \x01(\v2#.sipbridge.control.v1.CredentialRefR\n" +
-	"credential\"\x9e\x02\n" +
+	"credential\"\xe2\x02\n" +
 	"\aOpenUac\x12\x10\n" +
 	"\x03uri\x18\x01 \x01(\tR\x03uri\x12\x12\n" +
 	"\x04body\x18\x02 \x01(\fR\x04body\x126\n" +
@@ -5724,7 +5732,9 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\fprincipal_id\x18\x05 \x01(\tR\vprincipalId\x12=\n" +
 	"\anetwork\x18\x06 \x01(\v2#.sipbridge.control.v1.NetworkTargetR\anetwork\x12\x1c\n" +
 	"\ttransport\x18\a \x01(\tR\ttransport\x12\x16\n" +
-	"\x06method\x18\b \x01(\tR\x06method\"s\n" +
+	"\x06method\x18\b \x01(\tR\x06method\x12-\n" +
+	"\x10outbound_call_id\x18\t \x01(\tH\x00R\x0eoutboundCallId\x88\x01\x01B\x13\n" +
+	"\x11_outbound_call_id\"s\n" +
 	"\rDialogRequest\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
 	"\x04body\x18\x02 \x01(\fR\x04body\x126\n" +
@@ -6143,6 +6153,7 @@ func file_sipbridge_control_proto_init() {
 		(*Envelope_ControllerContextsResult)(nil),
 		(*Envelope_RequestDecision)(nil),
 	}
+	file_sipbridge_control_proto_msgTypes[35].OneofWrappers = []any{}
 	file_sipbridge_control_proto_msgTypes[40].OneofWrappers = []any{
 		(*Command_Respond)(nil),
 		(*Command_OpenUac)(nil),

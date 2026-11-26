@@ -215,7 +215,7 @@ message CredentialRef { string id = 1; string version = 2; }
 message CredentialLookup { ContextRef context = 1; CredentialRef credential = 2; }
 message CredentialResult { string username = 1; string password = 2; string version = 3; string error = 4; }
 message NetworkTarget { string proxy = 1; string transport = 2; CredentialRef credential = 5; }
-message OpenUac { string uri = 1; bytes body = 2; repeated Header headers = 3; string binding_id = 4; string principal_id = 5; NetworkTarget network = 6; string transport = 7; string method = 8; }
+message OpenUac { string uri = 1; bytes body = 2; repeated Header headers = 3; string binding_id = 4; string principal_id = 5; NetworkTarget network = 6; string transport = 7; string method = 8; optional string outbound_call_id = 9; }
 message DialogRequest { string method = 1; bytes body = 2; repeated Header headers = 3; }
 message Cancel {}
 // One command-time policy/route decision from the authenticated controller.

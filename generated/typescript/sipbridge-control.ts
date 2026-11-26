@@ -549,6 +549,7 @@ export interface OpenUac {
     network?: NetworkTarget | undefined;
     transport: string;
     method: string;
+    outboundCallId?: string | undefined;
 }
 
 export interface DialogRequest {
@@ -2873,7 +2874,12 @@ export const OpenUac: MessageFns<OpenUac> = {
                   : '',
             network: isSet(object.network) ? NetworkTarget.fromJSON(object.network) : undefined,
             transport: isSet(object.transport) ? globalThis.String(object.transport) : '',
-            method: isSet(object.method) ? globalThis.String(object.method) : ''
+            method: isSet(object.method) ? globalThis.String(object.method) : '',
+            outboundCallId: isSet(object.outboundCallId)
+                ? globalThis.String(object.outboundCallId)
+                : isSet(object.outbound_call_id)
+                  ? globalThis.String(object.outbound_call_id)
+                  : undefined
         };
     },
 
@@ -2902,6 +2908,9 @@ export const OpenUac: MessageFns<OpenUac> = {
         }
         if (message.method !== '') {
             obj.method = message.method;
+        }
+        if (message.outboundCallId !== undefined) {
+            obj.outboundCallId = message.outboundCallId;
         }
         return obj;
     }

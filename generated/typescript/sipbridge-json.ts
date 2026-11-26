@@ -1071,9 +1071,14 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             method: {
                 kind: 'string'
+            },
+            outboundCallId: {
+                kind: 'string',
+                oneof: '_outbound_call_id',
+                alias: 'outbound_call_id'
             }
         },
-        oneofs: []
+        oneofs: ['_outbound_call_id']
     },
     '.sipbridge.control.v1.DialogRequest': {
         fields: {

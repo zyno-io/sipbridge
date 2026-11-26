@@ -240,6 +240,15 @@ verifiable ACKs for those challenges. An authenticated retry's new CSeq routes
 normally. The bounded proof only identifies a rejected local transaction; it
 cannot authorize a SIP dialog or account, and does not create a resident FSM.
 
+An authenticated controller can set the optional `OpenUac.outbound_call_id` on a new
+INVITE before admission. It must allocate a globally unique value for each new
+outbound attempt. The field accepts up to 128 ASCII letters, digits, dots,
+underscores, or hyphens, starting with a letter or digit, and an optional
+`@host` within the same total length. The native context, emitted INVITE and
+accepted snapshot share that exact value. The native transaction retains it
+for retries and subsequent dialog traffic. Generic SIP headers cannot set
+this identity. When the field is absent the serving backend allocates the Call-ID.
+
 The serving profiles encode newly generated SIP dialog tags and outbound
 Call-IDs in unpadded base64url. A 128-bit tag occupies 22 characters and a full
 256-bit digest occupies 43. Outbound Call-IDs retain the `@sipbridge` suffix.

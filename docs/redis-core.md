@@ -67,12 +67,12 @@ no recovery queue, historical RPC receipt, registration or subscription state.
 
 ## Control disconnect
 
-With `sip.control-attachment.v1`, each authenticated control session has its
+Each authenticated serving control session has its
 own attachment. Closing a session immediately fences its in-process capability
 and revokes its exact Redis attachment. Live sibling connections can continue
 renewing and using the shared application term. When renewal stops, the
 existing deadline expires the term after the last valid heartbeat and schedules
-orphan cleanup. A legacy session close expires its shared term immediately.
+orphan cleanup.
 
 A new controller admits fresh work under its own term with fresh application
 state. Controller checkpoint recovery belongs to the separate fixture protocol.
@@ -647,7 +647,7 @@ tombstone. Pool authorization must cover the registry and its generations.
 
 ## Cutover
 
-Explicit `redis` selection uses the composed runtime defined in [Runtime](runtime.md#native-ownership-domains). The checkpoint execution/JSON path is not a serving alternative or legacy reader. The private binary format has an explicit compatibility identity. Keep the application control schema/JSON profile unchanged unless a deliberate observable contract change is required. The binary Redis runtime MUST use the same direct `sip.request-decision.v1` request path as Memory, without the checkpoint routing/presentation alternative. The negotiated capability and public wire contract are shared with Memory; verify every producer and consumer together. Initial INVITE setup may fail during a core outage, but this does not introduce a non-persisted initial-procedure path, a public API change or a routing-affinity exception. Any pending native procedure required for matching and any-worker semantics remains uniform and bounded; it is not an application job queue.
+Explicit `redis` selection uses the composed runtime defined in [Runtime](runtime.md#native-ownership-domains). The checkpoint execution/JSON path is not a serving alternative or legacy reader. The private binary format has an explicit compatibility identity. Keep the application control schema/JSON profile unchanged unless a deliberate observable contract change is required. The binary Redis runtime MUST use the same direct request path as Memory. Verify the shared public wire contract across every producer and consumer. Initial INVITE setup may fail during a core outage, but this does not introduce a non-persisted initial-procedure path, a public API change or a routing-affinity exception. Any pending native procedure required for matching and any-worker semantics remains uniform and bounded; it is not an application job queue.
 
 A namespace previously written by the checkpoint engine is not readable by this runtime. Stop all old writers before starting the binary runtime on the allowed native root; old JSON records are never decoded, migrated, cleaned up by a recurring task or reset automatically. Grant the Redis credentials only the minimum command allowlist and a wake-channel pattern restricted to the same native root; never all keys/channels or another role's root. Record field/authority compatibility and a concrete rollback procedure before changing a deployment.
 

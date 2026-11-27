@@ -6,7 +6,7 @@ option go_package = "sipbridge/internal/controlpb";
 // Canonical control contract and source for generated JSON codecs/validation.
 // Wire transport is UTF-8 JSON text only (sipbridge.control.json.v1), with
 // lowerCamelCase keys, symbolic enums, uint64 decimal strings and base64 bytes.
-// Application families require the explicitly negotiated sip.v1 capability.
+// The serving minor version includes the SIP application families.
 // PROTOCOL.md and ARCHITECTURE.md in sipbridge own
 // behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
 // ContextRef.opaque_dialog_id uses the bound of its negotiated ID capability.
@@ -89,6 +89,11 @@ message ControllerContextsResult {
 }
 
 message SessionHelloAck {
+  enum StateBackend {
+    STATE_BACKEND_UNSPECIFIED = 0;
+    MEMORY = 1;
+    REDIS = 2;
+  }
   ProcessRef sipbridge = 1;
   string session_id = 2;
   uint32 major = 3;
@@ -101,6 +106,8 @@ message SessionHelloAck {
   ApplicationLease application_lease = 10;
   // Static native request policy; present only with sip.local-challenge.v1.
   InboundAuthPolicy inbound_auth_policy = 11;
+  // The serving profile, required in the serving minor version.
+  StateBackend state_backend = 12;
 }
 
 // SIP-owner authority in the selected state adapter. Application identifies the
@@ -156,7 +163,7 @@ message ContextRef {
   ProcessRef owner = 1;
   string id = 2;
   StateRef state = 3;
-  // Negotiated sip.dialog-id wire projection. Never persisted as native state.
+  // Serving dialog ID wire projection. Never persisted as native state.
   string opaque_dialog_id = 4;
 }
 message Header { string name = 1; string value = 2; }

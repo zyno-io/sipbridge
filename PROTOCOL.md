@@ -31,10 +31,16 @@ copy is `dependencies/sipbridge-control.proto`. Generated Go/TypeScript codecs a
 `dependencies`. Neither peer maintains a handwritten contract. This document
 owns field behavior; other SIP server protocols are separate APIs.
 
-## 2. Identity, execution and capabilities
+## 2. Serving baseline and optional capabilities
 
-The `sip.dialog-socket.v1` capability denotes exact socket-owner dispatch for
-ordinary established-dialog requests. The controller selects and authorizes the
+The serving protocol fixes the state, direct request decision, dialog identity,
+retirement result, native completion, command admission and budgets, and
+continuity contracts. The Redis profile also requires exact socket-owner dispatch,
+prepared-operation resume and exact control attachments. HelloAck identifies
+the active state backend. These baseline behaviors are implicit in the version
+and backend. Capabilities are reserved for features peers can actually choose.
+
+Exact socket-owner dispatch applies to ordinary established-dialog requests. The controller selects and authorizes the
 socket. SIPbridge verifies the exact ingress process, epoch, and connection
 before admission. An exact local socket that is gone before any native admission
 can produce `DialogRecovery.SOCKET_GONE` with `NOT_ACCEPTED`. This disposition
@@ -43,24 +49,21 @@ controller may send the original command once on a proven replacement, with
 `CommandAdmission.registration_fallback` set when it selected the account's
 current registration as the candidate.
 
-The separate `sip.dialog-socket-resume.v1` capability covers a prepared
-operation. `DialogRecovery.RESUMABLE` identifies an already admitted operation
+Prepared-operation resume covers an already admitted operation. `DialogRecovery.RESUMABLE` identifies an already admitted operation
 whose prior physical write assignment can no longer start. `ResumeDialogRequest`
 reuses that operation and its command sequence, transaction branch, CSeq, and
 deadline with a new physical write bound to the controller-selected socket.
 Unknown or possibly started writes cannot yield a resumable result. The existing
 SIP transaction routing governs native ACK, CANCEL and responses.
 
-The Redis-only `sip.control-attachment.v1` capability requires
-`sip.dialog-socket.v1`. Native binds an exact control session at Hello and
+The Redis profile binds an exact control session at Hello and
 renews it on a matching Pong. Nexus uses the established authenticated session
 as permission to send commands. SIPbridge carries its own shared application
 term plus exact attachment when admitting stateful work and reserving writes.
 Closure revokes that attachment only. The wire lease receipt identifies the
 native term for the current session.
 
-Serving sessions require `sip.dialog-id.v2` and `sip.dialog-retirement.v1`.
-Redis also requires exact control attachments. SIPbridge sends a scoped context
+SIPbridge sends a scoped context
 as `{ "opaqueDialogId": "d2.…" }`. The handle identifies one native context
 incarnation and is separate from SIP Call-ID and SIP dialog tags. Its accepting
 process is a routing hint for shared dialogs and a pin for resident phone contexts.
@@ -110,24 +113,16 @@ commits touched records. Both commit effects before I/O. No mutable protocol
 aggregate spans controller RPC, socket I/O or response wait. Physical reservation
 fetches exact committed bytes and never accepts caller-selected replacement wire.
 
-The current service negotiates the following behavior. Negotiation precedes session
-claim admission so an incompatible controller cannot fence a compatible one.
+Serving version and optional capability checks precede session claim admission.
+The version includes logical state and owner leases, autonomous native
+completion, command admission, the extended command budget and validated
+same-transport continuity. SIPbridge acquires the native owner lease before
+publishing a usable peer.
 
-| Capability | Current meaning |
+| Optional serving capability | Behavior |
 | --- | --- |
-| `sip.v1` | Typed SIP application/control family, separate from session-only transport. |
-| `sip.state.v1` | Logical contexts, owner leases and CAS execution in the selected state adapter. Memory authority is process-local. |
-| `sip.native-completion.v1` | Retained native completion, physical settlement and retirement without a surviving controller. |
-| `sip.controller-reattach.v1` | Checkpoint fixtures only; neither serving runtime advertises it. Optional token/principal-bound recovery of a stable owner by a new holder, with generation fencing and bounded owner-scoped context listing. |
-| `sip.command-admission.v1` | Command-time policy/delivery admission for Respond, OpenUac and DialogRequest. |
-| `sip.command-budget.v1` | Commands may carry the 40-second budget; ordinary RPC/write limits remain separate. |
-| `sip.reinvite-ack.v1` | Deliver accepted peer re-INVITE ACKs as `ACKNOWLEDGED` with the full ACK message and `inviteCseq` correlation value (which may be zero). Optional; initial ACK signaling is unchanged. |
-| `sip.dialog-continuity.v1` | Explicit native validation of same-transport replacement-flow attempts. |
-| `sip.request-decision.v1` | Request notification/decision/commit contract below, required by both serving runtimes together with its dependency set. |
-
-State execution requires `sip.state.v1` for every backend. Negotiation validates
-state authority before claim admission and acquires the native owner lease before
-publishing a usable peer. There is no backend-specific state capability.
+| `sip.local-challenge.v1` | Native initial digest challenges when configured on the listener. |
+| `sip.reinvite-ack.v1` | Deliver accepted peer re-INVITE ACKs as `ACKNOWLEDGED` with the full ACK message and `inviteCseq` correlation value (which may be zero). |
 
 A changed business directory epoch requires re-establishing work under current
 authority. Native completion and state retirement use the retained SIP-state
@@ -276,7 +271,7 @@ For example, the initial session message is ordinary JSON; its attempt counter
 remains lossless beyond JavaScript's safe integer range:
 
 ```json
-{"correlationId":"hello-1","hello":{"controller":{"instanceId":"controller-a","epoch":"boot-a"},"connectionAttempt":"9007199254740993","major":1,"bounds":{"maxEnvelopeBytes":262144}}}
+{"correlationId":"hello-1","hello":{"controller":{"instanceId":"controller-a","epoch":"boot-a"},"connectionAttempt":"9007199254740993","major":1,"minMinor":1,"maxMinor":1,"bounds":{"maxEnvelopeBytes":262144}}}
 ```
 
 An envelope contains a bounded correlation ID, a remaining deadline budget where
@@ -641,12 +636,8 @@ Contact/Via identity consistently on fresh and reused connections.
 
 ### Direct request decision
 
-This is the implemented request contract of both serving runtimes. It is not a
-qualification claim. It requires `sip.request-decision.v1` in addition to the
-existing native state/admission capabilities. Memory and binary Redis use only
-this request path, without a routing/presentation alternative; checkpoint
-fixtures retain their own families. There is no fallback to another request
-path or compatibility engine.
+Both serving runtimes implement the same direct request contract. The checkpoint
+fixtures use a separate routing and presentation contract.
 
 ```mermaid
 sequenceDiagram
@@ -971,7 +962,7 @@ the rule's status in `sipStatus`, for example `491` when an INVITE is already
 pending. Other command refusals have status zero. Treat the error text as a
 diagnostic and branch on the certainty and status.
 
-With negotiated `sip.command-budget.v1`, commands can carry up to 40 seconds,
+Serving commands can carry up to 40 seconds,
 covering native 32-second waits and bounded connection setup. Ordinary RPCs and
 individual socket delivery remain two seconds; heartbeat runs independently.
 Timeout after admission stays UNKNOWN and fences dependent context work; a late
@@ -1036,8 +1027,10 @@ references on all error and shutdown paths.
 
 ## 11. Compatibility, reload and drain
 
-The initial control contract is major `1`, minor `0`. Session negotiation selects
-that version and the capabilities both peers support. Strict JSON decoding ignores unknown optional fields; semantic checks refuse unknown
+The serving control contract is major `1`, minor `1`. Serving peers must
+select that version and may negotiate optional capabilities. The standalone
+session and checkpoint fixtures use their own minor `0` contract; serving
+processes reject it. Strict JSON decoding ignores unknown optional fields; semantic checks refuse unknown
 operations and unknown enum values. Optional behavior requires its negotiated capability.
 Protobuf declarations, field numbers, generated codecs and the schema receipt
 define wire compatibility; section 3 specifies the only supported JSON framing.

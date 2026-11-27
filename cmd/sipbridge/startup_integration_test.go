@@ -23,7 +23,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -338,11 +337,7 @@ func testStateStartupObservingRedis(t *testing.T, backend string, offline, parti
 		cancel()
 		t.Fatal(err)
 	}
-	capabilities := []string{"sip.v1", controlpkg.StateCapability, controlpkg.NativeCompletionCapability, controlpkg.RequestDecisionCapability, controlpkg.CommandAdmissionCapability, controlpkg.CommandBudgetCapability, controlpkg.DialogContinuityCapability, controlpkg.DialogIDOnlyCapability, controlpkg.DialogRetirementCapability}
-	if backend == "redis" {
-		capabilities = append(capabilities, controlpkg.DialogSocketCapability, controlpkg.ControlAttachmentCapability)
-	}
-	probeHello := &pb.Envelope{CorrelationId: "unavailable-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "unavailable-probe", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 1, Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
+	probeHello := &pb.Envelope{CorrelationId: "unavailable-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "unavailable-probe", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 1, MinMinor: controlpkg.ServingMinor, MaxMinor: controlpkg.ServingMinor, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
 	probeWire, err := protojson.Marshal(probeHello)
 	if err == nil {
 		err = probe.Write(attempt, websocket.MessageText, probeWire)
@@ -378,7 +373,7 @@ func testStateStartupObservingRedis(t *testing.T, backend string, offline, parti
 	if domain != nil {
 		controllerID = instance + "-controller"
 	}
-	hello := &pb.Envelope{CorrelationId: "recover-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: controllerID, Epoch: "same-process"}, ConnectionAttempt: 1, Major: 1, Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: controlpkg.MaxEnvelope}}}}
+	hello := &pb.Envelope{CorrelationId: "recover-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: controllerID, Epoch: "same-process"}, ConnectionAttempt: 1, Major: 1, MinMinor: controlpkg.ServingMinor, MaxMinor: controlpkg.ServingMinor, Bounds: &pb.Bounds{MaxEnvelopeBytes: controlpkg.MaxEnvelope}}}}
 	var ack *pb.SessionHelloAck
 	var lastHelloError error
 	for time.Now().Before(recoveryDeadline) {
@@ -415,17 +410,18 @@ func testStateStartupObservingRedis(t *testing.T, backend string, offline, parti
 		t.Fatal("running process never recovered real authenticated control after Redis returned", lastHelloError)
 	}
 	defer controller.CloseNow()
-	if !slices.Contains(ack.Capabilities, controlpkg.StateCapability) || slices.Contains(ack.Capabilities, "sip.redis-state.v1") {
-		t.Fatal("service must negotiate only the common state capability", ack.Capabilities)
+	wantBackend := pb.SessionHelloAck_MEMORY
+	if backend == "redis" {
+		wantBackend = pb.SessionHelloAck_REDIS
+	}
+	if ack.Minor != controlpkg.ServingMinor || ack.GetStateBackend() != wantBackend || len(ack.Capabilities) != 0 {
+		t.Fatal("unexpected serving contract", ack.Minor, ack.GetStateBackend(), ack.Capabilities)
 	}
 	if ack.StateAuthority == nil || ack.StateAuthority.Generation != settings["SIPBRIDGE_STATE_GENERATION"] {
 		t.Fatal("offline startup changed the configuration-derived logical authority")
 	}
-	if ack.ApplicationLease.GetTerm() == "" || ack.ApplicationLease.GetRecoveryToken() != "" || slices.Contains(ack.Capabilities, controlpkg.ControllerReattachCapability) {
+	if ack.ApplicationLease.GetTerm() == "" || ack.ApplicationLease.GetRecoveryToken() != "" {
 		t.Fatal("serving runtime must negotiate an ordinary owner without controller recovery")
-	}
-	if !slices.Contains(ack.Capabilities, controlpkg.RequestDecisionCapability) {
-		t.Fatal("serving runtime must negotiate direct request decisions")
 	}
 	if backend == "redis" {
 		assertBinaryStartupKeys(t, fixtureRedis, root, partial)

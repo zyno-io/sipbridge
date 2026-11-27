@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -59,20 +58,19 @@ func TestRetirementProofUsesOnlyTheSignedDialogID(t *testing.T) {
 	}
 }
 
-func TestServingControlRequiresCurrentDialogContract(t *testing.T) {
+func TestServingControlUsesBaselineWithoutCapabilityFlags(t *testing.T) {
 	pki := newPKI(t)
 	key := bytes.Repeat([]byte{2}, 32)
 	authority := &pb.StateAuthority{Service: "redis", Generation: "4", PrimaryId: "run", SchemaVersion: 1}
 	ref := &pb.ContextRef{Id: "call", Owner: &pb.ProcessRef{InstanceId: "sip", Epoch: "sip-epoch"},
 		State: &pb.StateRef{Authority: authority, GroupId: "call", Incarnation: "one", CallId: "call@example.test"}}
-	base := []string{"sip.v1", StateCapability, NativeCompletionCapability, DialogSocketCapability, ControlAttachmentCapability}
-	current := append(slices.Clone(base), DialogIDOnlyCapability, DialogRetirementCapability)
 	lease := func(app *pb.ProcessRef) *pb.ApplicationLease {
 		now := uint64(time.Now().UnixMilli())
 		return &pb.ApplicationLease{Application: app, Authority: authority, Term: "term", CheckedAtMs: now, ExpiresAtMs: now + 30000}
 	}
 	_, address := testServer(t, pki, 8, func(cfg *Config) {
-		cfg.Capabilities, cfg.StateAuthority, cfg.DialogIDKey = current, authority, key
+		cfg.StateBackend, cfg.StateAuthority, cfg.DialogIDKey = pb.SessionHelloAck_REDIS, authority, key
+		cfg.Capabilities = []string{ReinviteAckCapability}
 		cfg.OnControllerSession = func(_ context.Context, _ *Peer, hello *pb.SessionHello) (*pb.ApplicationLease, error) {
 			return lease(hello.Controller), nil
 		}
@@ -90,13 +88,14 @@ func TestServingControlRequiresCurrentDialogContract(t *testing.T) {
 			}}})
 		}
 	})
-	for _, tc := range []struct {
-		name string
-		caps []string
+	for i, tc := range []struct {
+		name     string
+		minor    uint32
+		optional []string
 	}{
-		{"old format", append(slices.Clone(base), "sip.dialog-id.v1")},
-		{"ID without retirement", append(slices.Clone(base), DialogIDOnlyCapability)},
-		{"current", current},
+		{"old version", 0, []string{"sip.v1", "sip.dialog-id.v2", "sip.dialog-retirement.v1"}},
+		{"serving baseline", ServingMinor, nil},
+		{"optional reinvite acknowledgements", ServingMinor, []string{ReinviteAckCapability}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			conn, err := pki.dial(address)
@@ -105,18 +104,22 @@ func TestServingControlRequiresCurrentDialogContract(t *testing.T) {
 			}
 			defer conn.CloseNow()
 			send(t, conn, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{
-				Controller: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}, ConnectionAttempt: 1,
-				Major: 1, Capabilities: tc.caps, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096},
+				Controller: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}, ConnectionAttempt: uint64(i + 1),
+				Major: 1, MinMinor: tc.minor, MaxMinor: tc.minor, Capabilities: tc.optional, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096},
 			}}})
 			first, err := receive(conn)
-			if !slices.Contains(tc.caps, DialogRetirementCapability) {
+			if tc.minor != ServingMinor {
 				if err == nil {
 					t.Fatal("serving session accepted an older dialog contract")
 				}
 				return
 			}
-			if err != nil || first.GetHelloAck() == nil {
+			ack := first.GetHelloAck()
+			if err != nil || ack == nil || ack.Minor != ServingMinor || ack.GetStateBackend() != pb.SessionHelloAck_REDIS {
 				t.Fatal("current contract did not connect", err)
+			}
+			if !reflect.DeepEqual(ack.Capabilities, tc.optional) {
+				t.Fatalf("capabilities echoed %v, expected only %v", ack.Capabilities, tc.optional)
 			}
 			id, err := dialogIDOnlyFor(authority, key, ref)
 			if err != nil {

@@ -102,7 +102,7 @@ func (e *StateEngine) retiredContextResult(ref *pb.ContextRef, reason pb.Context
 	result := &pb.OperationResult{Certainty: pb.OperationResult_NOT_ACCEPTED, Error: "context not found"}
 	if e.autonomousCompletion() && ref.GetState() != nil && ref.State.Incarnation != "" {
 		result.Certainty, result.Error = pb.OperationResult_COMPLETED, ""
-		result.RetirementProof = &pb.ContextRetirementProof{Context: proto.Clone(ref).(*pb.ContextRef), Authority: e.StateAuthority(), Reason: reason}
+		result.RetirementProof = &pb.ContextRetirementProof{Context: proto.Clone(ref).(*pb.ContextRef), Reason: reason}
 	}
 	return result
 }

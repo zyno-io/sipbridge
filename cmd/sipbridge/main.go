@@ -188,11 +188,12 @@ func run() (runErr error) {
 	var stateNative nativeRuntime
 	var ingress *engine.Ingress
 	capabilities := []string{engine.Capability, control.CommandBudgetCapability, engine.DialogContinuityCapability,
-		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ReinviteAckCapability}
+		control.StateCapability, control.NativeCompletionCapability, control.CommandAdmissionCapability, control.ReinviteAckCapability,
+		control.DialogIDOnlyCapability, control.DialogRetirementCapability}
 	capabilities = append(capabilities, control.RequestDecisionCapability)
 	if stateConfig.Backend == redisBackend {
 		capabilities = append(capabilities, control.DialogSocketCapability, control.DialogSocketResumeCapability,
-			control.ControlAttachmentCapability, control.DialogIDCapability, control.DialogIDOnlyCapability)
+			control.ControlAttachmentCapability)
 	}
 	if authPolicy != nil {
 		capabilities = append(capabilities, engine.LocalChallengeCapability)
@@ -210,7 +211,7 @@ func run() (runErr error) {
 		if stateNative == nil || lease == nil {
 			return
 		}
-		if redis, ok := stateNative.(*engine.RedisNative); ok && peer.HasCapability(control.ControlAttachmentCapability) {
+		if redis, ok := stateNative.(*engine.RedisNative); ok {
 			_ = redis.DisconnectController(context.Background(), peer)
 			return
 		}

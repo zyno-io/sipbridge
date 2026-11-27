@@ -56,62 +56,41 @@ The Redis-only `sip.control-attachment.v1` capability requires
 renews it on a matching Pong. Nexus uses the established authenticated session
 as permission to send commands. SIPbridge carries its own shared application
 term plus exact attachment when admitting stateful work and reserving writes.
-Closure revokes that attachment only. Legacy negotiation keeps shared-term
-closure and the wire lease receipt remains available to compatible clients.
+Closure revokes that attachment only. The wire lease receipt identifies the
+native term for the current session.
 
-The Redis serving profile can negotiate `sip.dialog-id.v1` with exact control
-attachments. Native adds an opaque `ContextRef.opaqueDialogId` to each scoped
-context reference at the wire boundary. The value identifies one native
-context incarnation and stays stable across serving replicas and socket moves.
-It is separate from SIP Call-ID and SIP dialog tags. Controllers treat the value
-as opaque and keep sending the legacy reference during this compatibility phase.
-A returned value must authenticate the same native scope and incarnation as the
-accompanying reference. The session removes the field before native command
-or storage processing. This phase requires the legacy reference. Peers without
-the capability exchange legacy references. The field uses the form
-`d1.<directory key digest>.<native locator>.<authentication tag>`, at most
-506 ASCII bytes. The digest is lowercase hex SHA-256 of the UTF-8 compact JSON
-array of strings in this order: service, generation, primary ID, group ID,
-incarnation, SIP Call-ID, decimal partition and context ID. JSON string escaping
-follows ECMAScript JSON serialization. The locator and tag use unpadded
-base64url. The tag binds the directory digest and locator to the native scope.
-Consumers may use the digest directly as the existing directory key suffix
-during compatibility. They preserve the complete handle when echoing it.
+Serving sessions require `sip.dialog-id.v2` and `sip.dialog-retirement.v1`.
+Redis also requires exact control attachments. SIPbridge sends a scoped context
+as `{ "opaqueDialogId": "d2.…" }`. The handle identifies one native context
+incarnation and is separate from SIP Call-ID and SIP dialog tags. Its accepting
+process is a routing hint for shared dialogs and a pin for resident phone contexts.
 
-Redis peers can also negotiate `sip.dialog-id.v2` with exact control
-attachments. If both ID capabilities are offered, v2 governs the session.
-SIPbridge sends a scoped context as `{ "opaqueDialogId": "d2.…" }`.
-The handle carries the same directory digest and the native lookup
-coordinates needed to dispatch the request, including the exact accepting
-process for a resident phone context. The issuing reference's process is a
-routing hint for a shared dialog. The directory digest remains the identity
-when a reference was stored without that hint.
+The handle has four dot-separated segments
+`d2.<directory key digest>.<native locator>.<authentication tag>` and a
+2,131-byte ASCII bound. The digest is lowercase hex SHA-256 of the compact JSON
+array of service, generation, primary ID, group ID, incarnation, SIP Call-ID,
+canonical decimal partition and context ID. String escaping follows ECMAScript
+JSON serialization. The unpadded base64url locator encodes seven UTF-8 strings
+separated by NUL: context ID, group ID, incarnation, decimal partition, SIP
+Call-ID, owner instance ID and owner epoch. Both owner strings may be empty.
+SIP Call-ID is nonempty and bounded to 1,024 UTF-8 bytes. The unpadded base64url
+HMAC tag binds the locator and digest to the session's native state scope using
+length-delimited fields. SIPbridge validates and expands returned handles before
+native dispatch. A handle accompanied by context, owner or state fields is a
+protocol error.
 
-The v2 handle has the same four dot-separated segments as v1 and a
-2,131-byte ASCII bound. Its unpadded base64url locator encodes seven UTF-8
-strings separated by NUL: context ID, group ID, incarnation, canonical
-decimal partition, SIP Call-ID, owner instance ID and owner epoch. Both owner
-strings are empty when no owner is recorded. SIP Call-ID is nonempty and
-limited to 1,024 UTF-8 bytes. The HMAC uses the same length-delimited fields as
-v1 with the v2 capability and version. It binds the locator and digest to the
-authority negotiated on the authenticated connection. On receipt SIPbridge
-validates and expands the handle before handing the envelope to the native
-runtime. The usual exact-attachment and native retirement checks still apply.
-A v2 handle accompanied by legacy fields is a protocol error.
+Every context retirement proof contains only the signed dialog ID and native
+reason. SIPbridge verifies the proof's state scope before sending it on the
+authenticated inspection session. Controllers correlate it with the exact
+pending inspection and its dialog identity.
 
-A controller can use the existing scoped reference by itself when addressing
-compatible stored metadata that predates the handle. It receives only the
-v2 handle on the next native projection of that context. Unscoped bootstrap
-references for new transactions retain their existing shape. A v2 handle must
-never be echoed to a peer that did not negotiate v2. Negotiating only v1
-continues to use the dual-reference contract.
+A controller can address persisted state using its scoped lookup coordinates.
+The native projection returns the signed ID for subsequent requests. Unscoped
+references also identify outbound transactions before SIPbridge creates a dialog.
 
-The handle requires no new native index or stored field. This additive control
-schema still changes the descriptor that the current storage profile binds, so
-a deployed Redis cohort needs a fresh generation under the normal profile
-rollout procedure. The first dual-reference build defaults to generation 4.
-Dual references preserve legacy client interoperability at the control boundary
-of that cohort. The v2 capability reuses the same field and storage descriptor.
+The signed handle uses the generation-4 Redis descriptor and existing native
+indexes. Serving peers move to the current control contract together during the
+maintenance window.
 
 | Identity | Authority and lifetime |
 | --- | --- |

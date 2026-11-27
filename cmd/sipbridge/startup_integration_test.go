@@ -338,7 +338,10 @@ func testStateStartupObservingRedis(t *testing.T, backend string, offline, parti
 		cancel()
 		t.Fatal(err)
 	}
-	capabilities := []string{"sip.v1", controlpkg.StateCapability, controlpkg.NativeCompletionCapability, controlpkg.RequestDecisionCapability, controlpkg.CommandAdmissionCapability, controlpkg.CommandBudgetCapability, controlpkg.DialogContinuityCapability}
+	capabilities := []string{"sip.v1", controlpkg.StateCapability, controlpkg.NativeCompletionCapability, controlpkg.RequestDecisionCapability, controlpkg.CommandAdmissionCapability, controlpkg.CommandBudgetCapability, controlpkg.DialogContinuityCapability, controlpkg.DialogIDOnlyCapability, controlpkg.DialogRetirementCapability}
+	if backend == "redis" {
+		capabilities = append(capabilities, controlpkg.DialogSocketCapability, controlpkg.ControlAttachmentCapability)
+	}
 	probeHello := &pb.Envelope{CorrelationId: "unavailable-hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{Controller: &pb.ProcessRef{InstanceId: "unavailable-probe", Epoch: "epoch"}, ConnectionAttempt: 1, Major: 1, Capabilities: capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096}}}}
 	probeWire, err := protojson.Marshal(probeHello)
 	if err == nil {

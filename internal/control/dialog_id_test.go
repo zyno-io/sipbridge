@@ -27,77 +27,52 @@ func TestDialogDirectoryDigestMatchesNexusJSON(t *testing.T) {
 	}
 }
 
-func TestDialogIDProjectionPreservesNativeReference(t *testing.T) {
-	key := bytes.Repeat([]byte{1}, 32)
-	authority := &pb.StateAuthority{Service: "redis", Generation: "three", PrimaryId: "run", SchemaVersion: 1}
-	ref := &pb.ContextRef{Id: "call", Owner: &pb.ProcessRef{InstanceId: "a", Epoch: "a-epoch"},
-		State: &pb.StateRef{Authority: authority, GroupId: "call", Incarnation: "one", CallId: "phone-private@example.test"}}
-	frame := &pb.Envelope{CorrelationId: "inspect", Payload: &pb.Envelope_Result{Result: &pb.OperationResult{
-		Snapshot: &pb.ContextSnapshot{Context: ref}, RetirementProof: &pb.ContextRetirementProof{Context: ref},
-	}}}
-	projected, err := projectDialogIDs(frame, authority, key, DialogIDCapability)
+func TestRetirementProofUsesOnlyTheSignedDialogID(t *testing.T) {
+	key := bytes.Repeat([]byte{3}, 32)
+	authority := &pb.StateAuthority{Service: "redis", Generation: "4", PrimaryId: "primary", SchemaVersion: 1}
+	ref := &pb.ContextRef{Id: "dialog", State: &pb.StateRef{Authority: authority, GroupId: "call", Incarnation: "one", CallId: "phone@example.test"}}
+	proof := &pb.ContextRetirementProof{Context: ref, Reason: pb.ContextRetirementProof_CONTEXT_ABSENT}
+	frame := &pb.Envelope{Payload: &pb.Envelope_Result{Result: &pb.OperationResult{RetirementProof: proof}}}
+
+	wire, err := projectDialogIDs(frame, authority, key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := projected.GetResult().GetSnapshot().GetContext().GetOpaqueDialogId()
-	if id == "" || projected.GetResult().GetRetirementProof().GetContext().GetOpaqueDialogId() != id || ref.OpaqueDialogId != "" {
-		t.Fatal("wire projection missed a reference or modified native state")
+	sent := wire.GetResult().GetRetirementProof()
+	id, err := dialogIDOnlyFor(authority, key, ref)
+	if err != nil || sent.Reason != proof.Reason || sent.Authority != nil ||
+		!proto.Equal(sent.Context, &pb.ContextRef{OpaqueDialogId: id}) || ref.GetState() == nil {
+		t.Fatal("retirement proof did not project just the dialog ID and reason", err)
 	}
-	moved := proto.Clone(ref).(*pb.ContextRef)
-	moved.Owner = &pb.ProcessRef{InstanceId: "b", Epoch: "b-epoch"}
-	movedID, err := dialogIDFor(authority, key, moved)
-	if err != nil || movedID != id {
-		t.Fatal("same native incarnation changed ID with a new serving replica", err)
+	if err := normalizeDialogIDs(wire, authority, key, true); err != nil || !proto.Equal(wire, frame) {
+		t.Fatal("wire proof changed the native dialog reference", err)
 	}
-	moved.State.Incarnation = "next"
-	movedID, err = dialogIDFor(authority, key, moved)
-	if err != nil || movedID == id {
-		t.Fatal("a new native incarnation reused its predecessor's dialog ID", err)
+	proof.Authority = authority
+	if _, err := projectDialogIDs(frame, authority, key); err == nil {
+		t.Fatal("accepted an authority-bearing retirement proof")
 	}
-	if err := normalizeDialogIDs(projected, authority, key, DialogIDCapability); err != nil || !proto.Equal(frame, projected) {
-		t.Fatal("normalization did not restore the exact native envelope", err)
-	}
-}
-
-func TestDialogIDUsesDedicatedWireBoundAndNativeDomain(t *testing.T) {
-	key := bytes.Repeat([]byte{3}, 32)
-	one := &pb.StateAuthority{Service: "redis", Generation: "three", PrimaryId: "primary-one", SchemaVersion: 1}
-	two := &pb.StateAuthority{Service: "redis", Generation: "three", PrimaryId: "primary-two", SchemaVersion: 1}
-	long := strings.Repeat("x", 96)
-	ref := &pb.ContextRef{Id: long, State: &pb.StateRef{Authority: one, GroupId: long, Incarnation: long, Partition: 4095}}
-	id, err := dialogIDFor(one, key, ref)
-	if err != nil || len(id) != maxDialogIDLength {
-		t.Fatal("maximum-size native reference produced an out-of-bounds handle", len(id), err)
-	}
-	ref.OpaqueDialogId = id
-	ref.State.Authority = two
-	frame := &pb.Envelope{Payload: &pb.Envelope_Inspect{Inspect: &pb.ContextInspect{Context: ref}}}
-	if err := normalizeDialogIDs(frame, two, key, DialogIDCapability); err == nil {
-		t.Fatal("dialog ID escaped its native domain")
-	}
-	ref.State.Authority = one
-	ref.OpaqueDialogId = id + "x"
-	if err := normalizeDialogIDs(frame, one, key, DialogIDCapability); err == nil {
-		t.Fatal("overlong dialog ID was accepted")
+	proof.Authority = nil
+	other := proto.Clone(authority).(*pb.StateAuthority)
+	other.PrimaryId = "another"
+	if _, err := projectDialogIDs(frame, other, key); err == nil {
+		t.Fatal("accepted a retirement proof from another state scope")
 	}
 }
 
-func TestDialogIDControlNegotiation(t *testing.T) {
+func TestServingControlRequiresCurrentDialogContract(t *testing.T) {
 	pki := newPKI(t)
 	key := bytes.Repeat([]byte{2}, 32)
-	authority := &pb.StateAuthority{Service: "redis", Generation: "three", PrimaryId: "run", SchemaVersion: 1}
+	authority := &pb.StateAuthority{Service: "redis", Generation: "4", PrimaryId: "run", SchemaVersion: 1}
 	ref := &pb.ContextRef{Id: "call", Owner: &pb.ProcessRef{InstanceId: "sip", Epoch: "sip-epoch"},
 		State: &pb.StateRef{Authority: authority, GroupId: "call", Incarnation: "one", CallId: "call@example.test"}}
-	shared := []string{"sip.v1", StateCapability, NativeCompletionCapability, DialogSocketCapability, ControlAttachmentCapability}
-	dual := append(slices.Clone(shared), DialogIDCapability)
-	capabilities := append(slices.Clone(dual), DialogIDOnlyCapability)
+	base := []string{"sip.v1", StateCapability, NativeCompletionCapability, DialogSocketCapability, ControlAttachmentCapability}
+	current := append(slices.Clone(base), DialogIDOnlyCapability, DialogRetirementCapability)
 	lease := func(app *pb.ProcessRef) *pb.ApplicationLease {
 		now := uint64(time.Now().UnixMilli())
 		return &pb.ApplicationLease{Application: app, Authority: authority, Term: "term", CheckedAtMs: now, ExpiresAtMs: now + 30000}
 	}
-	handled := make(chan *pb.ContextRef, 2)
 	_, address := testServer(t, pki, 8, func(cfg *Config) {
-		cfg.Capabilities, cfg.StateAuthority, cfg.DialogIDKey = capabilities, authority, key
+		cfg.Capabilities, cfg.StateAuthority, cfg.DialogIDKey = current, authority, key
 		cfg.OnControllerSession = func(_ context.Context, _ *Peer, hello *pb.SessionHello) (*pb.ApplicationLease, error) {
 			return lease(hello.Controller), nil
 		}
@@ -106,21 +81,22 @@ func TestDialogIDControlNegotiation(t *testing.T) {
 		}
 		cfg.OnDisconnect = func(*Peer) {}
 		cfg.OnMessage = func(peer *Peer, frame *pb.Envelope) error {
-			handled <- frame.GetInspect().GetContext()
+			if !proto.Equal(frame.GetInspect().GetContext(), ref) {
+				return context.Canceled
+			}
 			return peer.Send(&pb.Envelope{CorrelationId: frame.CorrelationId, Payload: &pb.Envelope_Result{Result: &pb.OperationResult{
-				Certainty: pb.OperationResult_COMPLETED, Snapshot: &pb.ContextSnapshot{Context: ref},
+				Certainty:       pb.OperationResult_COMPLETED,
+				RetirementProof: &pb.ContextRetirementProof{Context: ref, Reason: pb.ContextRetirementProof_CONTEXT_ABSENT},
 			}}})
 		}
 	})
-
 	for _, tc := range []struct {
 		name string
 		caps []string
-		mode string
 	}{
-		{name: "legacy", caps: shared},
-		{name: "dual", caps: dual, mode: DialogIDCapability},
-		{name: "id-only", caps: capabilities, mode: DialogIDOnlyCapability},
+		{"old format", append(slices.Clone(base), "sip.dialog-id.v1")},
+		{"ID without retirement", append(slices.Clone(base), DialogIDOnlyCapability)},
+		{"current", current},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			conn, err := pki.dial(address)
@@ -129,76 +105,30 @@ func TestDialogIDControlNegotiation(t *testing.T) {
 			}
 			defer conn.CloseNow()
 			send(t, conn, &pb.Envelope{CorrelationId: "hello", Payload: &pb.Envelope_Hello{Hello: &pb.SessionHello{
-				Controller: &pb.ProcessRef{InstanceId: tc.name, Epoch: "epoch"}, ConnectionAttempt: 1,
+				Controller: &pb.ProcessRef{InstanceId: "controller", Epoch: "epoch"}, ConnectionAttempt: 1,
 				Major: 1, Capabilities: tc.caps, Bounds: &pb.Bounds{MaxEnvelopeBytes: 4096},
 			}}})
 			first, err := receive(conn)
+			if !slices.Contains(tc.caps, DialogRetirementCapability) {
+				if err == nil {
+					t.Fatal("serving session accepted an older dialog contract")
+				}
+				return
+			}
 			if err != nil || first.GetHelloAck() == nil {
-				t.Fatal("hello failed", err)
+				t.Fatal("current contract did not connect", err)
 			}
-			ack := first.GetHelloAck()
-			if dialogIDMode(ack.Capabilities) != tc.mode {
-				t.Fatal("incorrect dialog ID negotiation")
-			}
-			inspect := func(r *pb.ContextRef) {
-				send(t, conn, &pb.Envelope{CorrelationId: "inspect", SessionId: ack.SessionId, RemainingBudgetMs: 500,
-					Payload: &pb.Envelope_Inspect{Inspect: &pb.ContextInspect{Context: r}}})
-			}
-			input := proto.Clone(ref).(*pb.ContextRef)
-			id, err := dialogIDFor(authority, key, ref)
+			id, err := dialogIDOnlyFor(authority, key, ref)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tc.mode == DialogIDOnlyCapability {
-				id, err = dialogIDOnlyFor(authority, key, ref)
-				if err != nil {
-					t.Fatal(err)
-				}
-				// Old persisted references can still request a fresh projection.
-				inspect(input)
-				resolved, receiveErr := receive(conn)
-				if receiveErr != nil || resolved.GetResult().GetSnapshot().GetContext().GetOpaqueDialogId() != id {
-					t.Fatal("ID-only session failed to resolve a legacy reference", receiveErr)
-				}
-				<-handled
-				input = &pb.ContextRef{OpaqueDialogId: id}
-			} else if tc.mode == DialogIDCapability {
-				input.OpaqueDialogId = id
-			}
-			inspect(input)
+			send(t, conn, &pb.Envelope{CorrelationId: "inspect", SessionId: first.GetHelloAck().SessionId, RemainingBudgetMs: 500,
+				Payload: &pb.Envelope_Inspect{Inspect: &pb.ContextInspect{Context: &pb.ContextRef{OpaqueDialogId: id}}}})
 			reply, err := receive(conn)
-			if err != nil {
-				t.Fatal("compatible reference was rejected", err)
-			}
-			wire := reply.GetResult().GetSnapshot().GetContext()
-			if wire == nil || (wire.GetOpaqueDialogId() != "") != (tc.mode != "") || tc.mode != "" && wire.GetOpaqueDialogId() != id {
-				t.Fatal("incorrect wire reference")
-			}
-			if tc.mode == DialogIDOnlyCapability && (wire.GetId() != "" || wire.GetOwner() != nil || wire.GetState() != nil) {
-				t.Fatal("ID-only wire reference carried legacy fields")
-			}
-			select {
-			case native := <-handled:
-				if !proto.Equal(native, ref) {
-					t.Fatal("native inspection boundary changed the retained reference")
-				}
-			case <-time.After(time.Second):
-				t.Fatal("inspection was never handled")
-			}
-
-			if tc.mode == DialogIDOnlyCapability {
-				input.Id = ref.Id
-			} else if tc.mode == DialogIDCapability {
-				input.State.Incarnation = "recycled"
-			} else {
-				input.OpaqueDialogId = id
-			}
-			inspect(input)
-			if _, err := receive(conn); err == nil {
-				t.Fatal("unexpected response for invalid reference")
-			}
-			if len(handled) != 0 {
-				t.Fatal("invalid reference reached the native engine")
+			proof := reply.GetResult().GetRetirementProof()
+			if err != nil || proof.GetAuthority() != nil || proof.GetReason() != pb.ContextRetirementProof_CONTEXT_ABSENT ||
+				!proto.Equal(proof.GetContext(), &pb.ContextRef{OpaqueDialogId: id}) {
+				t.Fatal("invalid retirement proof on the current session", err)
 			}
 		})
 	}

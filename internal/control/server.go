@@ -118,11 +118,14 @@ func NewServer(cfg Config) (*Server, error) {
 			cfg.OnControllerSession == nil || cfg.OnControllerRenew == nil || cfg.OnDisconnect == nil) {
 		return nil, errors.New("exact control attachments require native dialog socket handling and controller lifecycle hooks")
 	}
-	if dialogIDMode(cfg.Capabilities) != "" {
-		if !slices.Contains(cfg.Capabilities, ControlAttachmentCapability) || len(cfg.DialogIDKey) < 32 || len(cfg.DialogIDKey) > 1024 {
-			return nil, errors.New("dialog IDs require exact control attachments and native identity key")
+	if slices.Contains(cfg.Capabilities, DialogIDOnlyCapability) {
+		if !HasStateCapability(cfg.Capabilities) || len(cfg.DialogIDKey) < 32 || len(cfg.DialogIDKey) > 1024 {
+			return nil, errors.New("dialog IDs require native state and an identity key")
 		}
 		cfg.DialogIDKey = append([]byte(nil), cfg.DialogIDKey...)
+	}
+	if slices.Contains(cfg.Capabilities, DialogRetirementCapability) && !slices.Contains(cfg.Capabilities, DialogIDOnlyCapability) {
+		return nil, errors.New("compact dialog retirement requires ID-only dialog references")
 	}
 	if slices.Contains(cfg.Capabilities, RequestDecisionCapability) {
 		for _, required := range requestDecisionDependencies {
@@ -497,7 +500,10 @@ func (p *session) read(ctx context.Context) (*pb.Envelope, error) {
 		p.diagnostic("read-envelope", nil, e, false)
 		return nil, errors.New("invalid envelope")
 	}
-	if err := normalizeDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, dialogIDMode(p.capabilities)); err != nil {
+	if e.GetResult().GetRetirementProof() != nil {
+		return nil, errors.New("only SIPbridge issues dialog retirement proofs")
+	}
+	if err := normalizeDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, slices.Contains(p.capabilities, DialogIDOnlyCapability)); err != nil {
 		p.diagnostic("read-dialog-id", err, e, false)
 		return nil, err
 	}
@@ -564,8 +570,11 @@ func (p *session) writeAdmitted(transport, caller context.Context, e *pb.Envelop
 		e.RemainingBudgetMs = uint32(remaining / time.Millisecond)
 	}
 	e.SessionId = p.id
-	if mode := dialogIDMode(p.capabilities); mode != "" {
-		wire, err := projectDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, mode)
+	if e.GetResult().GetRetirementProof() != nil && !slices.Contains(p.capabilities, DialogRetirementCapability) {
+		return errors.New("dialog retirement proof requires the current control contract")
+	}
+	if slices.Contains(p.capabilities, DialogIDOnlyCapability) {
+		wire, err := projectDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey)
 		if err != nil {
 			return err
 		}
@@ -637,8 +646,14 @@ func (p *session) hello() error {
 	if slices.Contains(p.capabilities, ControlAttachmentCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {
 		return errors.New("exact control attachments require dialog socket handling")
 	}
-	if dialogIDMode(p.capabilities) != "" && !slices.Contains(p.capabilities, ControlAttachmentCapability) {
-		return errors.New("dialog IDs require exact control attachments")
+	if slices.Contains(p.server.cfg.Capabilities, DialogRetirementCapability) &&
+		(!slices.Contains(p.capabilities, DialogRetirementCapability) || !slices.Contains(p.capabilities, DialogIDOnlyCapability)) {
+		return errors.New("serving runtime requires ID-only dialog references and retirement proofs")
+	}
+	if slices.Contains(p.server.cfg.Capabilities, ControlAttachmentCapability) &&
+		slices.Contains(p.server.cfg.Capabilities, DialogRetirementCapability) &&
+		!slices.Contains(p.capabilities, ControlAttachmentCapability) {
+		return errors.New("Redis serving runtime requires exact control attachments")
 	}
 	if slices.Contains(p.capabilities, DialogSocketResumeCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {
 		return errors.New("dialog socket resume requires direct socket routing")

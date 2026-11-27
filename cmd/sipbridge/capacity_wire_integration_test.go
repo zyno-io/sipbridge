@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"os"
@@ -246,7 +247,15 @@ func runTwoLeggedCapacity(t *testing.T, ws *websocket.Conn, hello *pb.SessionHel
 		if presentation == nil || presentation.Message.Method != "INVITE" {
 			t.Fatalf("initial call %d missing: %v", index, presentation)
 		}
-		inboundID := presentation.Snapshot.Context.Id
+		parts := strings.Split(presentation.Snapshot.Context.GetOpaqueDialogId(), ".")
+		if len(parts) != 4 || parts[0] != "d2" {
+			t.Fatal("INVITE missing a signed dialog ID")
+		}
+		locator, err := base64.RawURLEncoding.DecodeString(parts[2])
+		if err != nil {
+			t.Fatal(err)
+		}
+		inboundID, _, _ := strings.Cut(string(locator), "\x00")
 		if admissionPrefix == "" {
 			scope, err := redis.HGet(ctx, root+"core:context:"+inboundID, "admission").Result()
 			pod, _, ok := strings.Cut(scope, ":")

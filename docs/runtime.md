@@ -534,16 +534,13 @@ bounded Redis clock tolerance. Session fencing and a correlated challenge/reply
 precede renewal. The trusted directory's ten-second process lease records routing
 and business liveness.
 
-When `sip.control-attachment.v1` is negotiated with Redis, Hello binds the
+The Redis serving runtime requires `sip.control-attachment.v1`. Hello binds the
 server-issued control session to the application term. A matching Pong renews
 that exact attachment and the term. The attachment expires with its most recent
 renewal. Closing a control socket immediately fences its local capability and
 revokes only its own Redis attachment. Another connection under the same
 application can keep the term alive and control its own work. If all connections
-stop renewing, the existing application deadline drives orphan cleanup. Peers
-using the legacy capability set still expire their exact shared term on close.
-Upgrade controllers for a shared application together before relying on exact
-attachment closure.
+stop renewing, the existing application deadline drives orphan cleanup.
 
 Authenticated operations validate the live attachment in addition to the shared
 term when reading or publishing Redis authority. An application output retains

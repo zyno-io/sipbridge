@@ -217,7 +217,8 @@ message CredentialLookup { ContextRef context = 1; CredentialRef credential = 2;
 message CredentialResult { string username = 1; string password = 2; string version = 3; string error = 4; }
 message NetworkTarget { string proxy = 1; string transport = 2; CredentialRef credential = 5; }
 message OpenUac { string uri = 1; bytes body = 2; repeated Header headers = 3; string binding_id = 4; string principal_id = 5; NetworkTarget network = 6; string transport = 7; string method = 8; optional string outbound_call_id = 9; optional string native_call_id = 10; }
-message DialogRequest { string method = 1; bytes body = 2; repeated Header headers = 3; optional string blf_delivery_id = 4; repeated string blf_native_call_ids = 5; }
+message DialogRequest { string method = 1; bytes body = 2; repeated Header headers = 3; BlfCaptureAttribution blf_capture = 4; }
+message BlfCaptureAttribution { string delivery_id = 1; repeated string native_call_ids = 2; }
 message Cancel {}
 // One command-time policy/route decision from the authenticated controller.
 // It authorizes only this command's native construction, never arbitrary wire.

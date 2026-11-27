@@ -264,8 +264,8 @@ the context incarnation. Wire Call-ID negotiation, routing, authentication,
 and native matching have their own authority. Peers cannot assign capture
 attribution through SIP headers.
 
-An authenticated BLF NOTIFY command may include `blf_delivery_id` and up to
-20 `blf_native_call_ids` naming the calls that caused the delivery. They
+An authenticated BLF NOTIFY command may include `blf_capture` with a delivery UUID
+and up to 20 native call UUIDs naming the calls that caused the delivery. They
 apply to that transaction's writes and exact matching responses, including
 retries. The retained subscription has its own identity.
 

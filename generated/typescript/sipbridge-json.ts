@@ -1100,14 +1100,24 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
                 message: '.sipbridge.control.v1.Header',
                 repeated: true
             },
-            blfDeliveryId: {
+            blfCapture: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.BlfCaptureAttribution',
+                alias: 'blf_capture'
+            }
+        },
+        oneofs: []
+    },
+    '.sipbridge.control.v1.BlfCaptureAttribution': {
+        fields: {
+            deliveryId: {
                 kind: 'string',
-                alias: 'blf_delivery_id'
+                alias: 'delivery_id'
             },
-            blfNativeCallIds: {
+            nativeCallIds: {
                 kind: 'string',
                 repeated: true,
-                alias: 'blf_native_call_ids'
+                alias: 'native_call_ids'
             }
         },
         oneofs: []

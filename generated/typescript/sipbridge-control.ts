@@ -558,8 +558,12 @@ export interface DialogRequest {
     method: string;
     body: Buffer;
     headers: Header[];
-    blfDeliveryId?: string | undefined;
-    blfNativeCallIds: string[];
+    blfCapture?: BlfCaptureAttribution | undefined;
+}
+
+export interface BlfCaptureAttribution {
+    deliveryId: string;
+    nativeCallIds: string[];
 }
 
 export interface Cancel {}
@@ -2943,16 +2947,11 @@ export const DialogRequest: MessageFns<DialogRequest> = {
             method: isSet(object.method) ? globalThis.String(object.method) : '',
             body: isSet(object.body) ? Buffer.from(bytesFromBase64(globalThis.String(object.body))) : Buffer.alloc(0),
             headers: globalThis.Array.isArray(object?.headers) ? object.headers.map((e: unknown) => Header.fromJSON(e)) : [],
-            blfDeliveryId: isSet(object.blfDeliveryId)
-                ? globalThis.String(object.blfDeliveryId)
-                : isSet(object.blf_delivery_id)
-                  ? globalThis.String(object.blf_delivery_id)
-                  : undefined,
-            blfNativeCallIds: globalThis.Array.isArray(object?.blfNativeCallIds)
-                ? object.blfNativeCallIds.map((e: unknown) => globalThis.String(e))
-                : globalThis.Array.isArray(object?.blf_native_call_ids)
-                  ? object.blf_native_call_ids.map((e: unknown) => globalThis.String(e))
-                  : []
+            blfCapture: isSet(object.blfCapture)
+                ? BlfCaptureAttribution.fromJSON(object.blfCapture)
+                : isSet(object.blf_capture)
+                  ? BlfCaptureAttribution.fromJSON(object.blf_capture)
+                  : undefined
         };
     },
 
@@ -2967,11 +2966,37 @@ export const DialogRequest: MessageFns<DialogRequest> = {
         if (message.headers?.length) {
             obj.headers = message.headers.map(e => Header.toJSON(e));
         }
-        if (message.blfDeliveryId !== undefined) {
-            obj.blfDeliveryId = message.blfDeliveryId;
+        if (message.blfCapture !== undefined) {
+            obj.blfCapture = BlfCaptureAttribution.toJSON(message.blfCapture);
         }
-        if (message.blfNativeCallIds?.length) {
-            obj.blfNativeCallIds = message.blfNativeCallIds;
+        return obj;
+    }
+};
+
+export const BlfCaptureAttribution: MessageFns<BlfCaptureAttribution> = {
+    fromJSON(value: unknown): BlfCaptureAttribution {
+        const object = isObject(value) ? value : {};
+        return {
+            deliveryId: isSet(object.deliveryId)
+                ? globalThis.String(object.deliveryId)
+                : isSet(object.delivery_id)
+                  ? globalThis.String(object.delivery_id)
+                  : '',
+            nativeCallIds: globalThis.Array.isArray(object?.nativeCallIds)
+                ? object.nativeCallIds.map((e: unknown) => globalThis.String(e))
+                : globalThis.Array.isArray(object?.native_call_ids)
+                  ? object.native_call_ids.map((e: unknown) => globalThis.String(e))
+                  : []
+        };
+    },
+
+    toJSON(message: BlfCaptureAttribution): unknown {
+        const obj: Record<string, unknown> = {};
+        if (message.deliveryId !== '') {
+            obj.deliveryId = message.deliveryId;
+        }
+        if (message.nativeCallIds?.length) {
+            obj.nativeCallIds = message.nativeCallIds;
         }
         return obj;
     }

@@ -16,14 +16,13 @@ func validCaptureUUID(value string) bool {
 }
 
 func notifyCapture(command *pb.DialogRequest) (capture.Attribution, bool) {
-	id := command.GetBlfDeliveryId()
-	calls := command.GetBlfNativeCallIds()
 	if command == nil {
 		return capture.Attribution{}, false
 	}
-	if command.BlfDeliveryId == nil && len(calls) == 0 {
+	if command.BlfCapture == nil {
 		return capture.Attribution{}, true
 	}
+	id, calls := command.BlfCapture.DeliveryId, command.BlfCapture.NativeCallIds
 	if command.Method != "NOTIFY" || !validCaptureUUID(id) || len(calls) > 20 {
 		return capture.Attribution{}, false
 	}

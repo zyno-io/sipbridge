@@ -67,6 +67,7 @@ func receiveRedisRetainedSuccessfulACK(ctx context.Context, store *rediscore.Sto
 	if !message.EqualWire(final) {
 		return true, errNativeRecord
 	}
+	attributeNativeCall(ctx, current)
 	if procedure.Native.Phase == portable.Terminated {
 		return true, nil
 	}

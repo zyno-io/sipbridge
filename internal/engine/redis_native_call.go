@@ -58,6 +58,7 @@ func matchRedisCallCompletion(ctx context.Context, store *rediscore.Store, local
 		if selectErr != nil || !matched {
 			return matched, selectErr
 		}
+		attributeNativeCall(ctx, selected.context)
 		if selected.prior != nil {
 			return true, replayRedisServerCancel(ctx, store, selected, key, deadline)
 		}
@@ -69,6 +70,7 @@ func matchRedisCallCompletion(ctx context.Context, store *rediscore.Store, local
 			if selectErr != nil {
 				return true, selectErr
 			}
+			attributeNativeCall(ctx, selected.Context)
 			return true, publishRedisCallTransactionACK(ctx, store, selected, flow, executor, deadline)
 		}
 	} else {
@@ -84,6 +86,7 @@ func matchRedisCallCompletion(ctx context.Context, store *rediscore.Store, local
 	if err != nil {
 		return true, err
 	}
+	attributeNativeCall(ctx, selected.Context)
 	if facts.Method == sip.ACK {
 		return true, publishRedisCallDialogACK(ctx, store, selected, flow, key, executor, deadline)
 	}

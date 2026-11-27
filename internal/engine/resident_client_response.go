@@ -8,6 +8,7 @@ import (
 	"github.com/emiago/sipgo/sip"
 	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
+	"sipbridge/internal/capture"
 	pb "sipbridge/internal/controlpb"
 )
 
@@ -62,6 +63,7 @@ func (e *ResidentMemory) completeResidentClientParsed(ctx context.Context, flow 
 		c.mu.Unlock()
 		return false, nil
 	}
+	capture.Attribute(ctx, tx.attribution)
 	handled, err := e.residentDigest(ctx, c, tx, message, response)
 	if handled || err != nil {
 		c.mu.Unlock()

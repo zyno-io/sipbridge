@@ -155,6 +155,9 @@ func publishRedisUACDigestChallenge(ctx context.Context, store *rediscore.Store,
 	if err != nil || !handled {
 		return nil, handled, err
 	}
+	if candidate != nil {
+		attributeNativeCall(ctx, current)
+	}
 	if candidate == nil {
 		// Existing selected ACK/proof remains the only replay authority.
 		handled, replayErr := replayRedisUACFailure(ctx, store, selected.Identity, view.Revision, view.Timer, current, selected.Record, procedure, result.OperationId, message, flow, key, executor, deadline)

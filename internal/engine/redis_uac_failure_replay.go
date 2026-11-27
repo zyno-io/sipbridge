@@ -47,6 +47,7 @@ func replayRedisUACFailure(ctx context.Context, store *rediscore.Store, identity
 	if !portable.MatchResponse(tx.Origin, message) || !proto.Equal(proc.Metadata.Flow, flow) {
 		return true, errors.New("UAC failure replay mismatch")
 	}
+	attributeNativeCall(ctx, current)
 	if tx.Reliable || tx.Phase == portable.Terminated || proc.Metadata.AckEmissions >= stateProfileTransmissions {
 		return true, nil
 	}

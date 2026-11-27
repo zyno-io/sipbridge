@@ -8,6 +8,7 @@ import (
 
 	"github.com/emiago/sipgo/sip/portable"
 	"google.golang.org/protobuf/proto"
+	"sipbridge/internal/capture"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/nativepb"
 	"sipbridge/internal/rediscore"
@@ -240,7 +241,11 @@ func (w nativeRedisWriter) Reserve(ctx context.Context, write *pb.FlowWrite) (*C
 		copy(drain.Transaction[:], d.Transaction)
 		copy(drain.ACK[:], d.Ack)
 	}
-	return &CommittedWrite{Wire: result.Wire, Until: result.Until, Drain: drain, attachment: result.Attachment}, nil
+	var attribution capture.Attribution
+	if current, decodeErr := decodeNativeContext(result.ContextRecord); decodeErr == nil {
+		attribution.NativeCallID = current.NativeCallId
+	}
+	return &CommittedWrite{Wire: result.Wire, Until: result.Until, Drain: drain, attachment: result.Attachment, Attribution: attribution}, nil
 }
 func (w nativeRedisWriter) Complete(ctx context.Context, write *pb.FlowWrite, result *pb.DeliveryResult) error {
 	if w.store == nil || result == nil || !proto.Equal(result.Effect, write.GetEffect()) {

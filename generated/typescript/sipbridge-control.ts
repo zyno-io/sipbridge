@@ -492,6 +492,7 @@ export interface RequestDecision {
     headers: Header[];
     body: Buffer;
     notify?: DialogRequest | undefined;
+    nativeCallId?: string | undefined;
 }
 
 /**
@@ -550,12 +551,15 @@ export interface OpenUac {
     transport: string;
     method: string;
     outboundCallId?: string | undefined;
+    nativeCallId?: string | undefined;
 }
 
 export interface DialogRequest {
     method: string;
     body: Buffer;
     headers: Header[];
+    blfDeliveryId?: string | undefined;
+    blfNativeCallIds: string[];
 }
 
 export interface Cancel {}
@@ -2631,7 +2635,12 @@ export const RequestDecision: MessageFns<RequestDecision> = {
             status: isSet(object.status) ? globalThis.Number(object.status) : 0,
             headers: globalThis.Array.isArray(object?.headers) ? object.headers.map((e: unknown) => Header.fromJSON(e)) : [],
             body: isSet(object.body) ? Buffer.from(bytesFromBase64(globalThis.String(object.body))) : Buffer.alloc(0),
-            notify: isSet(object.notify) ? DialogRequest.fromJSON(object.notify) : undefined
+            notify: isSet(object.notify) ? DialogRequest.fromJSON(object.notify) : undefined,
+            nativeCallId: isSet(object.nativeCallId)
+                ? globalThis.String(object.nativeCallId)
+                : isSet(object.native_call_id)
+                  ? globalThis.String(object.native_call_id)
+                  : undefined
         };
     },
 
@@ -2672,6 +2681,9 @@ export const RequestDecision: MessageFns<RequestDecision> = {
         }
         if (message.notify !== undefined) {
             obj.notify = DialogRequest.toJSON(message.notify);
+        }
+        if (message.nativeCallId !== undefined) {
+            obj.nativeCallId = message.nativeCallId;
         }
         return obj;
     }
@@ -2879,6 +2891,11 @@ export const OpenUac: MessageFns<OpenUac> = {
                 ? globalThis.String(object.outboundCallId)
                 : isSet(object.outbound_call_id)
                   ? globalThis.String(object.outbound_call_id)
+                  : undefined,
+            nativeCallId: isSet(object.nativeCallId)
+                ? globalThis.String(object.nativeCallId)
+                : isSet(object.native_call_id)
+                  ? globalThis.String(object.native_call_id)
                   : undefined
         };
     },
@@ -2912,6 +2929,9 @@ export const OpenUac: MessageFns<OpenUac> = {
         if (message.outboundCallId !== undefined) {
             obj.outboundCallId = message.outboundCallId;
         }
+        if (message.nativeCallId !== undefined) {
+            obj.nativeCallId = message.nativeCallId;
+        }
         return obj;
     }
 };
@@ -2922,7 +2942,17 @@ export const DialogRequest: MessageFns<DialogRequest> = {
         return {
             method: isSet(object.method) ? globalThis.String(object.method) : '',
             body: isSet(object.body) ? Buffer.from(bytesFromBase64(globalThis.String(object.body))) : Buffer.alloc(0),
-            headers: globalThis.Array.isArray(object?.headers) ? object.headers.map((e: unknown) => Header.fromJSON(e)) : []
+            headers: globalThis.Array.isArray(object?.headers) ? object.headers.map((e: unknown) => Header.fromJSON(e)) : [],
+            blfDeliveryId: isSet(object.blfDeliveryId)
+                ? globalThis.String(object.blfDeliveryId)
+                : isSet(object.blf_delivery_id)
+                  ? globalThis.String(object.blf_delivery_id)
+                  : undefined,
+            blfNativeCallIds: globalThis.Array.isArray(object?.blfNativeCallIds)
+                ? object.blfNativeCallIds.map((e: unknown) => globalThis.String(e))
+                : globalThis.Array.isArray(object?.blf_native_call_ids)
+                  ? object.blf_native_call_ids.map((e: unknown) => globalThis.String(e))
+                  : []
         };
     },
 
@@ -2936,6 +2966,12 @@ export const DialogRequest: MessageFns<DialogRequest> = {
         }
         if (message.headers?.length) {
             obj.headers = message.headers.map(e => Header.toJSON(e));
+        }
+        if (message.blfDeliveryId !== undefined) {
+            obj.blfDeliveryId = message.blfDeliveryId;
+        }
+        if (message.blfNativeCallIds?.length) {
+            obj.blfNativeCallIds = message.blfNativeCallIds;
         }
         return obj;
     }

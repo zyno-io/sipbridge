@@ -76,6 +76,7 @@ func (e *redisNative) tryServerRequestDuplicate(parent context.Context, flow *pb
 	if !portable.MatchRequest(tx.Origin, message) || !tx.Origin.EqualWire(message) {
 		return true, rejectIngest(481, "server transaction request changed")
 	}
+	attributeNativeCall(ctx, current)
 	if flow.Transport != "udp" || procedure.Metadata.DecisionPending || tx.LastResponse == nil {
 		return true, nil
 	}

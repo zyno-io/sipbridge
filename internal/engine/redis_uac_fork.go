@@ -76,6 +76,7 @@ func receiveRedisUACAdditionalSuccess(ctx context.Context, store *rediscore.Stor
 	if !portable.MatchResponse(tx.Origin, message) || !proto.Equal(proc.Metadata.Flow, flow) {
 		return true, errors.New("UAC fork response mismatch")
 	}
+	attributeNativeCall(ctx, current)
 	var prior *portable.Dialog
 	var dialog nativeDialogRecord
 	if data := view.Records[dialogField]; data != nil {

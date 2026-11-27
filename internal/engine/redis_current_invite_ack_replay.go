@@ -72,6 +72,7 @@ func replayRedisCurrentInviteACK(ctx context.Context, store *rediscore.Store, se
 	if !response.EqualWire(final) {
 		return true, errNativeRecord
 	}
+	attributeNativeCall(ctx, current)
 	if dialog.LocalInvite.Ack == "" {
 		return true, nil
 	} // a remote offer still awaits its application answer

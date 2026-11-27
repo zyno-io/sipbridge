@@ -255,6 +255,34 @@ Call-IDs in unpadded base64url. A 128-bit tag occupies 22 characters and a full
 Retained dialogs use the original wire values. Local challenge ACK validation
 accepts both the hexadecimal and base64url encodings of the same proof.
 
+### Capture attribution
+
+An authenticated controller can supply a canonical `native_call_id` UUID
+with an initial `OpenUac` INVITE or the deferring `RequestDecision` for a fresh
+UAS INVITE. Only the exact accepted native operation associates the UUID with
+the context incarnation. Wire Call-ID negotiation, routing, authentication,
+and native matching have their own authority. Peers cannot assign capture
+attribution through SIP headers.
+
+An authenticated BLF NOTIFY command may include `blf_delivery_id` and up to
+20 `blf_native_call_ids` naming the calls that caused the delivery. They
+apply to that transaction's writes and exact matching responses, including
+retries. The retained subscription has its own identity.
+
+The exporter may hold the first observed INVITE in its bounded queue until
+the native decision commits or the admission budget expires. It preserves
+the original observation timestamp and sequence. Capture can drop records
+under load or during exporter outages, independently of SIP signaling.
+
+On an authenticated collector connection, v2 records include the observed
+attribution in the JSON body and copy the lookup UUIDs to structured
+metadata. The capture's ECDSA client certificate signs the exact bytes of
+`sipbridge-capture-v2`, a NUL, the Loki timestamp in decimal nanoseconds,
+a NUL, and the original JSON body. The DER leaf and ASN.1 signature are
+base64-encoded in `capture_cert` and `capture_signature`. UUIDs and
+certificates do not become stream labels. The local development HTTP
+exporter produces v1 physical observations.
+
 ### JSON WebSocket framing
 
 Proto3 optional scalar fields retain presence and may be omitted. Required

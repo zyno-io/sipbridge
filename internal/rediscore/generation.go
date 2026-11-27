@@ -14,7 +14,7 @@ import (
 
 // DefaultGeneration selects the Redis keyspace for this storage layout.
 // Increase it when an incompatible layout needs a fresh keyspace.
-const DefaultGeneration = "4"
+const DefaultGeneration = "5"
 
 const (
 	generationHeartbeatInterval = time.Minute

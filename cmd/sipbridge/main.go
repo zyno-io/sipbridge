@@ -44,6 +44,9 @@ func run() (runErr error) {
 	plain := flag.String("sip-plain-listen", ":5060", "public SIP UDP/TCP listener; empty disables")
 	public := flag.String("sip-listen", ":5061", "public SIP TLS listener")
 	captureURL := flag.String("sip-capture-url", "", "optional edge-local SIP capture collector URL")
+	captureCA := flag.String("sip-capture-ca", "", "capture receiver CA PEM")
+	captureCert := flag.String("sip-capture-cert", "", "capture workload certificate PEM")
+	captureKey := flag.String("sip-capture-key", "", "capture workload private key PEM")
 	sipInterface := flag.String("sip-interface", "", "optional IPv4 interface for public SIP listeners and network-target source")
 	admin := flag.String("admin-listen", "127.0.0.1:8800", "local health listener")
 	cert := flag.String("control-cert", "", "control server certificate")
@@ -170,7 +173,11 @@ func run() (runErr error) {
 	process := &pb.ProcessRef{InstanceId: *instance, Epoch: uuid.NewString()}
 	var sipCapture *capture.Exporter
 	if *captureURL != "" {
-		sipCapture, err = capture.New(*captureURL, process.InstanceId, process.Epoch)
+		if *captureCA != "" || *captureCert != "" || *captureKey != "" {
+			sipCapture, err = capture.NewAuthenticated(*captureURL, process.InstanceId, process.Epoch, *captureCA, *captureCert, *captureKey)
+		} else {
+			sipCapture, err = capture.New(*captureURL, process.InstanceId, process.Epoch)
+		}
 		if err != nil {
 			return err
 		}
@@ -263,7 +270,7 @@ func run() (runErr error) {
 		return stateNative.ReceiveRequestParsed(ctx, peer, flow, message, parsed, native)
 	}
 	ingress = engine.NewIngress(process, server, *advertise, 4096, ingressOptions)
-	engineConfig := engine.Config{Process: process, AdvertiseAddress: *advertise, PlainAdvertiseAddress: plainAdvertisement, ContactURI: *contact, OpenNetwork: ingress.OpenNetwork, LiveFlow: ingress.LiveFlow, StateIdentityKey: stateConfig.NamespaceKey}
+	engineConfig := engine.Config{Process: process, Capture: sipCapture, AdvertiseAddress: *advertise, PlainAdvertiseAddress: plainAdvertisement, ContactURI: *contact, OpenNetwork: ingress.OpenNetwork, LiveFlow: ingress.LiveFlow, StateIdentityKey: stateConfig.NamespaceKey}
 	var enqueueDriverIncident func(rediscore.DriverDiagnostic)
 	if hub != nil && binaryConnection != nil {
 		var stopReporter func()

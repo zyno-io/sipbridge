@@ -50,6 +50,9 @@ func (e *redisNative) decideDirect(parent context.Context, peer *control.Peer, d
 		}
 		procedureField := "r:procedure-" + decision.RequestId
 		inDialog := slices.Contains(current.NoninitialProcedures, procedureField)
+		if decision.NativeCallId != nil && (inDialog || current.Kind != pb.ContextSnapshot_UAS || decision.Status != 0) {
+			return nil, errNativeRecord
+		}
 		if inDialog {
 
 			candidate, prepareErr := prepareRedisDialogDecision(ctx, store, selected, current, e.cfg.StateIdentityKey, peer.Application(), witness, decision, operation, deadline)
@@ -74,8 +77,13 @@ func (e *redisNative) decideDirect(parent context.Context, peer *control.Peer, d
 		if current.Kind == pb.ContextSnapshot_UAS {
 
 			if decision.Status == 0 {
-				return commitRedisInviteDeferral(ctx, store, e.cfg.StateIdentityKey, peer.Application(), witness, decision, operation, deadline)
+				result, err := commitRedisInviteDeferral(ctx, store, e.cfg.StateIdentityKey, peer.Application(), witness, decision, operation, deadline)
+				if err == nil && result.GetCertainty() == pb.OperationResult_ACCEPTED {
+					e.cfg.Capture.Bind(captureContextKey(decision.Context), decision.GetNativeCallId())
+				}
+				return result, err
 			}
+			e.cfg.Capture.Bind(captureContextKey(decision.Context), "")
 			contact, sentBy, advertiseErr := advertisement(e.cfg, current.Transport)
 			if advertiseErr != nil {
 				return nil, advertiseErr

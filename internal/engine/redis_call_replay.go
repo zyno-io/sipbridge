@@ -91,6 +91,7 @@ func matchRedisCallByeDuplicate(ctx context.Context, store *rediscore.Store, loc
 	if !portable.MatchRequest(tx.Origin, message) || !tx.Origin.EqualWire(message) {
 		return true, errors.New("BYE duplicate mismatch")
 	}
+	attributeNativeCall(ctx, current)
 	// Reliable server transactions terminate after their final response; a
 	// retained duplicate is suppressed just as Memory's retired disposition.
 	if tx.Reliable || tx.Phase != portable.Completed || flow.Transport != "udp" {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/emiago/sipgo/sip/portable"
+	"sipbridge/internal/capture"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 )
@@ -103,6 +104,7 @@ type residentAdmission struct {
 }
 
 type residentTransaction struct {
+	attribution             capture.Attribution
 	direct                  bool
 	decisionPending         bool
 	decisionProposal        *pb.FlowAdoptionRequest

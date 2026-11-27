@@ -66,6 +66,7 @@ func (o OutputRef) valid() bool {
 type OutputResult struct {
 	Wire                 []byte
 	Metadata             []byte
+	ContextRecord        []byte
 	WireHash             [32]byte
 	Connection           string
 	Attachment           string
@@ -126,7 +127,7 @@ func (s *Store) ReserveOutput(ctx context.Context, o OutputRef) (OutputResult, e
 		}
 		return OutputResult{Outcome: value}, nil
 	case "OK":
-		if len(v) != 9 {
+		if len(v) != 10 {
 			return OutputResult{}, errors.Join(ErrUnknown, ErrCorrupt)
 		}
 		now, e := responseInt(v[1])
@@ -137,6 +138,7 @@ func (s *Store) ReserveOutput(ctx context.Context, o OutputRef) (OutputResult, e
 		wireHash, hashOK := v[6].(string)
 		appExpiry, appErr := responseInt(v[7])
 		attachment, attachmentOK := v[8].(string)
+		contextRecord, _ := v[9].(string)
 		elapsed := finish.Sub(start)
 		skew := finish.UnixMilli() - start.UnixMilli() - elapsed.Milliseconds()
 		if e != nil || dueErr != nil || leaseErr != nil || appErr != nil || (o.RequireApplication && appExpiry <= now) || (!o.RequireApplication && appExpiry != 0) || !attachmentOK || attachment != "" && (!o.RequireApplication || !reference(attachment)) || due <= now || leaseExpiry <= now || !ok || len(record) == 0 || len(record) > maxRecordBytes || !metadataOK || len(metadata) == 0 || len(metadata) > storagecodec.MaxNativeOutputBytes || !hashOK || len(wireHash) != 32 || elapsed < 0 || skew < -workerClockTolerance.Milliseconds() || skew > workerClockTolerance.Milliseconds() || now < start.UnixMilli()-workerClockTolerance.Milliseconds() || now > finish.UnixMilli()+workerClockTolerance.Milliseconds() {
@@ -164,7 +166,7 @@ func (s *Store) ReserveOutput(ctx context.Context, o OutputRef) (OutputResult, e
 		if ctx.Err() != nil || callCtx.Err() != nil || !time.Now().Before(until) {
 			return OutputResult{}, ErrUnknown
 		}
-		return OutputResult{Wire: wire, Metadata: []byte(metadata), WireHash: expectedWire, Connection: o.Connection, Attachment: attachment, DeadlineMS: due, LeaseExpiresMS: leaseExpiry, ApplicationExpiresMS: appExpiry, Until: until}, nil
+		return OutputResult{Wire: wire, Metadata: []byte(metadata), ContextRecord: []byte(contextRecord), WireHash: expectedWire, Connection: o.Connection, Attachment: attachment, DeadlineMS: due, LeaseExpiresMS: leaseExpiry, ApplicationExpiresMS: appExpiry, Until: until}, nil
 	default:
 		return OutputResult{}, status(v)
 	}
@@ -272,7 +274,9 @@ local metadata=redis.call('HGET',KEYS[2],a[11]);if not metadata or #metadata==0 
 local ns;ns,problem=nsCurrent(KEYS[5],KEYS[2],0,-#member-8,number(ARGV[#ARGV-2]),number(ARGV[#ARGV-1]),number(ARGV[#ARGV-3]));if problem then return fail(problem) end
 if not redis.acl_check_cmd('HSET',KEYS[2],out.prefix..'s','S') or not redis.acl_check_cmd('ZREM',KEYS[4],member) then return fail('AUTHORITY') end
 redis.call('HSET',KEYS[2],out.prefix..'s','S'); redis.call('ZREM',KEYS[4],member);nsApply(ns)
-return {'OK',string.format('%.0f',now),a[5],lease[2],record,metadata,a[7],string.format('%.0f',appExpiry),a[18] or ''}
+local captureContext=redis.call('HGET',KEYS[2],'r:context') or ''
+if #captureContext>65536 then captureContext='' end
+return {'OK',string.format('%.0f',now),a[5],lease[2],record,metadata,a[7],string.format('%.0f',appExpiry),a[18] or '',captureContext}
 `)
 
 var completeOutputScript = redis.NewScript(outputScript + `

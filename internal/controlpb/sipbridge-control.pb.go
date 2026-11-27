@@ -3262,6 +3262,7 @@ type RequestDecision struct {
 	Headers       []*Header              `protobuf:"bytes,10,rep,name=headers,proto3" json:"headers,omitempty"`
 	Body          []byte                 `protobuf:"bytes,11,opt,name=body,proto3" json:"body,omitempty"`
 	Notify        *DialogRequest         `protobuf:"bytes,12,opt,name=notify,proto3" json:"notify,omitempty"`
+	NativeCallId  *string                `protobuf:"bytes,13,opt,name=native_call_id,json=nativeCallId,proto3,oneof" json:"native_call_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3378,6 +3379,13 @@ func (x *RequestDecision) GetNotify() *DialogRequest {
 		return x.Notify
 	}
 	return nil
+}
+
+func (x *RequestDecision) GetNativeCallId() string {
+	if x != nil && x.NativeCallId != nil {
+		return *x.NativeCallId
+	}
+	return ""
 }
 
 // Trusted directory admission anchor for a business-selected response. Native
@@ -3771,6 +3779,7 @@ type OpenUac struct {
 	Transport      string                 `protobuf:"bytes,7,opt,name=transport,proto3" json:"transport,omitempty"`
 	Method         string                 `protobuf:"bytes,8,opt,name=method,proto3" json:"method,omitempty"`
 	OutboundCallId *string                `protobuf:"bytes,9,opt,name=outbound_call_id,json=outboundCallId,proto3,oneof" json:"outbound_call_id,omitempty"`
+	NativeCallId   *string                `protobuf:"bytes,10,opt,name=native_call_id,json=nativeCallId,proto3,oneof" json:"native_call_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -3868,13 +3877,22 @@ func (x *OpenUac) GetOutboundCallId() string {
 	return ""
 }
 
+func (x *OpenUac) GetNativeCallId() string {
+	if x != nil && x.NativeCallId != nil {
+		return *x.NativeCallId
+	}
+	return ""
+}
+
 type DialogRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Method        string                 `protobuf:"bytes,1,opt,name=method,proto3" json:"method,omitempty"`
-	Body          []byte                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
-	Headers       []*Header              `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Method           string                 `protobuf:"bytes,1,opt,name=method,proto3" json:"method,omitempty"`
+	Body             []byte                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
+	Headers          []*Header              `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty"`
+	BlfDeliveryId    *string                `protobuf:"bytes,4,opt,name=blf_delivery_id,json=blfDeliveryId,proto3,oneof" json:"blf_delivery_id,omitempty"`
+	BlfNativeCallIds []string               `protobuf:"bytes,5,rep,name=blf_native_call_ids,json=blfNativeCallIds,proto3" json:"blf_native_call_ids,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *DialogRequest) Reset() {
@@ -3924,6 +3942,20 @@ func (x *DialogRequest) GetBody() []byte {
 func (x *DialogRequest) GetHeaders() []*Header {
 	if x != nil {
 		return x.Headers
+	}
+	return nil
+}
+
+func (x *DialogRequest) GetBlfDeliveryId() string {
+	if x != nil && x.BlfDeliveryId != nil {
+		return *x.BlfDeliveryId
+	}
+	return ""
+}
+
+func (x *DialogRequest) GetBlfNativeCallIds() []string {
+	if x != nil {
+		return x.BlfNativeCallIds
 	}
 	return nil
 }
@@ -5674,7 +5706,7 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x12:\n" +
 	"\amessage\x18\x03 \x01(\v2 .sipbridge.control.v1.SipMessageR\amessage\x121\n" +
 	"\x04flow\x18\x04 \x01(\v2\x1d.sipbridge.control.v1.FlowRefR\x04flow\x12N\n" +
-	"\rflow_adoption\x18\x05 \x01(\v2).sipbridge.control.v1.FlowAdoptionRequestR\fflowAdoption\"\xb7\x04\n" +
+	"\rflow_adoption\x18\x05 \x01(\v2).sipbridge.control.v1.FlowAdoptionRequestR\fflowAdoption\"\xf5\x04\n" +
 	"\x0fRequestDecision\x12:\n" +
 	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12\x1d\n" +
 	"\n" +
@@ -5690,7 +5722,9 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\aheaders\x18\n" +
 	" \x03(\v2\x1c.sipbridge.control.v1.HeaderR\aheaders\x12\x12\n" +
 	"\x04body\x18\v \x01(\fR\x04body\x12;\n" +
-	"\x06notify\x18\f \x01(\v2#.sipbridge.control.v1.DialogRequestR\x06notify\"g\n" +
+	"\x06notify\x18\f \x01(\v2#.sipbridge.control.v1.DialogRequestR\x06notify\x12)\n" +
+	"\x0enative_call_id\x18\r \x01(\tH\x00R\fnativeCallId\x88\x01\x01B\x11\n" +
+	"\x0f_native_call_id\"g\n" +
 	"\x11ResponseAuthority\x12'\n" +
 	"\x0fdirectory_epoch\x18\x01 \x01(\tR\x0edirectoryEpoch\x12)\n" +
 	"\x10completion_scope\x18\x02 \x01(\tR\x0fcompletionScope\"\x95\x02\n" +
@@ -5722,7 +5756,7 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\ttransport\x18\x02 \x01(\tR\ttransport\x12C\n" +
 	"\n" +
 	"credential\x18\x05 \x01(\v2#.sipbridge.control.v1.CredentialRefR\n" +
-	"credential\"\xe2\x02\n" +
+	"credential\"\xa0\x03\n" +
 	"\aOpenUac\x12\x10\n" +
 	"\x03uri\x18\x01 \x01(\tR\x03uri\x12\x12\n" +
 	"\x04body\x18\x02 \x01(\fR\x04body\x126\n" +
@@ -5733,12 +5767,18 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\anetwork\x18\x06 \x01(\v2#.sipbridge.control.v1.NetworkTargetR\anetwork\x12\x1c\n" +
 	"\ttransport\x18\a \x01(\tR\ttransport\x12\x16\n" +
 	"\x06method\x18\b \x01(\tR\x06method\x12-\n" +
-	"\x10outbound_call_id\x18\t \x01(\tH\x00R\x0eoutboundCallId\x88\x01\x01B\x13\n" +
-	"\x11_outbound_call_id\"s\n" +
+	"\x10outbound_call_id\x18\t \x01(\tH\x00R\x0eoutboundCallId\x88\x01\x01\x12)\n" +
+	"\x0enative_call_id\x18\n" +
+	" \x01(\tH\x01R\fnativeCallId\x88\x01\x01B\x13\n" +
+	"\x11_outbound_call_idB\x11\n" +
+	"\x0f_native_call_id\"\xe3\x01\n" +
 	"\rDialogRequest\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
 	"\x04body\x18\x02 \x01(\fR\x04body\x126\n" +
-	"\aheaders\x18\x03 \x03(\v2\x1c.sipbridge.control.v1.HeaderR\aheaders\"\b\n" +
+	"\aheaders\x18\x03 \x03(\v2\x1c.sipbridge.control.v1.HeaderR\aheaders\x12+\n" +
+	"\x0fblf_delivery_id\x18\x04 \x01(\tH\x00R\rblfDeliveryId\x88\x01\x01\x12-\n" +
+	"\x13blf_native_call_ids\x18\x05 \x03(\tR\x10blfNativeCallIdsB\x12\n" +
+	"\x10_blf_delivery_id\"\b\n" +
 	"\x06Cancel\"\x80\x03\n" +
 	"\x10CommandAdmission\x12'\n" +
 	"\x0fdirectory_epoch\x18\x01 \x01(\tR\x0edirectoryEpoch\x12\"\n" +
@@ -6153,7 +6193,9 @@ func file_sipbridge_control_proto_init() {
 		(*Envelope_ControllerContextsResult)(nil),
 		(*Envelope_RequestDecision)(nil),
 	}
+	file_sipbridge_control_proto_msgTypes[28].OneofWrappers = []any{}
 	file_sipbridge_control_proto_msgTypes[35].OneofWrappers = []any{}
+	file_sipbridge_control_proto_msgTypes[36].OneofWrappers = []any{}
 	file_sipbridge_control_proto_msgTypes[40].OneofWrappers = []any{
 		(*Command_Respond)(nil),
 		(*Command_OpenUac)(nil),

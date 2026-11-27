@@ -120,7 +120,7 @@ func (e *ResidentMemory) residentDigest(ctx context.Context, c *residentContext,
 	if err != nil {
 		return true, err
 	}
-	retry := &residentTransaction{native: started, flow: proto.Clone(tx.flow).(*pb.FlowRef), application: app, command: tx.command,
+	retry := &residentTransaction{native: started, attribution: tx.attribution, flow: proto.Clone(tx.flow).(*pb.FlowRef), application: app, command: tx.command,
 		credential: proto.Clone(tx.credential).(*pb.CredentialRef), digestAttempts: attempt, deadline: tx.deadline, budget: tx.budget, policy: proto.Clone(tx.policy).(*pb.CommandAdmission), selectors: append([]string(nil), selectors...)}
 	retry.charged = residentTransactionBytes(retry)
 	retry.borrowed, err = e.chargeResidentBudgetLocked(c, retry.budget, retry.charged)

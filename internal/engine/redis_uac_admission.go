@@ -48,6 +48,9 @@ func admitRedisUACStart(ctx context.Context, store *rediscore.Store, in redisUAC
 		return nil, errNativeRecord
 	}
 	open := cmd.GetOpenUac()
+	if open.NativeCallId != nil && (standalone || !validCaptureUUID(open.GetNativeCallId())) {
+		return nil, errNativeRecord
+	}
 	worker, err := nativeWorkerReference(in.Executor)
 	if err != nil || in.ExecutorTimer.Worker != worker || in.ExecutorTimer.Epoch != in.Executor.Epoch || in.ExecutorTimer.Term != in.Executor.Epoch {
 		return nil, errNativeRecord
@@ -118,7 +121,7 @@ func admitRedisUACStart(ctx context.Context, store *rediscore.Store, in redisUAC
 	snapshot.LocalSdp = append([]byte(nil), open.Body...)
 	snapshot.Selectors = append([]string(nil), publicSelectors...)
 	snapshot.CommandSequence, snapshot.Revision = 1, 1
-	record := &nativepb.Context{Context: proto.Clone(in.Context).(*pb.ContextRef), Application: proto.Clone(in.Application).(*pb.ProcessRef), ApplicationLeaseTerm: in.Lease.Term, Executor: proto.Clone(in.Executor).(*pb.ProcessRef), Flow: proto.Clone(in.Flow).(*pb.FlowRef), Kind: kind, CallId: facts.CallID, LocalTag: facts.FromTag, LocalUri: facts.FromURI, RemoteUri: facts.ToURI, LocalSdp: append([]byte(nil), open.Body...), BindingId: open.BindingId, PrincipalId: open.PrincipalId, DirectoryEpoch: cmd.Admission.DirectoryEpoch, Transport: in.Flow.Transport, CommandSequence: 1, Revision: 1, Selectors: append([]string(nil), publicSelectors...), InitialProcedures: []string{procedureField}}
+	record := &nativepb.Context{Context: proto.Clone(in.Context).(*pb.ContextRef), Application: proto.Clone(in.Application).(*pb.ProcessRef), ApplicationLeaseTerm: in.Lease.Term, Executor: proto.Clone(in.Executor).(*pb.ProcessRef), Flow: proto.Clone(in.Flow).(*pb.FlowRef), Kind: kind, CallId: facts.CallID, NativeCallId: open.GetNativeCallId(), LocalTag: facts.FromTag, LocalUri: facts.FromURI, RemoteUri: facts.ToURI, LocalSdp: append([]byte(nil), open.Body...), BindingId: open.BindingId, PrincipalId: open.PrincipalId, DirectoryEpoch: cmd.Admission.DirectoryEpoch, Transport: in.Flow.Transport, CommandSequence: 1, Revision: 1, Selectors: append([]string(nil), publicSelectors...), InitialProcedures: []string{procedureField}}
 	if standalone {
 		snapshot.LocalSdp = nil
 		record.LocalSdp = nil

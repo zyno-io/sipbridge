@@ -123,6 +123,7 @@ func completeRedisCleanupByeResponse(ctx context.Context, store *rediscore.Store
 	if !portable.MatchResponse(tx.Origin, message) {
 		return true, errNativeRecord
 	}
+	attributeNativeCall(ctx, current)
 	now := time.Now()
 	next, effects, err := portable.StepTransaction(tx, portable.Input{Kind: portable.ReceiveResponse, Now: now.UnixMilli(), Message: message})
 	if err != nil {

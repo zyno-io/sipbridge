@@ -248,8 +248,7 @@ in this runtime. Ordinary UDP retransmission state stays local.
 
 Fresh application requests use the [direct decision contract](../PROTOCOL.md#direct-request-decision):
 one native notification, one controller decision and one native committed result.
-Memory requires `sip.request-decision.v1`; it has no alternate routing/ingest/
-presentation handshake. Native completion remains local. The native transaction
+Native completion remains local. The native transaction
 holds only the bounded pending request until its original deadline, using the same
 indexed deadline heap. There is no presentation queue or controller acknowledgement
 of the notification. A controller decision is the first application acceptance.

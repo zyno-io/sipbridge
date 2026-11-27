@@ -29,11 +29,10 @@ Redis selection composes the existing resident phone domain with the binary
 [Redis core](docs/redis-core.md) call domain;
 `state.OpenBackend` and the former checkpoint engine remain fixture APIs only.
 Both serving backends use parsed direct request/completion hooks and the same
-JSON control framing. Neither advertises controller reattachment. An established
-control disconnect expires its exact application term on the legacy path. A
-Redis session with negotiated exact control attachment instead closes only that
-session, with application-term expiry handling loss of the owner. Committed
-native obligations finish under their own deadlines. Healthy phone subscriptions
+JSON control framing. A control disconnect in Memory expires the application
+term. Redis closes the exact control attachment and handles loss of the owner
+through application-term expiry. Committed native obligations finish under
+their own deadlines. Healthy phone subscriptions
 remain pinned to their accepting process and connection until socket close or
 their own expiry.
 
@@ -86,7 +85,7 @@ publication of a route for later output is a separate ordered decision.
 The same public authority and schema name both internal domains. Reserved,
 process-epoch authenticated local IDs select the accepting owner even after
 retirement; a foreign local reference cannot produce shared absence. Exact
-selection and control-capability rules belong to [runtime](docs/runtime.md#native-ownership-domains).
+selection and serving profile rules belong to [runtime](docs/runtime.md#native-ownership-domains).
 
 Controller reattachment is not a serving capability. The older attachment
 protocol remains documented only for explicit [checkpoint fixtures](docs/controller-recovery.md).

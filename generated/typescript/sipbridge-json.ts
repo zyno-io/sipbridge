@@ -342,6 +342,11 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
                 kind: 'message',
                 message: '.sipbridge.control.v1.InboundAuthPolicy',
                 alias: 'inbound_auth_policy'
+            },
+            stateBackend: {
+                kind: 'enum',
+                values: ['STATE_BACKEND_UNSPECIFIED', 'MEMORY', 'REDIS'],
+                alias: 'state_backend'
             }
         },
         oneofs: []

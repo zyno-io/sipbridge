@@ -15,8 +15,6 @@ import (
 	pb "sipbridge/internal/controlpb"
 )
 
-const DialogRetirementCapability = "sip.dialog-retirement.v1"
-
 func encodeDialogID(capability, version string, authority *pb.StateAuthority, key []byte, digest, payload string) string {
 	mac := hmac.New(sha256.New, key)
 	for _, field := range []string{capability, version, authority.Service, authority.Generation,

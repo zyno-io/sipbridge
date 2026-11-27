@@ -168,7 +168,8 @@ try {
         digest_challenge_case_sha256: challengeCaseHash,
         wire_encoding: 'json',
         subprotocol: 'sipbridge.control.json.v1',
-        protocol_major: 1
+        protocol_major: 1,
+        protocol_minor: 1
     }, null, 2) + '\n');
     const pinTarget = join(root, 'dependencies/control-schema.json');
     if (checking) {

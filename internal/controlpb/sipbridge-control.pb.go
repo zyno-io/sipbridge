@@ -21,6 +21,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type SessionHelloAck_StateBackend int32
+
+const (
+	SessionHelloAck_STATE_BACKEND_UNSPECIFIED SessionHelloAck_StateBackend = 0
+	SessionHelloAck_MEMORY                    SessionHelloAck_StateBackend = 1
+	SessionHelloAck_REDIS                     SessionHelloAck_StateBackend = 2
+)
+
+// Enum value maps for SessionHelloAck_StateBackend.
+var (
+	SessionHelloAck_StateBackend_name = map[int32]string{
+		0: "STATE_BACKEND_UNSPECIFIED",
+		1: "MEMORY",
+		2: "REDIS",
+	}
+	SessionHelloAck_StateBackend_value = map[string]int32{
+		"STATE_BACKEND_UNSPECIFIED": 0,
+		"MEMORY":                    1,
+		"REDIS":                     2,
+	}
+)
+
+func (x SessionHelloAck_StateBackend) Enum() *SessionHelloAck_StateBackend {
+	p := new(SessionHelloAck_StateBackend)
+	*p = x
+	return p
+}
+
+func (x SessionHelloAck_StateBackend) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SessionHelloAck_StateBackend) Descriptor() protoreflect.EnumDescriptor {
+	return file_sipbridge_control_proto_enumTypes[0].Descriptor()
+}
+
+func (SessionHelloAck_StateBackend) Type() protoreflect.EnumType {
+	return &file_sipbridge_control_proto_enumTypes[0]
+}
+
+func (x SessionHelloAck_StateBackend) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SessionHelloAck_StateBackend.Descriptor instead.
+func (SessionHelloAck_StateBackend) EnumDescriptor() ([]byte, []int) {
+	return file_sipbridge_control_proto_rawDescGZIP(), []int{7, 0}
+}
+
 type RouteResult_Outcome int32
 
 const (
@@ -60,11 +109,11 @@ func (x RouteResult_Outcome) String() string {
 }
 
 func (RouteResult_Outcome) Descriptor() protoreflect.EnumDescriptor {
-	return file_sipbridge_control_proto_enumTypes[0].Descriptor()
+	return file_sipbridge_control_proto_enumTypes[1].Descriptor()
 }
 
 func (RouteResult_Outcome) Type() protoreflect.EnumType {
-	return &file_sipbridge_control_proto_enumTypes[0]
+	return &file_sipbridge_control_proto_enumTypes[1]
 }
 
 func (x RouteResult_Outcome) Number() protoreflect.EnumNumber {
@@ -115,11 +164,11 @@ func (x OwnerIngest_Admission) String() string {
 }
 
 func (OwnerIngest_Admission) Descriptor() protoreflect.EnumDescriptor {
-	return file_sipbridge_control_proto_enumTypes[1].Descriptor()
+	return file_sipbridge_control_proto_enumTypes[2].Descriptor()
 }
 
 func (OwnerIngest_Admission) Type() protoreflect.EnumType {
-	return &file_sipbridge_control_proto_enumTypes[1]
+	return &file_sipbridge_control_proto_enumTypes[2]
 }
 
 func (x OwnerIngest_Admission) Number() protoreflect.EnumNumber {
@@ -170,11 +219,11 @@ func (x ContextSnapshot_Kind) String() string {
 }
 
 func (ContextSnapshot_Kind) Descriptor() protoreflect.EnumDescriptor {
-	return file_sipbridge_control_proto_enumTypes[2].Descriptor()
+	return file_sipbridge_control_proto_enumTypes[3].Descriptor()
 }
 
 func (ContextSnapshot_Kind) Type() protoreflect.EnumType {
-	return &file_sipbridge_control_proto_enumTypes[2]
+	return &file_sipbridge_control_proto_enumTypes[3]
 }
 
 func (x ContextSnapshot_Kind) Number() protoreflect.EnumNumber {
@@ -225,11 +274,11 @@ func (x OperationResult_Certainty) String() string {
 }
 
 func (OperationResult_Certainty) Descriptor() protoreflect.EnumDescriptor {
-	return file_sipbridge_control_proto_enumTypes[3].Descriptor()
+	return file_sipbridge_control_proto_enumTypes[4].Descriptor()
 }
 
 func (OperationResult_Certainty) Type() protoreflect.EnumType {
-	return &file_sipbridge_control_proto_enumTypes[3]
+	return &file_sipbridge_control_proto_enumTypes[4]
 }
 
 func (x OperationResult_Certainty) Number() protoreflect.EnumNumber {
@@ -274,11 +323,11 @@ func (x DialogRecovery_Disposition) String() string {
 }
 
 func (DialogRecovery_Disposition) Descriptor() protoreflect.EnumDescriptor {
-	return file_sipbridge_control_proto_enumTypes[4].Descriptor()
+	return file_sipbridge_control_proto_enumTypes[5].Descriptor()
 }
 
 func (DialogRecovery_Disposition) Type() protoreflect.EnumType {
-	return &file_sipbridge_control_proto_enumTypes[4]
+	return &file_sipbridge_control_proto_enumTypes[5]
 }
 
 func (x DialogRecovery_Disposition) Number() protoreflect.EnumNumber {
@@ -326,11 +375,11 @@ func (x ContextRetirementProof_Reason) String() string {
 }
 
 func (ContextRetirementProof_Reason) Descriptor() protoreflect.EnumDescriptor {
-	return file_sipbridge_control_proto_enumTypes[5].Descriptor()
+	return file_sipbridge_control_proto_enumTypes[6].Descriptor()
 }
 
 func (ContextRetirementProof_Reason) Type() protoreflect.EnumType {
-	return &file_sipbridge_control_proto_enumTypes[5]
+	return &file_sipbridge_control_proto_enumTypes[6]
 }
 
 func (x ContextRetirementProof_Reason) Number() protoreflect.EnumNumber {
@@ -381,11 +430,11 @@ func (x EffectAuthorization_Class) String() string {
 }
 
 func (EffectAuthorization_Class) Descriptor() protoreflect.EnumDescriptor {
-	return file_sipbridge_control_proto_enumTypes[6].Descriptor()
+	return file_sipbridge_control_proto_enumTypes[7].Descriptor()
 }
 
 func (EffectAuthorization_Class) Type() protoreflect.EnumType {
-	return &file_sipbridge_control_proto_enumTypes[6]
+	return &file_sipbridge_control_proto_enumTypes[7]
 }
 
 func (x EffectAuthorization_Class) Number() protoreflect.EnumNumber {
@@ -433,11 +482,11 @@ func (x DeliveryResult_Outcome) String() string {
 }
 
 func (DeliveryResult_Outcome) Descriptor() protoreflect.EnumDescriptor {
-	return file_sipbridge_control_proto_enumTypes[7].Descriptor()
+	return file_sipbridge_control_proto_enumTypes[8].Descriptor()
 }
 
 func (DeliveryResult_Outcome) Type() protoreflect.EnumType {
-	return &file_sipbridge_control_proto_enumTypes[7]
+	return &file_sipbridge_control_proto_enumTypes[8]
 }
 
 func (x DeliveryResult_Outcome) Number() protoreflect.EnumNumber {
@@ -497,11 +546,11 @@ func (x DialogEvent_Kind) String() string {
 }
 
 func (DialogEvent_Kind) Descriptor() protoreflect.EnumDescriptor {
-	return file_sipbridge_control_proto_enumTypes[8].Descriptor()
+	return file_sipbridge_control_proto_enumTypes[9].Descriptor()
 }
 
 func (DialogEvent_Kind) Type() protoreflect.EnumType {
-	return &file_sipbridge_control_proto_enumTypes[8]
+	return &file_sipbridge_control_proto_enumTypes[9]
 }
 
 func (x DialogEvent_Kind) Number() protoreflect.EnumNumber {
@@ -516,7 +565,7 @@ func (DialogEvent_Kind) EnumDescriptor() ([]byte, []int) {
 // Canonical control contract and source for generated JSON codecs/validation.
 // Wire transport is UTF-8 JSON text only (sipbridge.control.json.v1), with
 // lowerCamelCase keys, symbolic enums, uint64 decimal strings and base64 bytes.
-// Application families require the explicitly negotiated sip.v1 capability.
+// The serving minor version includes the SIP application families.
 // PROTOCOL.md and ARCHITECTURE.md in sipbridge own
 // behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
 // ContextRef.opaque_dialog_id uses the bound of its negotiated ID capability.
@@ -1451,8 +1500,10 @@ type SessionHelloAck struct {
 	ApplicationLease    *ApplicationLease      `protobuf:"bytes,10,opt,name=application_lease,json=applicationLease,proto3" json:"application_lease,omitempty"`
 	// Static native request policy; present only with sip.local-challenge.v1.
 	InboundAuthPolicy *InboundAuthPolicy `protobuf:"bytes,11,opt,name=inbound_auth_policy,json=inboundAuthPolicy,proto3" json:"inbound_auth_policy,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The serving profile, required in the serving minor version.
+	StateBackend  SessionHelloAck_StateBackend `protobuf:"varint,12,opt,name=state_backend,json=stateBackend,proto3,enum=sipbridge.control.v1.SessionHelloAck_StateBackend" json:"state_backend,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SessionHelloAck) Reset() {
@@ -1560,6 +1611,13 @@ func (x *SessionHelloAck) GetInboundAuthPolicy() *InboundAuthPolicy {
 		return x.InboundAuthPolicy
 	}
 	return nil
+}
+
+func (x *SessionHelloAck) GetStateBackend() SessionHelloAck_StateBackend {
+	if x != nil {
+		return x.StateBackend
+	}
+	return SessionHelloAck_STATE_BACKEND_UNSPECIFIED
 }
 
 // SIP-owner authority in the selected state adapter. Application identifies the
@@ -2184,7 +2242,7 @@ type ContextRef struct {
 	Owner *ProcessRef            `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
 	Id    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	State *StateRef              `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
-	// Negotiated sip.dialog-id wire projection. Never persisted as native state.
+	// Serving dialog ID wire projection. Never persisted as native state.
 	OpaqueDialogId string `protobuf:"bytes,4,opt,name=opaque_dialog_id,json=opaqueDialogId,proto3" json:"opaque_dialog_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -5549,7 +5607,7 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\"p\n" +
 	"\x18ControllerContextsResult\x12<\n" +
 	"\bcontexts\x18\x01 \x03(\v2 .sipbridge.control.v1.ContextRefR\bcontexts\x12\x16\n" +
-	"\x06cursor\x18\x02 \x01(\tR\x06cursor\"\xd9\x04\n" +
+	"\x06cursor\x18\x02 \x01(\tR\x06cursor\"\xf8\x05\n" +
 	"\x0fSessionHelloAck\x12>\n" +
 	"\tsipbridge\x18\x01 \x01(\v2 .sipbridge.control.v1.ProcessRefR\tsipbridge\x12\x1d\n" +
 	"\n" +
@@ -5563,7 +5621,13 @@ const file_sipbridge_control_proto_rawDesc = "" +
 	"\x0fstate_authority\x18\t \x01(\v2$.sipbridge.control.v1.StateAuthorityR\x0estateAuthority\x12S\n" +
 	"\x11application_lease\x18\n" +
 	" \x01(\v2&.sipbridge.control.v1.ApplicationLeaseR\x10applicationLease\x12W\n" +
-	"\x13inbound_auth_policy\x18\v \x01(\v2'.sipbridge.control.v1.InboundAuthPolicyR\x11inboundAuthPolicy\"\x94\x04\n" +
+	"\x13inbound_auth_policy\x18\v \x01(\v2'.sipbridge.control.v1.InboundAuthPolicyR\x11inboundAuthPolicy\x12W\n" +
+	"\rstate_backend\x18\f \x01(\x0e22.sipbridge.control.v1.SessionHelloAck.StateBackendR\fstateBackend\"D\n" +
+	"\fStateBackend\x12\x1d\n" +
+	"\x19STATE_BACKEND_UNSPECIFIED\x10\x00\x12\n" +
+	"\n" +
+	"\x06MEMORY\x10\x01\x12\t\n" +
+	"\x05REDIS\x10\x02\"\x94\x04\n" +
 	"\x10ApplicationLease\x12B\n" +
 	"\vapplication\x18\x01 \x01(\v2 .sipbridge.control.v1.ProcessRefR\vapplication\x12B\n" +
 	"\tauthority\x18\x02 \x01(\v2$.sipbridge.control.v1.StateAuthorityR\tauthority\x12\x12\n" +
@@ -5987,223 +6051,225 @@ func file_sipbridge_control_proto_rawDescGZIP() []byte {
 	return file_sipbridge_control_proto_rawDescData
 }
 
-var file_sipbridge_control_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
+var file_sipbridge_control_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
 var file_sipbridge_control_proto_msgTypes = make([]protoimpl.MessageInfo, 62)
 var file_sipbridge_control_proto_goTypes = []any{
-	(RouteResult_Outcome)(0),           // 0: sipbridge.control.v1.RouteResult.Outcome
-	(OwnerIngest_Admission)(0),         // 1: sipbridge.control.v1.OwnerIngest.Admission
-	(ContextSnapshot_Kind)(0),          // 2: sipbridge.control.v1.ContextSnapshot.Kind
-	(OperationResult_Certainty)(0),     // 3: sipbridge.control.v1.OperationResult.Certainty
-	(DialogRecovery_Disposition)(0),    // 4: sipbridge.control.v1.DialogRecovery.Disposition
-	(ContextRetirementProof_Reason)(0), // 5: sipbridge.control.v1.ContextRetirementProof.Reason
-	(EffectAuthorization_Class)(0),     // 6: sipbridge.control.v1.EffectAuthorization.Class
-	(DeliveryResult_Outcome)(0),        // 7: sipbridge.control.v1.DeliveryResult.Outcome
-	(DialogEvent_Kind)(0),              // 8: sipbridge.control.v1.DialogEvent.Kind
-	(*Envelope)(nil),                   // 9: sipbridge.control.v1.Envelope
-	(*ProcessRef)(nil),                 // 10: sipbridge.control.v1.ProcessRef
-	(*Bounds)(nil),                     // 11: sipbridge.control.v1.Bounds
-	(*SessionHello)(nil),               // 12: sipbridge.control.v1.SessionHello
-	(*ControllerRecovery)(nil),         // 13: sipbridge.control.v1.ControllerRecovery
-	(*ControllerContexts)(nil),         // 14: sipbridge.control.v1.ControllerContexts
-	(*ControllerContextsResult)(nil),   // 15: sipbridge.control.v1.ControllerContextsResult
-	(*SessionHelloAck)(nil),            // 16: sipbridge.control.v1.SessionHelloAck
-	(*ApplicationLease)(nil),           // 17: sipbridge.control.v1.ApplicationLease
-	(*SessionStatus)(nil),              // 18: sipbridge.control.v1.SessionStatus
-	(*InboundAuthPolicy)(nil),          // 19: sipbridge.control.v1.InboundAuthPolicy
-	(*DigestChallengePolicy)(nil),      // 20: sipbridge.control.v1.DigestChallengePolicy
-	(*Heartbeat)(nil),                  // 21: sipbridge.control.v1.Heartbeat
-	(*FlowRef)(nil),                    // 22: sipbridge.control.v1.FlowRef
-	(*StateAuthority)(nil),             // 23: sipbridge.control.v1.StateAuthority
-	(*StateRef)(nil),                   // 24: sipbridge.control.v1.StateRef
-	(*ContextRef)(nil),                 // 25: sipbridge.control.v1.ContextRef
-	(*Header)(nil),                     // 26: sipbridge.control.v1.Header
-	(*Address)(nil),                    // 27: sipbridge.control.v1.Address
-	(*AddressList)(nil),                // 28: sipbridge.control.v1.AddressList
-	(*Via)(nil),                        // 29: sipbridge.control.v1.Via
-	(*DigestCredentials)(nil),          // 30: sipbridge.control.v1.DigestCredentials
-	(*SipMessage)(nil),                 // 31: sipbridge.control.v1.SipMessage
-	(*IngressReceived)(nil),            // 32: sipbridge.control.v1.IngressReceived
-	(*RouteResult)(nil),                // 33: sipbridge.control.v1.RouteResult
-	(*OwnerIngest)(nil),                // 34: sipbridge.control.v1.OwnerIngest
-	(*ContextSnapshot)(nil),            // 35: sipbridge.control.v1.ContextSnapshot
-	(*RequestPresented)(nil),           // 36: sipbridge.control.v1.RequestPresented
-	(*RequestDecision)(nil),            // 37: sipbridge.control.v1.RequestDecision
-	(*ResponseAuthority)(nil),          // 38: sipbridge.control.v1.ResponseAuthority
-	(*Respond)(nil),                    // 39: sipbridge.control.v1.Respond
-	(*CredentialRef)(nil),              // 40: sipbridge.control.v1.CredentialRef
-	(*CredentialLookup)(nil),           // 41: sipbridge.control.v1.CredentialLookup
-	(*CredentialResult)(nil),           // 42: sipbridge.control.v1.CredentialResult
-	(*NetworkTarget)(nil),              // 43: sipbridge.control.v1.NetworkTarget
-	(*OpenUac)(nil),                    // 44: sipbridge.control.v1.OpenUac
-	(*DialogRequest)(nil),              // 45: sipbridge.control.v1.DialogRequest
-	(*BlfCaptureAttribution)(nil),      // 46: sipbridge.control.v1.BlfCaptureAttribution
-	(*Cancel)(nil),                     // 47: sipbridge.control.v1.Cancel
-	(*CommandAdmission)(nil),           // 48: sipbridge.control.v1.CommandAdmission
-	(*ResumeDialogRequest)(nil),        // 49: sipbridge.control.v1.ResumeDialogRequest
-	(*Command)(nil),                    // 50: sipbridge.control.v1.Command
-	(*OperationResult)(nil),            // 51: sipbridge.control.v1.OperationResult
-	(*DialogRecovery)(nil),             // 52: sipbridge.control.v1.DialogRecovery
-	(*ContextRetirementProof)(nil),     // 53: sipbridge.control.v1.ContextRetirementProof
-	(*StateEffectRef)(nil),             // 54: sipbridge.control.v1.StateEffectRef
-	(*EffectAuthorization)(nil),        // 55: sipbridge.control.v1.EffectAuthorization
-	(*SendPermit)(nil),                 // 56: sipbridge.control.v1.SendPermit
-	(*EgressRequest)(nil),              // 57: sipbridge.control.v1.EgressRequest
-	(*FlowWrite)(nil),                  // 58: sipbridge.control.v1.FlowWrite
-	(*DeliveryResult)(nil),             // 59: sipbridge.control.v1.DeliveryResult
-	(*ApplicationProbe)(nil),           // 60: sipbridge.control.v1.ApplicationProbe
-	(*ApplicationStatus)(nil),          // 61: sipbridge.control.v1.ApplicationStatus
-	(*FlowClosed)(nil),                 // 62: sipbridge.control.v1.FlowClosed
-	(*DialogEvent)(nil),                // 63: sipbridge.control.v1.DialogEvent
-	(*ContextInspect)(nil),             // 64: sipbridge.control.v1.ContextInspect
-	(*ContextDelivery)(nil),            // 65: sipbridge.control.v1.ContextDelivery
-	(*FlowAdoptionRequest)(nil),        // 66: sipbridge.control.v1.FlowAdoptionRequest
-	(*FlowAdoptionResult)(nil),         // 67: sipbridge.control.v1.FlowAdoptionResult
-	nil,                                // 68: sipbridge.control.v1.Address.ParamsEntry
-	nil,                                // 69: sipbridge.control.v1.Via.ParamsEntry
-	nil,                                // 70: sipbridge.control.v1.SipMessage.AddressesEntry
+	(SessionHelloAck_StateBackend)(0),  // 0: sipbridge.control.v1.SessionHelloAck.StateBackend
+	(RouteResult_Outcome)(0),           // 1: sipbridge.control.v1.RouteResult.Outcome
+	(OwnerIngest_Admission)(0),         // 2: sipbridge.control.v1.OwnerIngest.Admission
+	(ContextSnapshot_Kind)(0),          // 3: sipbridge.control.v1.ContextSnapshot.Kind
+	(OperationResult_Certainty)(0),     // 4: sipbridge.control.v1.OperationResult.Certainty
+	(DialogRecovery_Disposition)(0),    // 5: sipbridge.control.v1.DialogRecovery.Disposition
+	(ContextRetirementProof_Reason)(0), // 6: sipbridge.control.v1.ContextRetirementProof.Reason
+	(EffectAuthorization_Class)(0),     // 7: sipbridge.control.v1.EffectAuthorization.Class
+	(DeliveryResult_Outcome)(0),        // 8: sipbridge.control.v1.DeliveryResult.Outcome
+	(DialogEvent_Kind)(0),              // 9: sipbridge.control.v1.DialogEvent.Kind
+	(*Envelope)(nil),                   // 10: sipbridge.control.v1.Envelope
+	(*ProcessRef)(nil),                 // 11: sipbridge.control.v1.ProcessRef
+	(*Bounds)(nil),                     // 12: sipbridge.control.v1.Bounds
+	(*SessionHello)(nil),               // 13: sipbridge.control.v1.SessionHello
+	(*ControllerRecovery)(nil),         // 14: sipbridge.control.v1.ControllerRecovery
+	(*ControllerContexts)(nil),         // 15: sipbridge.control.v1.ControllerContexts
+	(*ControllerContextsResult)(nil),   // 16: sipbridge.control.v1.ControllerContextsResult
+	(*SessionHelloAck)(nil),            // 17: sipbridge.control.v1.SessionHelloAck
+	(*ApplicationLease)(nil),           // 18: sipbridge.control.v1.ApplicationLease
+	(*SessionStatus)(nil),              // 19: sipbridge.control.v1.SessionStatus
+	(*InboundAuthPolicy)(nil),          // 20: sipbridge.control.v1.InboundAuthPolicy
+	(*DigestChallengePolicy)(nil),      // 21: sipbridge.control.v1.DigestChallengePolicy
+	(*Heartbeat)(nil),                  // 22: sipbridge.control.v1.Heartbeat
+	(*FlowRef)(nil),                    // 23: sipbridge.control.v1.FlowRef
+	(*StateAuthority)(nil),             // 24: sipbridge.control.v1.StateAuthority
+	(*StateRef)(nil),                   // 25: sipbridge.control.v1.StateRef
+	(*ContextRef)(nil),                 // 26: sipbridge.control.v1.ContextRef
+	(*Header)(nil),                     // 27: sipbridge.control.v1.Header
+	(*Address)(nil),                    // 28: sipbridge.control.v1.Address
+	(*AddressList)(nil),                // 29: sipbridge.control.v1.AddressList
+	(*Via)(nil),                        // 30: sipbridge.control.v1.Via
+	(*DigestCredentials)(nil),          // 31: sipbridge.control.v1.DigestCredentials
+	(*SipMessage)(nil),                 // 32: sipbridge.control.v1.SipMessage
+	(*IngressReceived)(nil),            // 33: sipbridge.control.v1.IngressReceived
+	(*RouteResult)(nil),                // 34: sipbridge.control.v1.RouteResult
+	(*OwnerIngest)(nil),                // 35: sipbridge.control.v1.OwnerIngest
+	(*ContextSnapshot)(nil),            // 36: sipbridge.control.v1.ContextSnapshot
+	(*RequestPresented)(nil),           // 37: sipbridge.control.v1.RequestPresented
+	(*RequestDecision)(nil),            // 38: sipbridge.control.v1.RequestDecision
+	(*ResponseAuthority)(nil),          // 39: sipbridge.control.v1.ResponseAuthority
+	(*Respond)(nil),                    // 40: sipbridge.control.v1.Respond
+	(*CredentialRef)(nil),              // 41: sipbridge.control.v1.CredentialRef
+	(*CredentialLookup)(nil),           // 42: sipbridge.control.v1.CredentialLookup
+	(*CredentialResult)(nil),           // 43: sipbridge.control.v1.CredentialResult
+	(*NetworkTarget)(nil),              // 44: sipbridge.control.v1.NetworkTarget
+	(*OpenUac)(nil),                    // 45: sipbridge.control.v1.OpenUac
+	(*DialogRequest)(nil),              // 46: sipbridge.control.v1.DialogRequest
+	(*BlfCaptureAttribution)(nil),      // 47: sipbridge.control.v1.BlfCaptureAttribution
+	(*Cancel)(nil),                     // 48: sipbridge.control.v1.Cancel
+	(*CommandAdmission)(nil),           // 49: sipbridge.control.v1.CommandAdmission
+	(*ResumeDialogRequest)(nil),        // 50: sipbridge.control.v1.ResumeDialogRequest
+	(*Command)(nil),                    // 51: sipbridge.control.v1.Command
+	(*OperationResult)(nil),            // 52: sipbridge.control.v1.OperationResult
+	(*DialogRecovery)(nil),             // 53: sipbridge.control.v1.DialogRecovery
+	(*ContextRetirementProof)(nil),     // 54: sipbridge.control.v1.ContextRetirementProof
+	(*StateEffectRef)(nil),             // 55: sipbridge.control.v1.StateEffectRef
+	(*EffectAuthorization)(nil),        // 56: sipbridge.control.v1.EffectAuthorization
+	(*SendPermit)(nil),                 // 57: sipbridge.control.v1.SendPermit
+	(*EgressRequest)(nil),              // 58: sipbridge.control.v1.EgressRequest
+	(*FlowWrite)(nil),                  // 59: sipbridge.control.v1.FlowWrite
+	(*DeliveryResult)(nil),             // 60: sipbridge.control.v1.DeliveryResult
+	(*ApplicationProbe)(nil),           // 61: sipbridge.control.v1.ApplicationProbe
+	(*ApplicationStatus)(nil),          // 62: sipbridge.control.v1.ApplicationStatus
+	(*FlowClosed)(nil),                 // 63: sipbridge.control.v1.FlowClosed
+	(*DialogEvent)(nil),                // 64: sipbridge.control.v1.DialogEvent
+	(*ContextInspect)(nil),             // 65: sipbridge.control.v1.ContextInspect
+	(*ContextDelivery)(nil),            // 66: sipbridge.control.v1.ContextDelivery
+	(*FlowAdoptionRequest)(nil),        // 67: sipbridge.control.v1.FlowAdoptionRequest
+	(*FlowAdoptionResult)(nil),         // 68: sipbridge.control.v1.FlowAdoptionResult
+	nil,                                // 69: sipbridge.control.v1.Address.ParamsEntry
+	nil,                                // 70: sipbridge.control.v1.Via.ParamsEntry
+	nil,                                // 71: sipbridge.control.v1.SipMessage.AddressesEntry
 }
 var file_sipbridge_control_proto_depIdxs = []int32{
-	12,  // 0: sipbridge.control.v1.Envelope.hello:type_name -> sipbridge.control.v1.SessionHello
-	16,  // 1: sipbridge.control.v1.Envelope.hello_ack:type_name -> sipbridge.control.v1.SessionHelloAck
-	18,  // 2: sipbridge.control.v1.Envelope.status:type_name -> sipbridge.control.v1.SessionStatus
-	21,  // 3: sipbridge.control.v1.Envelope.ping:type_name -> sipbridge.control.v1.Heartbeat
-	21,  // 4: sipbridge.control.v1.Envelope.pong:type_name -> sipbridge.control.v1.Heartbeat
-	32,  // 5: sipbridge.control.v1.Envelope.ingress:type_name -> sipbridge.control.v1.IngressReceived
-	33,  // 6: sipbridge.control.v1.Envelope.route_result:type_name -> sipbridge.control.v1.RouteResult
-	34,  // 7: sipbridge.control.v1.Envelope.ingest:type_name -> sipbridge.control.v1.OwnerIngest
-	36,  // 8: sipbridge.control.v1.Envelope.request:type_name -> sipbridge.control.v1.RequestPresented
-	50,  // 9: sipbridge.control.v1.Envelope.command:type_name -> sipbridge.control.v1.Command
-	51,  // 10: sipbridge.control.v1.Envelope.result:type_name -> sipbridge.control.v1.OperationResult
-	57,  // 11: sipbridge.control.v1.Envelope.egress:type_name -> sipbridge.control.v1.EgressRequest
-	58,  // 12: sipbridge.control.v1.Envelope.write:type_name -> sipbridge.control.v1.FlowWrite
-	59,  // 13: sipbridge.control.v1.Envelope.delivery:type_name -> sipbridge.control.v1.DeliveryResult
-	62,  // 14: sipbridge.control.v1.Envelope.flow_closed:type_name -> sipbridge.control.v1.FlowClosed
-	63,  // 15: sipbridge.control.v1.Envelope.dialog_event:type_name -> sipbridge.control.v1.DialogEvent
-	64,  // 16: sipbridge.control.v1.Envelope.inspect:type_name -> sipbridge.control.v1.ContextInspect
-	66,  // 17: sipbridge.control.v1.Envelope.flow_adoption:type_name -> sipbridge.control.v1.FlowAdoptionRequest
-	67,  // 18: sipbridge.control.v1.Envelope.flow_adoption_result:type_name -> sipbridge.control.v1.FlowAdoptionResult
-	56,  // 19: sipbridge.control.v1.Envelope.send_permit:type_name -> sipbridge.control.v1.SendPermit
-	58,  // 20: sipbridge.control.v1.Envelope.deliver_effect:type_name -> sipbridge.control.v1.FlowWrite
-	41,  // 21: sipbridge.control.v1.Envelope.credential_lookup:type_name -> sipbridge.control.v1.CredentialLookup
-	42,  // 22: sipbridge.control.v1.Envelope.credential_result:type_name -> sipbridge.control.v1.CredentialResult
-	58,  // 23: sipbridge.control.v1.Envelope.inspect_effect:type_name -> sipbridge.control.v1.FlowWrite
-	60,  // 24: sipbridge.control.v1.Envelope.probe_application:type_name -> sipbridge.control.v1.ApplicationProbe
-	61,  // 25: sipbridge.control.v1.Envelope.application_status:type_name -> sipbridge.control.v1.ApplicationStatus
-	14,  // 26: sipbridge.control.v1.Envelope.controller_contexts:type_name -> sipbridge.control.v1.ControllerContexts
-	15,  // 27: sipbridge.control.v1.Envelope.controller_contexts_result:type_name -> sipbridge.control.v1.ControllerContextsResult
-	37,  // 28: sipbridge.control.v1.Envelope.request_decision:type_name -> sipbridge.control.v1.RequestDecision
-	10,  // 29: sipbridge.control.v1.SessionHello.controller:type_name -> sipbridge.control.v1.ProcessRef
-	11,  // 30: sipbridge.control.v1.SessionHello.bounds:type_name -> sipbridge.control.v1.Bounds
-	13,  // 31: sipbridge.control.v1.SessionHello.recovery:type_name -> sipbridge.control.v1.ControllerRecovery
-	10,  // 32: sipbridge.control.v1.ControllerRecovery.application:type_name -> sipbridge.control.v1.ProcessRef
-	25,  // 33: sipbridge.control.v1.ControllerContextsResult.contexts:type_name -> sipbridge.control.v1.ContextRef
-	10,  // 34: sipbridge.control.v1.SessionHelloAck.sipbridge:type_name -> sipbridge.control.v1.ProcessRef
-	11,  // 35: sipbridge.control.v1.SessionHelloAck.bounds:type_name -> sipbridge.control.v1.Bounds
-	23,  // 36: sipbridge.control.v1.SessionHelloAck.state_authority:type_name -> sipbridge.control.v1.StateAuthority
-	17,  // 37: sipbridge.control.v1.SessionHelloAck.application_lease:type_name -> sipbridge.control.v1.ApplicationLease
-	19,  // 38: sipbridge.control.v1.SessionHelloAck.inbound_auth_policy:type_name -> sipbridge.control.v1.InboundAuthPolicy
-	10,  // 39: sipbridge.control.v1.ApplicationLease.application:type_name -> sipbridge.control.v1.ProcessRef
-	23,  // 40: sipbridge.control.v1.ApplicationLease.authority:type_name -> sipbridge.control.v1.StateAuthority
-	10,  // 41: sipbridge.control.v1.ApplicationLease.holder:type_name -> sipbridge.control.v1.ProcessRef
-	20,  // 42: sipbridge.control.v1.SessionStatus.digest_challenge_policy:type_name -> sipbridge.control.v1.DigestChallengePolicy
-	10,  // 43: sipbridge.control.v1.FlowRef.ingress:type_name -> sipbridge.control.v1.ProcessRef
-	23,  // 44: sipbridge.control.v1.StateRef.authority:type_name -> sipbridge.control.v1.StateAuthority
-	10,  // 45: sipbridge.control.v1.ContextRef.owner:type_name -> sipbridge.control.v1.ProcessRef
-	24,  // 46: sipbridge.control.v1.ContextRef.state:type_name -> sipbridge.control.v1.StateRef
-	68,  // 47: sipbridge.control.v1.Address.params:type_name -> sipbridge.control.v1.Address.ParamsEntry
-	27,  // 48: sipbridge.control.v1.AddressList.values:type_name -> sipbridge.control.v1.Address
-	69,  // 49: sipbridge.control.v1.Via.params:type_name -> sipbridge.control.v1.Via.ParamsEntry
-	26,  // 50: sipbridge.control.v1.SipMessage.headers:type_name -> sipbridge.control.v1.Header
-	70,  // 51: sipbridge.control.v1.SipMessage.addresses:type_name -> sipbridge.control.v1.SipMessage.AddressesEntry
-	29,  // 52: sipbridge.control.v1.SipMessage.vias:type_name -> sipbridge.control.v1.Via
-	30,  // 53: sipbridge.control.v1.SipMessage.authorization:type_name -> sipbridge.control.v1.DigestCredentials
-	22,  // 54: sipbridge.control.v1.IngressReceived.flow:type_name -> sipbridge.control.v1.FlowRef
-	31,  // 55: sipbridge.control.v1.IngressReceived.message:type_name -> sipbridge.control.v1.SipMessage
-	25,  // 56: sipbridge.control.v1.IngressReceived.context:type_name -> sipbridge.control.v1.ContextRef
-	0,   // 57: sipbridge.control.v1.RouteResult.outcome:type_name -> sipbridge.control.v1.RouteResult.Outcome
-	10,  // 58: sipbridge.control.v1.RouteResult.controller:type_name -> sipbridge.control.v1.ProcessRef
-	25,  // 59: sipbridge.control.v1.OwnerIngest.context:type_name -> sipbridge.control.v1.ContextRef
-	10,  // 60: sipbridge.control.v1.OwnerIngest.application:type_name -> sipbridge.control.v1.ProcessRef
-	22,  // 61: sipbridge.control.v1.OwnerIngest.flow:type_name -> sipbridge.control.v1.FlowRef
-	1,   // 62: sipbridge.control.v1.OwnerIngest.admission:type_name -> sipbridge.control.v1.OwnerIngest.Admission
-	25,  // 63: sipbridge.control.v1.ContextSnapshot.context:type_name -> sipbridge.control.v1.ContextRef
-	10,  // 64: sipbridge.control.v1.ContextSnapshot.application:type_name -> sipbridge.control.v1.ProcessRef
-	2,   // 65: sipbridge.control.v1.ContextSnapshot.kind:type_name -> sipbridge.control.v1.ContextSnapshot.Kind
-	65,  // 66: sipbridge.control.v1.ContextSnapshot.delivery:type_name -> sipbridge.control.v1.ContextDelivery
-	10,  // 67: sipbridge.control.v1.ContextSnapshot.executor:type_name -> sipbridge.control.v1.ProcessRef
-	35,  // 68: sipbridge.control.v1.RequestPresented.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
-	31,  // 69: sipbridge.control.v1.RequestPresented.message:type_name -> sipbridge.control.v1.SipMessage
-	22,  // 70: sipbridge.control.v1.RequestPresented.flow:type_name -> sipbridge.control.v1.FlowRef
-	66,  // 71: sipbridge.control.v1.RequestPresented.flow_adoption:type_name -> sipbridge.control.v1.FlowAdoptionRequest
-	25,  // 72: sipbridge.control.v1.RequestDecision.context:type_name -> sipbridge.control.v1.ContextRef
-	48,  // 73: sipbridge.control.v1.RequestDecision.admission:type_name -> sipbridge.control.v1.CommandAdmission
-	1,   // 74: sipbridge.control.v1.RequestDecision.basis:type_name -> sipbridge.control.v1.OwnerIngest.Admission
-	65,  // 75: sipbridge.control.v1.RequestDecision.delivery:type_name -> sipbridge.control.v1.ContextDelivery
-	26,  // 76: sipbridge.control.v1.RequestDecision.headers:type_name -> sipbridge.control.v1.Header
-	45,  // 77: sipbridge.control.v1.RequestDecision.notify:type_name -> sipbridge.control.v1.DialogRequest
-	26,  // 78: sipbridge.control.v1.Respond.headers:type_name -> sipbridge.control.v1.Header
-	38,  // 79: sipbridge.control.v1.Respond.authority:type_name -> sipbridge.control.v1.ResponseAuthority
-	25,  // 80: sipbridge.control.v1.CredentialLookup.context:type_name -> sipbridge.control.v1.ContextRef
-	40,  // 81: sipbridge.control.v1.CredentialLookup.credential:type_name -> sipbridge.control.v1.CredentialRef
-	40,  // 82: sipbridge.control.v1.NetworkTarget.credential:type_name -> sipbridge.control.v1.CredentialRef
-	26,  // 83: sipbridge.control.v1.OpenUac.headers:type_name -> sipbridge.control.v1.Header
-	43,  // 84: sipbridge.control.v1.OpenUac.network:type_name -> sipbridge.control.v1.NetworkTarget
-	26,  // 85: sipbridge.control.v1.DialogRequest.headers:type_name -> sipbridge.control.v1.Header
-	46,  // 86: sipbridge.control.v1.DialogRequest.blf_capture:type_name -> sipbridge.control.v1.BlfCaptureAttribution
-	22,  // 87: sipbridge.control.v1.CommandAdmission.selected_flow:type_name -> sipbridge.control.v1.FlowRef
-	65,  // 88: sipbridge.control.v1.CommandAdmission.expected_delivery:type_name -> sipbridge.control.v1.ContextDelivery
-	65,  // 89: sipbridge.control.v1.CommandAdmission.fallback_delivery:type_name -> sipbridge.control.v1.ContextDelivery
-	25,  // 90: sipbridge.control.v1.Command.context:type_name -> sipbridge.control.v1.ContextRef
-	48,  // 91: sipbridge.control.v1.Command.admission:type_name -> sipbridge.control.v1.CommandAdmission
-	39,  // 92: sipbridge.control.v1.Command.respond:type_name -> sipbridge.control.v1.Respond
-	44,  // 93: sipbridge.control.v1.Command.open_uac:type_name -> sipbridge.control.v1.OpenUac
-	45,  // 94: sipbridge.control.v1.Command.dialog_request:type_name -> sipbridge.control.v1.DialogRequest
-	47,  // 95: sipbridge.control.v1.Command.cancel:type_name -> sipbridge.control.v1.Cancel
-	49,  // 96: sipbridge.control.v1.Command.resume_dialog_request:type_name -> sipbridge.control.v1.ResumeDialogRequest
-	3,   // 97: sipbridge.control.v1.OperationResult.certainty:type_name -> sipbridge.control.v1.OperationResult.Certainty
-	35,  // 98: sipbridge.control.v1.OperationResult.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
-	31,  // 99: sipbridge.control.v1.OperationResult.request:type_name -> sipbridge.control.v1.SipMessage
-	31,  // 100: sipbridge.control.v1.OperationResult.response:type_name -> sipbridge.control.v1.SipMessage
-	53,  // 101: sipbridge.control.v1.OperationResult.retirement_proof:type_name -> sipbridge.control.v1.ContextRetirementProof
-	52,  // 102: sipbridge.control.v1.OperationResult.dialog_recovery:type_name -> sipbridge.control.v1.DialogRecovery
-	4,   // 103: sipbridge.control.v1.DialogRecovery.disposition:type_name -> sipbridge.control.v1.DialogRecovery.Disposition
-	25,  // 104: sipbridge.control.v1.ContextRetirementProof.context:type_name -> sipbridge.control.v1.ContextRef
-	23,  // 105: sipbridge.control.v1.ContextRetirementProof.authority:type_name -> sipbridge.control.v1.StateAuthority
-	5,   // 106: sipbridge.control.v1.ContextRetirementProof.reason:type_name -> sipbridge.control.v1.ContextRetirementProof.Reason
-	25,  // 107: sipbridge.control.v1.StateEffectRef.context:type_name -> sipbridge.control.v1.ContextRef
-	54,  // 108: sipbridge.control.v1.EffectAuthorization.effect:type_name -> sipbridge.control.v1.StateEffectRef
-	6,   // 109: sipbridge.control.v1.EffectAuthorization.authority_class:type_name -> sipbridge.control.v1.EffectAuthorization.Class
-	55,  // 110: sipbridge.control.v1.SendPermit.authorization:type_name -> sipbridge.control.v1.EffectAuthorization
-	22,  // 111: sipbridge.control.v1.SendPermit.flow:type_name -> sipbridge.control.v1.FlowRef
-	35,  // 112: sipbridge.control.v1.EgressRequest.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
-	31,  // 113: sipbridge.control.v1.EgressRequest.message:type_name -> sipbridge.control.v1.SipMessage
-	22,  // 114: sipbridge.control.v1.EgressRequest.return_flow:type_name -> sipbridge.control.v1.FlowRef
-	55,  // 115: sipbridge.control.v1.EgressRequest.authorization:type_name -> sipbridge.control.v1.EffectAuthorization
-	22,  // 116: sipbridge.control.v1.FlowWrite.flow:type_name -> sipbridge.control.v1.FlowRef
-	54,  // 117: sipbridge.control.v1.FlowWrite.effect:type_name -> sipbridge.control.v1.StateEffectRef
-	56,  // 118: sipbridge.control.v1.FlowWrite.permit:type_name -> sipbridge.control.v1.SendPermit
-	7,   // 119: sipbridge.control.v1.DeliveryResult.outcome:type_name -> sipbridge.control.v1.DeliveryResult.Outcome
-	54,  // 120: sipbridge.control.v1.DeliveryResult.effect:type_name -> sipbridge.control.v1.StateEffectRef
-	25,  // 121: sipbridge.control.v1.ApplicationProbe.context:type_name -> sipbridge.control.v1.ContextRef
-	10,  // 122: sipbridge.control.v1.ApplicationProbe.application:type_name -> sipbridge.control.v1.ProcessRef
-	25,  // 123: sipbridge.control.v1.ApplicationStatus.context:type_name -> sipbridge.control.v1.ContextRef
-	10,  // 124: sipbridge.control.v1.ApplicationStatus.application:type_name -> sipbridge.control.v1.ProcessRef
-	22,  // 125: sipbridge.control.v1.FlowClosed.flow:type_name -> sipbridge.control.v1.FlowRef
-	8,   // 126: sipbridge.control.v1.DialogEvent.kind:type_name -> sipbridge.control.v1.DialogEvent.Kind
-	35,  // 127: sipbridge.control.v1.DialogEvent.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
-	31,  // 128: sipbridge.control.v1.DialogEvent.message:type_name -> sipbridge.control.v1.SipMessage
-	25,  // 129: sipbridge.control.v1.ContextInspect.context:type_name -> sipbridge.control.v1.ContextRef
-	22,  // 130: sipbridge.control.v1.ContextDelivery.flow:type_name -> sipbridge.control.v1.FlowRef
-	25,  // 131: sipbridge.control.v1.FlowAdoptionRequest.context:type_name -> sipbridge.control.v1.ContextRef
-	10,  // 132: sipbridge.control.v1.FlowAdoptionRequest.application:type_name -> sipbridge.control.v1.ProcessRef
-	22,  // 133: sipbridge.control.v1.FlowAdoptionRequest.flow:type_name -> sipbridge.control.v1.FlowRef
-	65,  // 134: sipbridge.control.v1.FlowAdoptionResult.receipt:type_name -> sipbridge.control.v1.ContextDelivery
-	28,  // 135: sipbridge.control.v1.SipMessage.AddressesEntry.value:type_name -> sipbridge.control.v1.AddressList
-	136, // [136:136] is the sub-list for method output_type
-	136, // [136:136] is the sub-list for method input_type
-	136, // [136:136] is the sub-list for extension type_name
-	136, // [136:136] is the sub-list for extension extendee
-	0,   // [0:136] is the sub-list for field type_name
+	13,  // 0: sipbridge.control.v1.Envelope.hello:type_name -> sipbridge.control.v1.SessionHello
+	17,  // 1: sipbridge.control.v1.Envelope.hello_ack:type_name -> sipbridge.control.v1.SessionHelloAck
+	19,  // 2: sipbridge.control.v1.Envelope.status:type_name -> sipbridge.control.v1.SessionStatus
+	22,  // 3: sipbridge.control.v1.Envelope.ping:type_name -> sipbridge.control.v1.Heartbeat
+	22,  // 4: sipbridge.control.v1.Envelope.pong:type_name -> sipbridge.control.v1.Heartbeat
+	33,  // 5: sipbridge.control.v1.Envelope.ingress:type_name -> sipbridge.control.v1.IngressReceived
+	34,  // 6: sipbridge.control.v1.Envelope.route_result:type_name -> sipbridge.control.v1.RouteResult
+	35,  // 7: sipbridge.control.v1.Envelope.ingest:type_name -> sipbridge.control.v1.OwnerIngest
+	37,  // 8: sipbridge.control.v1.Envelope.request:type_name -> sipbridge.control.v1.RequestPresented
+	51,  // 9: sipbridge.control.v1.Envelope.command:type_name -> sipbridge.control.v1.Command
+	52,  // 10: sipbridge.control.v1.Envelope.result:type_name -> sipbridge.control.v1.OperationResult
+	58,  // 11: sipbridge.control.v1.Envelope.egress:type_name -> sipbridge.control.v1.EgressRequest
+	59,  // 12: sipbridge.control.v1.Envelope.write:type_name -> sipbridge.control.v1.FlowWrite
+	60,  // 13: sipbridge.control.v1.Envelope.delivery:type_name -> sipbridge.control.v1.DeliveryResult
+	63,  // 14: sipbridge.control.v1.Envelope.flow_closed:type_name -> sipbridge.control.v1.FlowClosed
+	64,  // 15: sipbridge.control.v1.Envelope.dialog_event:type_name -> sipbridge.control.v1.DialogEvent
+	65,  // 16: sipbridge.control.v1.Envelope.inspect:type_name -> sipbridge.control.v1.ContextInspect
+	67,  // 17: sipbridge.control.v1.Envelope.flow_adoption:type_name -> sipbridge.control.v1.FlowAdoptionRequest
+	68,  // 18: sipbridge.control.v1.Envelope.flow_adoption_result:type_name -> sipbridge.control.v1.FlowAdoptionResult
+	57,  // 19: sipbridge.control.v1.Envelope.send_permit:type_name -> sipbridge.control.v1.SendPermit
+	59,  // 20: sipbridge.control.v1.Envelope.deliver_effect:type_name -> sipbridge.control.v1.FlowWrite
+	42,  // 21: sipbridge.control.v1.Envelope.credential_lookup:type_name -> sipbridge.control.v1.CredentialLookup
+	43,  // 22: sipbridge.control.v1.Envelope.credential_result:type_name -> sipbridge.control.v1.CredentialResult
+	59,  // 23: sipbridge.control.v1.Envelope.inspect_effect:type_name -> sipbridge.control.v1.FlowWrite
+	61,  // 24: sipbridge.control.v1.Envelope.probe_application:type_name -> sipbridge.control.v1.ApplicationProbe
+	62,  // 25: sipbridge.control.v1.Envelope.application_status:type_name -> sipbridge.control.v1.ApplicationStatus
+	15,  // 26: sipbridge.control.v1.Envelope.controller_contexts:type_name -> sipbridge.control.v1.ControllerContexts
+	16,  // 27: sipbridge.control.v1.Envelope.controller_contexts_result:type_name -> sipbridge.control.v1.ControllerContextsResult
+	38,  // 28: sipbridge.control.v1.Envelope.request_decision:type_name -> sipbridge.control.v1.RequestDecision
+	11,  // 29: sipbridge.control.v1.SessionHello.controller:type_name -> sipbridge.control.v1.ProcessRef
+	12,  // 30: sipbridge.control.v1.SessionHello.bounds:type_name -> sipbridge.control.v1.Bounds
+	14,  // 31: sipbridge.control.v1.SessionHello.recovery:type_name -> sipbridge.control.v1.ControllerRecovery
+	11,  // 32: sipbridge.control.v1.ControllerRecovery.application:type_name -> sipbridge.control.v1.ProcessRef
+	26,  // 33: sipbridge.control.v1.ControllerContextsResult.contexts:type_name -> sipbridge.control.v1.ContextRef
+	11,  // 34: sipbridge.control.v1.SessionHelloAck.sipbridge:type_name -> sipbridge.control.v1.ProcessRef
+	12,  // 35: sipbridge.control.v1.SessionHelloAck.bounds:type_name -> sipbridge.control.v1.Bounds
+	24,  // 36: sipbridge.control.v1.SessionHelloAck.state_authority:type_name -> sipbridge.control.v1.StateAuthority
+	18,  // 37: sipbridge.control.v1.SessionHelloAck.application_lease:type_name -> sipbridge.control.v1.ApplicationLease
+	20,  // 38: sipbridge.control.v1.SessionHelloAck.inbound_auth_policy:type_name -> sipbridge.control.v1.InboundAuthPolicy
+	0,   // 39: sipbridge.control.v1.SessionHelloAck.state_backend:type_name -> sipbridge.control.v1.SessionHelloAck.StateBackend
+	11,  // 40: sipbridge.control.v1.ApplicationLease.application:type_name -> sipbridge.control.v1.ProcessRef
+	24,  // 41: sipbridge.control.v1.ApplicationLease.authority:type_name -> sipbridge.control.v1.StateAuthority
+	11,  // 42: sipbridge.control.v1.ApplicationLease.holder:type_name -> sipbridge.control.v1.ProcessRef
+	21,  // 43: sipbridge.control.v1.SessionStatus.digest_challenge_policy:type_name -> sipbridge.control.v1.DigestChallengePolicy
+	11,  // 44: sipbridge.control.v1.FlowRef.ingress:type_name -> sipbridge.control.v1.ProcessRef
+	24,  // 45: sipbridge.control.v1.StateRef.authority:type_name -> sipbridge.control.v1.StateAuthority
+	11,  // 46: sipbridge.control.v1.ContextRef.owner:type_name -> sipbridge.control.v1.ProcessRef
+	25,  // 47: sipbridge.control.v1.ContextRef.state:type_name -> sipbridge.control.v1.StateRef
+	69,  // 48: sipbridge.control.v1.Address.params:type_name -> sipbridge.control.v1.Address.ParamsEntry
+	28,  // 49: sipbridge.control.v1.AddressList.values:type_name -> sipbridge.control.v1.Address
+	70,  // 50: sipbridge.control.v1.Via.params:type_name -> sipbridge.control.v1.Via.ParamsEntry
+	27,  // 51: sipbridge.control.v1.SipMessage.headers:type_name -> sipbridge.control.v1.Header
+	71,  // 52: sipbridge.control.v1.SipMessage.addresses:type_name -> sipbridge.control.v1.SipMessage.AddressesEntry
+	30,  // 53: sipbridge.control.v1.SipMessage.vias:type_name -> sipbridge.control.v1.Via
+	31,  // 54: sipbridge.control.v1.SipMessage.authorization:type_name -> sipbridge.control.v1.DigestCredentials
+	23,  // 55: sipbridge.control.v1.IngressReceived.flow:type_name -> sipbridge.control.v1.FlowRef
+	32,  // 56: sipbridge.control.v1.IngressReceived.message:type_name -> sipbridge.control.v1.SipMessage
+	26,  // 57: sipbridge.control.v1.IngressReceived.context:type_name -> sipbridge.control.v1.ContextRef
+	1,   // 58: sipbridge.control.v1.RouteResult.outcome:type_name -> sipbridge.control.v1.RouteResult.Outcome
+	11,  // 59: sipbridge.control.v1.RouteResult.controller:type_name -> sipbridge.control.v1.ProcessRef
+	26,  // 60: sipbridge.control.v1.OwnerIngest.context:type_name -> sipbridge.control.v1.ContextRef
+	11,  // 61: sipbridge.control.v1.OwnerIngest.application:type_name -> sipbridge.control.v1.ProcessRef
+	23,  // 62: sipbridge.control.v1.OwnerIngest.flow:type_name -> sipbridge.control.v1.FlowRef
+	2,   // 63: sipbridge.control.v1.OwnerIngest.admission:type_name -> sipbridge.control.v1.OwnerIngest.Admission
+	26,  // 64: sipbridge.control.v1.ContextSnapshot.context:type_name -> sipbridge.control.v1.ContextRef
+	11,  // 65: sipbridge.control.v1.ContextSnapshot.application:type_name -> sipbridge.control.v1.ProcessRef
+	3,   // 66: sipbridge.control.v1.ContextSnapshot.kind:type_name -> sipbridge.control.v1.ContextSnapshot.Kind
+	66,  // 67: sipbridge.control.v1.ContextSnapshot.delivery:type_name -> sipbridge.control.v1.ContextDelivery
+	11,  // 68: sipbridge.control.v1.ContextSnapshot.executor:type_name -> sipbridge.control.v1.ProcessRef
+	36,  // 69: sipbridge.control.v1.RequestPresented.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
+	32,  // 70: sipbridge.control.v1.RequestPresented.message:type_name -> sipbridge.control.v1.SipMessage
+	23,  // 71: sipbridge.control.v1.RequestPresented.flow:type_name -> sipbridge.control.v1.FlowRef
+	67,  // 72: sipbridge.control.v1.RequestPresented.flow_adoption:type_name -> sipbridge.control.v1.FlowAdoptionRequest
+	26,  // 73: sipbridge.control.v1.RequestDecision.context:type_name -> sipbridge.control.v1.ContextRef
+	49,  // 74: sipbridge.control.v1.RequestDecision.admission:type_name -> sipbridge.control.v1.CommandAdmission
+	2,   // 75: sipbridge.control.v1.RequestDecision.basis:type_name -> sipbridge.control.v1.OwnerIngest.Admission
+	66,  // 76: sipbridge.control.v1.RequestDecision.delivery:type_name -> sipbridge.control.v1.ContextDelivery
+	27,  // 77: sipbridge.control.v1.RequestDecision.headers:type_name -> sipbridge.control.v1.Header
+	46,  // 78: sipbridge.control.v1.RequestDecision.notify:type_name -> sipbridge.control.v1.DialogRequest
+	27,  // 79: sipbridge.control.v1.Respond.headers:type_name -> sipbridge.control.v1.Header
+	39,  // 80: sipbridge.control.v1.Respond.authority:type_name -> sipbridge.control.v1.ResponseAuthority
+	26,  // 81: sipbridge.control.v1.CredentialLookup.context:type_name -> sipbridge.control.v1.ContextRef
+	41,  // 82: sipbridge.control.v1.CredentialLookup.credential:type_name -> sipbridge.control.v1.CredentialRef
+	41,  // 83: sipbridge.control.v1.NetworkTarget.credential:type_name -> sipbridge.control.v1.CredentialRef
+	27,  // 84: sipbridge.control.v1.OpenUac.headers:type_name -> sipbridge.control.v1.Header
+	44,  // 85: sipbridge.control.v1.OpenUac.network:type_name -> sipbridge.control.v1.NetworkTarget
+	27,  // 86: sipbridge.control.v1.DialogRequest.headers:type_name -> sipbridge.control.v1.Header
+	47,  // 87: sipbridge.control.v1.DialogRequest.blf_capture:type_name -> sipbridge.control.v1.BlfCaptureAttribution
+	23,  // 88: sipbridge.control.v1.CommandAdmission.selected_flow:type_name -> sipbridge.control.v1.FlowRef
+	66,  // 89: sipbridge.control.v1.CommandAdmission.expected_delivery:type_name -> sipbridge.control.v1.ContextDelivery
+	66,  // 90: sipbridge.control.v1.CommandAdmission.fallback_delivery:type_name -> sipbridge.control.v1.ContextDelivery
+	26,  // 91: sipbridge.control.v1.Command.context:type_name -> sipbridge.control.v1.ContextRef
+	49,  // 92: sipbridge.control.v1.Command.admission:type_name -> sipbridge.control.v1.CommandAdmission
+	40,  // 93: sipbridge.control.v1.Command.respond:type_name -> sipbridge.control.v1.Respond
+	45,  // 94: sipbridge.control.v1.Command.open_uac:type_name -> sipbridge.control.v1.OpenUac
+	46,  // 95: sipbridge.control.v1.Command.dialog_request:type_name -> sipbridge.control.v1.DialogRequest
+	48,  // 96: sipbridge.control.v1.Command.cancel:type_name -> sipbridge.control.v1.Cancel
+	50,  // 97: sipbridge.control.v1.Command.resume_dialog_request:type_name -> sipbridge.control.v1.ResumeDialogRequest
+	4,   // 98: sipbridge.control.v1.OperationResult.certainty:type_name -> sipbridge.control.v1.OperationResult.Certainty
+	36,  // 99: sipbridge.control.v1.OperationResult.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
+	32,  // 100: sipbridge.control.v1.OperationResult.request:type_name -> sipbridge.control.v1.SipMessage
+	32,  // 101: sipbridge.control.v1.OperationResult.response:type_name -> sipbridge.control.v1.SipMessage
+	54,  // 102: sipbridge.control.v1.OperationResult.retirement_proof:type_name -> sipbridge.control.v1.ContextRetirementProof
+	53,  // 103: sipbridge.control.v1.OperationResult.dialog_recovery:type_name -> sipbridge.control.v1.DialogRecovery
+	5,   // 104: sipbridge.control.v1.DialogRecovery.disposition:type_name -> sipbridge.control.v1.DialogRecovery.Disposition
+	26,  // 105: sipbridge.control.v1.ContextRetirementProof.context:type_name -> sipbridge.control.v1.ContextRef
+	24,  // 106: sipbridge.control.v1.ContextRetirementProof.authority:type_name -> sipbridge.control.v1.StateAuthority
+	6,   // 107: sipbridge.control.v1.ContextRetirementProof.reason:type_name -> sipbridge.control.v1.ContextRetirementProof.Reason
+	26,  // 108: sipbridge.control.v1.StateEffectRef.context:type_name -> sipbridge.control.v1.ContextRef
+	55,  // 109: sipbridge.control.v1.EffectAuthorization.effect:type_name -> sipbridge.control.v1.StateEffectRef
+	7,   // 110: sipbridge.control.v1.EffectAuthorization.authority_class:type_name -> sipbridge.control.v1.EffectAuthorization.Class
+	56,  // 111: sipbridge.control.v1.SendPermit.authorization:type_name -> sipbridge.control.v1.EffectAuthorization
+	23,  // 112: sipbridge.control.v1.SendPermit.flow:type_name -> sipbridge.control.v1.FlowRef
+	36,  // 113: sipbridge.control.v1.EgressRequest.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
+	32,  // 114: sipbridge.control.v1.EgressRequest.message:type_name -> sipbridge.control.v1.SipMessage
+	23,  // 115: sipbridge.control.v1.EgressRequest.return_flow:type_name -> sipbridge.control.v1.FlowRef
+	56,  // 116: sipbridge.control.v1.EgressRequest.authorization:type_name -> sipbridge.control.v1.EffectAuthorization
+	23,  // 117: sipbridge.control.v1.FlowWrite.flow:type_name -> sipbridge.control.v1.FlowRef
+	55,  // 118: sipbridge.control.v1.FlowWrite.effect:type_name -> sipbridge.control.v1.StateEffectRef
+	57,  // 119: sipbridge.control.v1.FlowWrite.permit:type_name -> sipbridge.control.v1.SendPermit
+	8,   // 120: sipbridge.control.v1.DeliveryResult.outcome:type_name -> sipbridge.control.v1.DeliveryResult.Outcome
+	55,  // 121: sipbridge.control.v1.DeliveryResult.effect:type_name -> sipbridge.control.v1.StateEffectRef
+	26,  // 122: sipbridge.control.v1.ApplicationProbe.context:type_name -> sipbridge.control.v1.ContextRef
+	11,  // 123: sipbridge.control.v1.ApplicationProbe.application:type_name -> sipbridge.control.v1.ProcessRef
+	26,  // 124: sipbridge.control.v1.ApplicationStatus.context:type_name -> sipbridge.control.v1.ContextRef
+	11,  // 125: sipbridge.control.v1.ApplicationStatus.application:type_name -> sipbridge.control.v1.ProcessRef
+	23,  // 126: sipbridge.control.v1.FlowClosed.flow:type_name -> sipbridge.control.v1.FlowRef
+	9,   // 127: sipbridge.control.v1.DialogEvent.kind:type_name -> sipbridge.control.v1.DialogEvent.Kind
+	36,  // 128: sipbridge.control.v1.DialogEvent.snapshot:type_name -> sipbridge.control.v1.ContextSnapshot
+	32,  // 129: sipbridge.control.v1.DialogEvent.message:type_name -> sipbridge.control.v1.SipMessage
+	26,  // 130: sipbridge.control.v1.ContextInspect.context:type_name -> sipbridge.control.v1.ContextRef
+	23,  // 131: sipbridge.control.v1.ContextDelivery.flow:type_name -> sipbridge.control.v1.FlowRef
+	26,  // 132: sipbridge.control.v1.FlowAdoptionRequest.context:type_name -> sipbridge.control.v1.ContextRef
+	11,  // 133: sipbridge.control.v1.FlowAdoptionRequest.application:type_name -> sipbridge.control.v1.ProcessRef
+	23,  // 134: sipbridge.control.v1.FlowAdoptionRequest.flow:type_name -> sipbridge.control.v1.FlowRef
+	66,  // 135: sipbridge.control.v1.FlowAdoptionResult.receipt:type_name -> sipbridge.control.v1.ContextDelivery
+	29,  // 136: sipbridge.control.v1.SipMessage.AddressesEntry.value:type_name -> sipbridge.control.v1.AddressList
+	137, // [137:137] is the sub-list for method output_type
+	137, // [137:137] is the sub-list for method input_type
+	137, // [137:137] is the sub-list for extension type_name
+	137, // [137:137] is the sub-list for extension extendee
+	0,   // [0:137] is the sub-list for field type_name
 }
 
 func init() { file_sipbridge_control_proto_init() }
@@ -6256,7 +6322,7 @@ func file_sipbridge_control_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sipbridge_control_proto_rawDesc), len(file_sipbridge_control_proto_rawDesc)),
-			NumEnums:      9,
+			NumEnums:      10,
 			NumMessages:   62,
 			NumExtensions: 0,
 			NumServices:   0,

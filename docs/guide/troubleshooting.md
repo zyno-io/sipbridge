@@ -91,12 +91,8 @@ Once the WebSocket is open, a problem with `hello` closes it with status
 | Close reason | Cause |
 | --- | --- |
 | `hello required` | The first message was not a valid envelope within 5 seconds. |
-| `unsupported hello` | `sessionId` or `remainingBudgetMs` set; `controller` missing or invalid; `connectionAttempt` is `0`; `major` is not `1`; `minMinor` is not `0` or exceeds `maxMinor`; `maxEnvelopeBytes` outside 512 to 1,048,576; more than 32 capabilities. |
+| `unsupported hello` | `sessionId` or `remainingBudgetMs` set; `controller` missing or invalid; `connectionAttempt` is `0`; `major` is not `1`; the offered minor range excludes `1`; `maxEnvelopeBytes` outside 512 to 1,048,576; more than 32 capabilities. |
 | `invalid capabilities` | A duplicate or malformed capability string. |
-| `state runtime requires sip.v1 and a compatible state capability` | `sip.v1` or `sip.state.v1` not offered. |
-| `state runtime requires sip.native-completion.v1` | `sip.native-completion.v1` not offered. |
-| `memory runtime requires sip.request-decision.v1` | `sip.request-decision.v1` not offered. The text says "memory" but applies to both backends. |
-| `request decision dependencies are not negotiated` | One of `sip.command-admission.v1`, `sip.command-budget.v1` or `sip.dialog-continuity.v1` not offered. See [Capabilities](../protocol/capabilities.md). |
 | `configured initial authentication requires sip.local-challenge.v1` | sipbridge runs with `--require-auth-methods` and the controller did not offer the capability. |
 | `controller recovery capability required` | `hello.recovery` was sent. Controller reattachment is not available. |
 | `stale connection attempt` | Same instance and epoch reconnected with a `connectionAttempt` that is not higher than the last accepted one. |

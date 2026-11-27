@@ -163,10 +163,9 @@ The encoded `state.MemoryStore` remains an explicit checkpoint test fixture.
 Resident command-result error detail is limited to 4 KiB of UTF-8; longer detail
 is truncated at a character boundary with an explicit suffix.
 
-The `sip.state.v1` capability negotiates these logical state semantics for both
-adapters. Controllers must negotiate this capability before state admission.
-Backend selection does not change the control capability or the native profile.
-No wire fields or schema/reducer/timer versions change.
+Both adapters use the logical state and lease semantics of serving protocol
+1.1. HelloAck identifies the active backend. Each backend retains its own
+state behavior and storage compatibility.
 
 The Redis store opens without waiting for Redis. Configuration supplies primary or
 Sentinel endpoints, credentials, namespace, TLS trust and the service identity key.
@@ -534,7 +533,7 @@ bounded Redis clock tolerance. Session fencing and a correlated challenge/reply
 precede renewal. The trusted directory's ten-second process lease records routing
 and business liveness.
 
-The Redis serving runtime requires `sip.control-attachment.v1`. Hello binds the
+In the Redis serving profile, Hello binds the
 server-issued control session to the application term. A matching Pong renews
 that exact attachment and the term. The attachment expires with its most recent
 renewal. Closing a control socket immediately fences its local capability and
@@ -789,7 +788,7 @@ retained only with the current/deferred transaction or initial open intent. Dige
 inherits that selection. Later commands cannot refresh earlier setup/deferred work.
 No response-scope history is retained.
 
-With negotiated `sip.dialog-socket.v1`, a shared call DialogRequest with an
+In the Redis serving profile, a shared call DialogRequest with an
 explicit selected flow goes to that flow's exact SIPbridge instance and process
 epoch. Native rejects nonlocal or malformed references before preparing SIP
 state. For TCP/TLS, the dialog's verified closed local socket can produce the typed

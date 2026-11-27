@@ -27,17 +27,8 @@ WebSocket opening:
     "controller": {"instanceId": "demo-controller", "epoch": "3f9a1c0e7b2d4a6f8e1c5b7d9a2f4e60"},
     "connectionAttempt": "1",
     "major": 1,
-    "minMinor": 0,
-    "maxMinor": 0,
-    "capabilities": [
-      "sip.v1",
-      "sip.state.v1",
-      "sip.native-completion.v1",
-      "sip.request-decision.v1",
-      "sip.command-admission.v1",
-      "sip.command-budget.v1",
-      "sip.dialog-continuity.v1"
-    ],
+    "minMinor": 1,
+    "maxMinor": 1,
     "bounds": {"maxEnvelopeBytes": 1048576}
   }
 }
@@ -49,8 +40,8 @@ WebSocket opening:
 | `controller.epoch` | A random value generated once each time the controller process starts, never reused. Same pattern. It lets sipbridge tell a restarted controller from a reconnecting one. |
 | `connectionAttempt` | A `uint64` string, above zero, increased every time this process reconnects. |
 | `major` | Must be `1`. |
-| `minMinor`, `maxMinor` | `minMinor` must be `0` and not above `maxMinor`. sipbridge selects minor `0`. |
-| `capabilities` | At most 32 unique strings. All seven shown here are required; see [Capabilities](./capabilities.md). Unknown entries are ignored. |
+| `minMinor`, `maxMinor` | The offered range must include minor `1`. SIPbridge selects minor `1`. |
+| `capabilities` | At most 32 unique optional feature names. See [Capabilities](./capabilities.md). Unknown entries are ignored. |
 | `bounds.maxEnvelopeBytes` | The largest message either side may send on this session, 512 to 1,048,576. |
 
 `hello` carries no `sessionId` and no `remainingBudgetMs`. If sipbridge
@@ -74,7 +65,8 @@ sipbridge's reply tells the controller its session ID and what was agreed:
     "sipbridge": {"instanceId": "sipbridge-0", "epoch": "6b1f0c52-6a43-4d0e-9a51-2f8f7c1d9e30"},
     "sessionId": "0d4f7a52-93b1-4c8e-a6d2-7e15b9c3f841",
     "major": 1,
-    "capabilities": ["sip.v1", "sip.state.v1", "sip.native-completion.v1", "sip.request-decision.v1", "sip.command-admission.v1", "sip.command-budget.v1", "sip.dialog-continuity.v1"],
+    "minor": 1,
+    "stateBackend": "MEMORY",
     "bounds": {"maxEnvelopeBytes": 1048576},
     "heartbeatIntervalMs": 1000,
     "heartbeatTimeoutMs": 6000,
@@ -88,7 +80,8 @@ sipbridge's reply tells the controller its session ID and what was agreed:
 | --- | --- |
 | `sipbridge` | sipbridge's `--instance` name and its random per-start epoch. A changed epoch means sipbridge restarted. |
 | `sessionId` | Put this in every later message. |
-| `capabilities` | The capabilities both sides support. |
+| `capabilities` | Optional capabilities both sides support. |
+| `stateBackend` | The active serving backend, `MEMORY` or `REDIS`. |
 | `stateAuthority` | Identifies where sipbridge keeps its state. With memory state, `primaryId` is new on every start: if it changed since your last session, everything that instance knew is gone. |
 | `applicationLease` | Your controller's ownership of its calls: a `term` that lasts 30 seconds and is renewed by heartbeats. Context references and command results refer to it. |
 | `inboundAuthPolicy` | Present only when sipbridge runs with `--require-auth-methods`: which methods it challenges locally. |

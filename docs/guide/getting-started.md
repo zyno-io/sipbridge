@@ -151,7 +151,7 @@ request is answered. The one below is about as small as a working controller
 can be. It:
 
 1. opens the WebSocket with the bearer token;
-2. sends `hello` with the capabilities sipbridge requires, and reads `helloAck`;
+2. sends `hello` for serving version 1.1 and reads `helloAck`;
 3. sends `status` to say it is ready for work;
 4. answers sipbridge's heartbeat `ping` messages;
 5. answers every incoming SIP request with a `requestDecision`: `200` for
@@ -205,7 +205,9 @@ type envelope struct {
 
 type helloAck struct {
 	SessionID    string   `json:"sessionId"`
-	Capabilities []string `json:"capabilities"`
+	Major        uint32 `json:"major"`
+	Minor        uint32 `json:"minor"`
+	StateBackend string `json:"stateBackend"`
 }
 
 type heartbeat struct {
@@ -233,12 +235,6 @@ type result struct {
 
 type dialogEvent struct {
 	Kind string `json:"kind"`
-}
-
-// sipbridge refuses a hello that does not offer all of these.
-var capabilities = []string{
-	"sip.v1", "sip.state.v1", "sip.native-completion.v1", "sip.request-decision.v1",
-	"sip.command-admission.v1", "sip.command-budget.v1", "sip.dialog-continuity.v1",
 }
 
 func main() {
@@ -282,15 +278,16 @@ func main() {
 		"controller":        map[string]any{"instanceId": "demo-controller", "epoch": hex.EncodeToString(epoch)},
 		"connectionAttempt": "1",
 		"major":             1,
-		"capabilities":      capabilities,
+		"minMinor":          1,
+		"maxMinor":          1,
 		"bounds":            map[string]any{"maxEnvelopeBytes": 1 << 20},
 	}})
 	ack, data := read()
-	if ack.HelloAck == nil {
-		log.Fatalf("expected helloAck, got %s", data)
+	if ack.HelloAck == nil || ack.HelloAck.Major != 1 || ack.HelloAck.Minor != 1 || ack.HelloAck.StateBackend != "MEMORY" {
+		log.Fatalf("expected memory serving helloAck, got %s", data)
 	}
 	sessionID = ack.HelloAck.SessionID
-	log.Printf("connected; negotiated %s", strings.Join(ack.HelloAck.Capabilities, ", "))
+	log.Printf("connected to %s serving protocol %d.%d", ack.HelloAck.StateBackend, ack.HelloAck.Major, ack.HelloAck.Minor)
 
 	// Ready: sipbridge starts sending SIP work to this session.
 	send(map[string]any{"correlationId": "status-1", "status": map[string]any{
@@ -376,7 +373,7 @@ go get github.com/coder/websocket@v1.8.15
 go run . /path/to/sipbridge/demo/control-token
 ```
 
-It logs the negotiated capabilities and then waits. Readiness has changed:
+It logs the serving version and backend and then waits. Readiness has changed:
 
 ```sh
 curl -i http://127.0.0.1:8800/sip-readyz    # 200
@@ -426,7 +423,7 @@ If the controller did not connect, compare these values, which have to match:
 | --- | --- |
 | Token file contents | `--control-bearer-token-file` and the controller's `Authorization: Bearer` header |
 | `127.0.0.1:8443` | `--control-listen` and the controller's URL |
-| The seven capabilities | The controller's `hello`; all are required |
+| Serving protocol 1.1 | The controller's `hello` and SIPbridge's `helloAck` |
 
 [Troubleshooting](./troubleshooting.md#controller-cannot-connect) lists the
 exact error for each mistake.

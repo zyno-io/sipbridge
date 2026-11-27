@@ -12,7 +12,7 @@ import (
 	pb "sipbridge/internal/controlpb"
 )
 
-const DialogIDOnlyCapability = "sip.dialog-id.v2"
+const dialogIDAuthenticationDomain = "sip.dialog-id.v2"
 const dialogIDOnlyVersion = "d2"
 const maxDialogIDOnlyLength = 2131
 
@@ -28,7 +28,7 @@ func dialogIDOnlyFor(authority *pb.StateAuthority, key []byte, ref *pb.ContextRe
 	payload := strings.Join([]string{ref.Id, state.GroupId, state.Incarnation, strconv.FormatUint(uint64(state.Partition), 10),
 		state.CallId, owner.GetInstanceId(), owner.GetEpoch()}, "\x00")
 	digest := dialogDirectoryDigest(ref)
-	return encodeDialogID(DialogIDOnlyCapability, dialogIDOnlyVersion, authority, key, digest, payload), nil
+	return encodeDialogID(dialogIDAuthenticationDomain, dialogIDOnlyVersion, authority, key, digest, payload), nil
 }
 
 func decodeDialogIDOnly(authority *pb.StateAuthority, key []byte, id string) (*pb.ContextRef, error) {

@@ -10,7 +10,7 @@
  * Canonical control contract and source for generated JSON codecs/validation.
  * Wire transport is UTF-8 JSON text only (sipbridge.control.json.v1), with
  * lowerCamelCase keys, symbolic enums, uint64 decimal strings and base64 bytes.
- * Application families require the explicitly negotiated sip.v1 capability.
+ * The serving minor version includes the SIP application families.
  * PROTOCOL.md and ARCHITECTURE.md in sipbridge own
  * behavioral semantics. Reference/correlation strings match [A-Za-z0-9_.:@+-]{1,96}.
  * ContextRef.opaque_dialog_id uses the bound of its negotiated ID capability.
@@ -108,6 +108,47 @@ export interface SessionHelloAck {
     applicationLease?: ApplicationLease | undefined;
     /** Static native request policy; present only with sip.local-challenge.v1. */
     inboundAuthPolicy?: InboundAuthPolicy | undefined;
+    /** The serving profile, required in the serving minor version. */
+    stateBackend: SessionHelloAck_StateBackend;
+}
+
+export enum SessionHelloAck_StateBackend {
+    STATE_BACKEND_UNSPECIFIED = 0,
+    MEMORY = 1,
+    REDIS = 2,
+    UNRECOGNIZED = -1
+}
+
+export function sessionHelloAck_StateBackendFromJSON(object: unknown): SessionHelloAck_StateBackend {
+    switch (object) {
+        case 0:
+        case 'STATE_BACKEND_UNSPECIFIED':
+            return SessionHelloAck_StateBackend.STATE_BACKEND_UNSPECIFIED;
+        case 1:
+        case 'MEMORY':
+            return SessionHelloAck_StateBackend.MEMORY;
+        case 2:
+        case 'REDIS':
+            return SessionHelloAck_StateBackend.REDIS;
+        case -1:
+        case 'UNRECOGNIZED':
+        default:
+            return SessionHelloAck_StateBackend.UNRECOGNIZED;
+    }
+}
+
+export function sessionHelloAck_StateBackendToJSON(object: SessionHelloAck_StateBackend): string {
+    switch (object) {
+        case SessionHelloAck_StateBackend.STATE_BACKEND_UNSPECIFIED:
+            return 'STATE_BACKEND_UNSPECIFIED';
+        case SessionHelloAck_StateBackend.MEMORY:
+            return 'MEMORY';
+        case SessionHelloAck_StateBackend.REDIS:
+            return 'REDIS';
+        case SessionHelloAck_StateBackend.UNRECOGNIZED:
+        default:
+            return 'UNRECOGNIZED';
+    }
 }
 
 /**
@@ -193,7 +234,7 @@ export interface ContextRef {
     owner?: ProcessRef | undefined;
     id: string;
     state?: StateRef | undefined;
-    /** Negotiated sip.dialog-id wire projection. Never persisted as native state. */
+    /** Serving dialog ID wire projection. Never persisted as native state. */
     opaqueDialogId?: string;
 }
 
@@ -1517,7 +1558,12 @@ export const SessionHelloAck: MessageFns<SessionHelloAck> = {
                 ? InboundAuthPolicy.fromJSON(object.inboundAuthPolicy)
                 : isSet(object.inbound_auth_policy)
                   ? InboundAuthPolicy.fromJSON(object.inbound_auth_policy)
-                  : undefined
+                  : undefined,
+            stateBackend: isSet(object.stateBackend)
+                ? sessionHelloAck_StateBackendFromJSON(object.stateBackend)
+                : isSet(object.state_backend)
+                  ? sessionHelloAck_StateBackendFromJSON(object.state_backend)
+                  : 0
         };
     },
 
@@ -1555,6 +1601,9 @@ export const SessionHelloAck: MessageFns<SessionHelloAck> = {
         }
         if (message.inboundAuthPolicy !== undefined) {
             obj.inboundAuthPolicy = InboundAuthPolicy.toJSON(message.inboundAuthPolicy);
+        }
+        if (message.stateBackend !== 0) {
+            obj.stateBackend = sessionHelloAck_StateBackendToJSON(message.stateBackend);
         }
         return obj;
     }

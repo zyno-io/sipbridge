@@ -19,6 +19,7 @@ import (
 )
 
 const Subprotocol = "sipbridge.control.json.v1"
+const ServingMinor = 1
 const MaxEnvelope = 1024 * 1024
 const LocalChallengeCapability = "sip.local-challenge.v1"
 
@@ -37,6 +38,7 @@ type Config struct {
 	Capabilities                                                                    []string
 	InboundAuthPolicy                                                               *pb.InboundAuthPolicy
 	StateAuthority                                                                  *pb.StateAuthority
+	StateBackend                                                                    pb.SessionHelloAck_StateBackend
 	DialogIDKey                                                                     []byte
 	OnMessage                                                                       func(*Peer, *pb.Envelope) error
 	OnStatus                                                                        func(*Peer, *pb.SessionStatus) error
@@ -59,6 +61,8 @@ type claim struct {
 type Server struct {
 	capabilityRelease func(*ApplicationCapability)
 	cfg               Config
+	baseline          []string
+	protocolMinor     uint32
 	mu                sync.Mutex
 	claims            map[string]*claim
 	all               map[*session]struct{}
@@ -93,43 +97,59 @@ func NewServer(cfg Config) (*Server, error) {
 			return nil, errors.New("bearer authentication requires no client-certificate settings")
 		}
 	}
-	if cfg.InboundAuthPolicy != nil && !slices.Contains(cfg.Capabilities, LocalChallengeCapability) {
+	var baseline []string
+	var protocolMinor uint32
+	switch cfg.StateBackend {
+	case pb.SessionHelloAck_STATE_BACKEND_UNSPECIFIED:
+		// Standalone session and checkpoint fixtures use minor zero.
+	case pb.SessionHelloAck_MEMORY, pb.SessionHelloAck_REDIS:
+		protocolMinor = ServingMinor
+		baseline = []string{"sip.v1", StateCapability, NativeCompletionCapability, CommandAdmissionCapability,
+			CommandBudgetCapability, DialogContinuityCapability, RequestDecisionCapability}
+		if cfg.StateBackend == pb.SessionHelloAck_REDIS {
+			baseline = append(baseline, DialogSocketCapability, DialogSocketResumeCapability, ControlAttachmentCapability)
+		}
+		for _, capability := range cfg.Capabilities {
+			if capability != LocalChallengeCapability && capability != ReinviteAckCapability {
+				return nil, errors.New("only optional capabilities may be configured for serving")
+			}
+		}
+		if len(cfg.DialogIDKey) < 32 || len(cfg.DialogIDKey) > 1024 {
+			return nil, errors.New("serving dialog IDs require an identity key")
+		}
+		cfg.DialogIDKey = slices.Clone(cfg.DialogIDKey)
+	default:
+		return nil, errors.New("invalid serving state backend")
+	}
+	features := append(slices.Clone(cfg.Capabilities), baseline...)
+	if cfg.InboundAuthPolicy != nil && !slices.Contains(features, LocalChallengeCapability) {
 		return nil, errors.New("initial authentication policy requires local challenge capability")
 	}
-	if HasStateCapability(cfg.Capabilities) {
+	if HasStateCapability(features) {
 		a := cfg.StateAuthority
-		if !slices.Contains(cfg.Capabilities, "sip.v1") || a == nil || !reference.MatchString(a.Service) || !reference.MatchString(a.Generation) || !reference.MatchString(a.PrimaryId) || a.SchemaVersion == 0 {
+		if !slices.Contains(features, "sip.v1") || a == nil || !reference.MatchString(a.Service) || !reference.MatchString(a.Generation) || !reference.MatchString(a.PrimaryId) || a.SchemaVersion == 0 {
 			return nil, errors.New("state capability requires a valid state authority")
 		}
 	}
-	if slices.Contains(cfg.Capabilities, NativeCompletionCapability) &&
-		(!HasStateCapability(cfg.Capabilities) || cfg.StateAuthority.GetSchemaVersion() != 1 || cfg.OnApplicationLease == nil && cfg.OnControllerSession == nil) {
+	if slices.Contains(features, NativeCompletionCapability) &&
+		(!HasStateCapability(features) || cfg.StateAuthority.GetSchemaVersion() != 1 || cfg.OnApplicationLease == nil && cfg.OnControllerSession == nil) {
 		return nil, errors.New("native completion requires schema 1 and an application lease authority")
 	}
-	if slices.Contains(cfg.Capabilities, ControllerReattachCapability) &&
-		(!slices.Contains(cfg.Capabilities, NativeCompletionCapability) || cfg.OnControllerSession == nil || cfg.OnControllerRenew == nil) {
+	if slices.Contains(features, ControllerReattachCapability) &&
+		(!slices.Contains(features, NativeCompletionCapability) || cfg.OnControllerSession == nil || cfg.OnControllerRenew == nil) {
 		return nil, errors.New("controller reattach requires session and renewal hooks")
 	}
-	if slices.Contains(cfg.Capabilities, DialogSocketResumeCapability) && !slices.Contains(cfg.Capabilities, DialogSocketCapability) {
+	if slices.Contains(features, DialogSocketResumeCapability) && !slices.Contains(features, DialogSocketCapability) {
 		return nil, errors.New("dialog socket resume requires direct socket routing")
 	}
-	if slices.Contains(cfg.Capabilities, ControlAttachmentCapability) &&
-		(!slices.Contains(cfg.Capabilities, NativeCompletionCapability) || !slices.Contains(cfg.Capabilities, DialogSocketCapability) ||
+	if slices.Contains(features, ControlAttachmentCapability) &&
+		(!slices.Contains(features, NativeCompletionCapability) || !slices.Contains(features, DialogSocketCapability) ||
 			cfg.OnControllerSession == nil || cfg.OnControllerRenew == nil || cfg.OnDisconnect == nil) {
 		return nil, errors.New("exact control attachments require native dialog socket handling and controller lifecycle hooks")
 	}
-	if slices.Contains(cfg.Capabilities, DialogIDOnlyCapability) {
-		if !HasStateCapability(cfg.Capabilities) || len(cfg.DialogIDKey) < 32 || len(cfg.DialogIDKey) > 1024 {
-			return nil, errors.New("dialog IDs require native state and an identity key")
-		}
-		cfg.DialogIDKey = append([]byte(nil), cfg.DialogIDKey...)
-	}
-	if slices.Contains(cfg.Capabilities, DialogRetirementCapability) && !slices.Contains(cfg.Capabilities, DialogIDOnlyCapability) {
-		return nil, errors.New("compact dialog retirement requires ID-only dialog references")
-	}
-	if slices.Contains(cfg.Capabilities, RequestDecisionCapability) {
+	if slices.Contains(features, RequestDecisionCapability) {
 		for _, required := range requestDecisionDependencies {
-			if !slices.Contains(cfg.Capabilities, required) {
+			if !slices.Contains(features, required) {
 				return nil, errors.New("request decisions require native state, completion, admission, budget and continuity")
 			}
 		}
@@ -166,7 +186,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.HelloTimeout <= 0 || cfg.HelloTimeout > 5*time.Second || cfg.WriteTimeout <= 0 || cfg.WriteTimeout > 2*time.Second || cfg.HeartbeatInterval < time.Millisecond || cfg.HeartbeatInterval > time.Minute || cfg.HeartbeatTimeout < 2*cfg.HeartbeatInterval || cfg.HeartbeatTimeout > 2*time.Minute || cfg.ReloadInterval <= 0 {
 		return nil, errors.New("invalid control deadlines")
 	}
-	s := &Server{cfg: cfg, claims: make(map[string]*claim), all: make(map[*session]struct{}), attachments: make(map[string]*session), slots: make(chan struct{}, cfg.MaxSessions)}
+	s := &Server{cfg: cfg, baseline: baseline, protocolMinor: protocolMinor, claims: make(map[string]*claim), all: make(map[*session]struct{}), attachments: make(map[string]*session), slots: make(chan struct{}, cfg.MaxSessions)}
 	s.http = &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 * 1024}
 	return s, nil
 }
@@ -503,7 +523,7 @@ func (p *session) read(ctx context.Context) (*pb.Envelope, error) {
 	if e.GetResult().GetRetirementProof() != nil {
 		return nil, errors.New("only SIPbridge issues dialog retirement proofs")
 	}
-	if err := normalizeDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, slices.Contains(p.capabilities, DialogIDOnlyCapability)); err != nil {
+	if err := normalizeDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey, p.server.protocolMinor == ServingMinor); err != nil {
 		p.diagnostic("read-dialog-id", err, e, false)
 		return nil, err
 	}
@@ -570,10 +590,10 @@ func (p *session) writeAdmitted(transport, caller context.Context, e *pb.Envelop
 		e.RemainingBudgetMs = uint32(remaining / time.Millisecond)
 	}
 	e.SessionId = p.id
-	if e.GetResult().GetRetirementProof() != nil && !slices.Contains(p.capabilities, DialogRetirementCapability) {
+	if e.GetResult().GetRetirementProof() != nil && p.server.protocolMinor != ServingMinor {
 		return errors.New("dialog retirement proof requires the current control contract")
 	}
-	if slices.Contains(p.capabilities, DialogIDOnlyCapability) {
+	if p.server.protocolMinor == ServingMinor {
 		wire, err := projectDialogIDs(e, p.server.cfg.StateAuthority, p.server.cfg.DialogIDKey)
 		if err != nil {
 			return err
@@ -608,9 +628,10 @@ func (p *session) hello() error {
 		return errors.New("hello required")
 	}
 	h := e.GetHello()
-	if e.SessionId != "" || e.RemainingBudgetMs != 0 || h == nil || !validProcess(h.Controller) || h.ConnectionAttempt == 0 || h.Major != 1 || h.MinMinor > h.MaxMinor || h.MinMinor > 0 || h.Bounds == nil || h.Bounds.MaxEnvelopeBytes < 512 || h.Bounds.MaxEnvelopeBytes > MaxEnvelope || len(h.Capabilities) > 32 {
+	if e.SessionId != "" || e.RemainingBudgetMs != 0 || h == nil || !validProcess(h.Controller) || h.ConnectionAttempt == 0 || h.Major != 1 || h.MinMinor > p.server.protocolMinor || h.MaxMinor < p.server.protocolMinor || h.Bounds == nil || h.Bounds.MaxEnvelopeBytes < 512 || h.Bounds.MaxEnvelopeBytes > MaxEnvelope || len(h.Capabilities) > 32 {
 		return errors.New("unsupported hello")
 	}
+	var negotiated []string
 	seen := make(map[string]bool)
 	for _, capability := range h.Capabilities {
 		if !reference.MatchString(capability) || seen[capability] {
@@ -618,9 +639,11 @@ func (p *session) hello() error {
 		}
 		seen[capability] = true
 		if slices.Contains(p.server.cfg.Capabilities, capability) {
-			p.capabilities = append(p.capabilities, capability)
+			negotiated = append(negotiated, capability)
 		}
 	}
+	// Native handlers see the baseline as available; HelloAck carries only the offered intersection.
+	p.capabilities = append(slices.Clone(p.server.baseline), negotiated...)
 	if HasStateCapability(p.server.cfg.Capabilities) && (!slices.Contains(p.capabilities, "sip.v1") || !HasStateCapability(p.capabilities)) {
 		return errors.New("state runtime requires sip.v1 and a compatible state capability")
 	}
@@ -645,15 +668,6 @@ func (p *session) hello() error {
 	}
 	if slices.Contains(p.capabilities, ControlAttachmentCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {
 		return errors.New("exact control attachments require dialog socket handling")
-	}
-	if slices.Contains(p.server.cfg.Capabilities, DialogRetirementCapability) &&
-		(!slices.Contains(p.capabilities, DialogRetirementCapability) || !slices.Contains(p.capabilities, DialogIDOnlyCapability)) {
-		return errors.New("serving runtime requires ID-only dialog references and retirement proofs")
-	}
-	if slices.Contains(p.server.cfg.Capabilities, ControlAttachmentCapability) &&
-		slices.Contains(p.server.cfg.Capabilities, DialogRetirementCapability) &&
-		!slices.Contains(p.capabilities, ControlAttachmentCapability) {
-		return errors.New("Redis serving runtime requires exact control attachments")
 	}
 	if slices.Contains(p.capabilities, DialogSocketResumeCapability) && !slices.Contains(p.capabilities, DialogSocketCapability) {
 		return errors.New("dialog socket resume requires direct socket routing")
@@ -711,9 +725,9 @@ func (p *session) hello() error {
 		}
 	}
 	if err := p.write(&pb.Envelope{CorrelationId: e.CorrelationId, Payload: &pb.Envelope_HelloAck{HelloAck: &pb.SessionHelloAck{
-		Sipbridge: p.server.cfg.Process, SessionId: p.id, Major: 1, Minor: 0, Capabilities: p.capabilities, Bounds: &pb.Bounds{MaxEnvelopeBytes: uint32(p.bound)},
+		Sipbridge: p.server.cfg.Process, SessionId: p.id, Major: 1, Minor: p.server.protocolMinor, Capabilities: negotiated, Bounds: &pb.Bounds{MaxEnvelopeBytes: uint32(p.bound)},
 		HeartbeatIntervalMs: uint32(p.server.cfg.HeartbeatInterval / time.Millisecond), HeartbeatTimeoutMs: uint32(p.server.cfg.HeartbeatTimeout / time.Millisecond),
-		StateAuthority: authority, ApplicationLease: p.applicationLease, InboundAuthPolicy: p.server.cfg.InboundAuthPolicy,
+		StateAuthority: authority, ApplicationLease: p.applicationLease, InboundAuthPolicy: p.server.cfg.InboundAuthPolicy, StateBackend: p.server.cfg.StateBackend,
 	}}}); err != nil {
 		return err
 	}

@@ -3,10 +3,12 @@ package engine
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
+	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 )
 
@@ -21,7 +23,11 @@ func assertRedisNativeJSONInspection(t *testing.T, ctx context.Context, ws *webs
 		result.Request != nil || result.Response != nil || result.SipStatus != 0 || result.RetirementProof != nil {
 		t.Fatalf("inspection did not return only current metadata: %+v", result)
 	}
-	absent := proto.Clone(expected.Context).(*pb.ContextRef)
+}
+
+func assertRedisNativeRetirementInspection(t *testing.T, ctx context.Context, native *redisNative, peer *control.Peer, ref *pb.ContextRef) {
+	t.Helper()
+	absent := proto.Clone(ref).(*pb.ContextRef)
 	absent.Id = uuid.NewString()
 	absent.State.GroupId = absent.Id
 	absent.State.Incarnation = uuid.NewString()
@@ -33,15 +39,13 @@ func assertRedisNativeJSONInspection(t *testing.T, ctx context.Context, ws *webs
 		if name == "placeholder" {
 			candidate.State = nil
 		}
-		writeControllerEnvelope(t, ctx, ws, &pb.Envelope{SessionId: session, CorrelationId: "inspect-" + name, RemainingBudgetMs: 1000, Payload: &pb.Envelope_Inspect{Inspect: &pb.ContextInspect{Context: candidate}}})
-		frame := readControllerEnvelope(t, ctx, ws)
-		result := frame.GetResult()
-		if frame.CorrelationId != "inspect-"+name || result == nil || result.Snapshot != nil || result.Request != nil || result.Response != nil {
-			t.Fatal("inspection disclosed unrelated context/history", name, result)
+		result, err := native.inspectNativeContext(ctx, peer, candidate, time.Now().Add(time.Second))
+		if err != nil || result == nil || result.Snapshot != nil || result.Request != nil || result.Response != nil {
+			t.Fatal("inspection disclosed unrelated context/history", name, result, err)
 		}
 		if name == "absent" {
 			if result.Certainty != pb.OperationResult_COMPLETED || result.RetirementProof == nil ||
-				!proto.Equal(result.RetirementProof.Context, candidate) || !proto.Equal(result.RetirementProof.Authority, candidate.State.Authority) ||
+				!proto.Equal(result.RetirementProof.Context, candidate) || result.RetirementProof.Authority != nil ||
 				result.RetirementProof.Reason != pb.ContextRetirementProof_CONTEXT_ABSENT {
 				t.Fatal("exact absence lacked positive proof", result)
 			}
@@ -49,5 +53,4 @@ func assertRedisNativeJSONInspection(t *testing.T, ctx context.Context, ws *webs
 			t.Fatal("unverified reference manufactured retirement evidence", name, result)
 		}
 	}
-
 }

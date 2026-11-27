@@ -105,7 +105,7 @@ func TestSelectedSchemaDigestBindsFieldsNotJustVersion(t *testing.T) {
 }
 
 // An additive control field still changes the selected native descriptor.
-func TestOpaqueDialogIDChangesBaselineProfile(t *testing.T) {
+func TestNativeCaptureBaselineProfile(t *testing.T) {
 	binding, err := BindProfile(profileFixture())
 	if err != nil {
 		t.Fatal(err)
@@ -117,9 +117,9 @@ func TestOpaqueDialogIDChangesBaselineProfile(t *testing.T) {
 		t.Fatal("would alias the generation-3 profile or authority")
 	}
 	for _, check := range []struct{ name, got, want string }{
-		{"selected schema digest", fmt.Sprintf("%x", selectedSchemaDigest), "37f81007b838e24409516863042536285dcbd16d6ea3099d5c8e631029129b56"},
-		{"profile", profile, "9d643b0aca755aa49224a0d672dfb3423dfe216e9d2db71e7a47bcc1f99a9d45"},
-		{"StateAuthority.PrimaryId", authority, "8ead7dcc9dcc0ddd06b76f6e52b6ab803bc0d1c5"},
+		{"selected schema digest", fmt.Sprintf("%x", selectedSchemaDigest), "86b2996411161ad63704073fbfa4f978c695d0720d3954015e56fad8af009d2a"},
+		{"profile", profile, "43e91a44350fd39388865c0265d927576eee9d8a516c33b619d79b37b1b360c3"},
+		{"StateAuthority.PrimaryId", authority, "631f6ffecaee84f1a9b31ce2d8cf03f7e1f6cb1a"},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s changed: got %s, want %s", check.name, check.got, check.want)

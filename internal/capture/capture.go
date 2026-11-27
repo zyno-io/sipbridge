@@ -23,7 +23,9 @@ import (
 
 const maxWire = 65536
 const queueSize = 256
-const batchSize = 32
+
+// A 64 KiB wire can grow sixfold when escaped as JSON.
+const batchSize = 12
 
 // Observation contains one physical SIP message or attempted socket write.
 // Wire is copied by Submit before the caller is allowed to reuse it.

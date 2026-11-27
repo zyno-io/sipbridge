@@ -119,7 +119,7 @@
     "internal/engine/redis_native_disconnect.go": "b1d89f9f797372a60843be9cbc92a338647f8217f7cd89e18f070eb49a0c6439",
     "internal/engine/redis_native_ingress.go": "9c113a0db8f216384bffc77d93220878f2a29a5725826c3cb1c6e71458b536d6",
     "internal/engine/redis_native_inspect.go": "30f68fe04c67bd2ac61a2ee6b46deecc8387ab43a7eeff48e96a8afa5ef0836f",
-    "internal/engine/redis_native_invite.go": "a1523ad91e0f3744ab47be3041190193ceba128e0febfb020f55922f30bf7888",
+    "internal/engine/redis_native_invite.go": "5db471c812f96df59c6238beaa1369ef2b0f762b6802818622bdfd1fd9688033",
     "internal/engine/redis_native_invite_retry.go": "32c0d5e6787ed4e04693d110ea26cb123b2a4cc902a2985d09e427d9ce9b318d",
     "internal/engine/redis_native_lifecycle.go": "10bee558d91dc49588bd9fe002c9fd53ef1545747095d85625f4a36782cfc8dc",
     "internal/engine/redis_native_notify.go": "fc334ac6cea56399a66952b4c460640f713342b18fcc71e5b93ac47bb5a0f0f6",

@@ -113,7 +113,10 @@ func Finish(ctx context.Context) {
 	}
 }
 
-func Hold(ctx context.Context, key string, until time.Time) {
+// Hold lets a locally committed decision release the packet immediately.
+// An exact, read-only lookup on expiry also handles decisions committed by a
+// different worker. Its budget is independent of the SIP decision.
+func Hold(ctx context.Context, key string, until time.Time, resolve func(context.Context) string) {
 	p, ok := ctx.Value(observationKey{}).(*pendingObservation)
 	if !ok {
 		return
@@ -129,9 +132,21 @@ func Hold(ctx context.Context, key string, until time.Time) {
 	}
 	p.exporter.pending[key][p] = struct{}{}
 	p.timer = time.AfterFunc(time.Until(until), func() {
+		p.exporter.mu.RLock()
+		finished := p.finished
+		p.exporter.mu.RUnlock()
+		if finished {
+			return
+		}
+		var nativeCallID string
+		if resolve != nil {
+			lookupCtx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+			nativeCallID = resolve(lookupCtx)
+			cancel()
+		}
 		p.exporter.mu.Lock()
 		defer p.exporter.mu.Unlock()
-		p.finishLocked("")
+		p.finishLocked(nativeCallID)
 	})
 }
 

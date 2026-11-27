@@ -249,8 +249,10 @@ apply to that transaction's writes and exact matching responses, including
 retries. The retained subscription has its own identity.
 
 The exporter may hold the first observed INVITE in its bounded queue until
-the native decision commits or the admission budget expires. It preserves
-the original observation timestamp and sequence. Capture can drop records
+the native decision commits or the admission budget expires. On expiry the
+ingress worker may read the exact retained context to discover a decision
+committed by a different worker. The lookup has its own short deadline.
+The capture preserves its original observation timestamp and sequence. Capture can drop records
 under load or during exporter outages, independently of SIP signaling.
 
 On an authenticated collector connection, v2 records include the observed

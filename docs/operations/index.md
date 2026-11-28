@@ -23,7 +23,7 @@ chapters describe the serving implementation.
 [runtime](../runtime.md) owns exact state, proof and scheduling invariants;
 [protocol](../../PROTOCOL.md) owns the public contract. The atlas owns the
 source-to-operation traversal and work accounting. Follow those links for exact
-limits rather than maintaining another field catalogue here. An application
+limits rather than maintaining another field catalog here. An application
 integration must supply its own policy, business-store and media map: sipbridge
 does not own those operations.
 
@@ -100,7 +100,7 @@ and [NOTIFY](sip.md#outgoing-subscription-notify).
 | Physical ingress | TCP/TLS accept and close, UDP framing/order lanes, keepalive/framing, method denial, required-auth challenge and local ACK proof |
 | Native ingress | New context allocation, exact existing lookup, controller-admitted ingest, retained completion, scoped refusal, request replay and unmatched response |
 | Public control | JSON hello/status/heartbeat, Memory RequestDecision or checkpoint Ingest, four Command actions, Inspect, physical Write/InspectEffect, optional controller-context inventory |
-| Native mutation catalogue | All fifteen current `stateEngineInput.Kind` cases in the [execution inventory](execution.md#entry-points-and-every-reducer-input) |
+| Native mutation catalog | All fifteen current `stateEngineInput.Kind` cases in the [execution inventory](execution.md#entry-points-and-every-reducer-input) |
 | Application effects | Presentation, lifecycle event, flow adoption, credential lookup, application probe and network open; distinct start/result rules |
 | Physical effects | Native permit preparation, indexed discovery, Reserve, one socket attempt, Complete, inspection, settlement and reclamation |
 | SIP procedures | REGISTER, OPTIONS, SUBSCRIBE refresh/unsubscribe, NOTIFY, UAS/UAC INVITE, provisional/final/fork response, ACK, CANCEL, BYE, re-INVITE, REFER and generic supported dialog requests |

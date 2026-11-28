@@ -1,28 +1,18 @@
 package capture
 
 import (
-	"crypto"
-	"crypto/ecdsa"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"sync/atomic"
 	"time"
 )
 
-type captureSigning struct {
-	leaf   string
-	signer crypto.Signer
-}
-
 type workloadCaptureCredential struct {
 	fingerprint [32]byte
 	cert        tls.Certificate
-	signing     captureSigning
 }
 
 type captureCredentials struct {
@@ -75,27 +65,9 @@ func (c *captureCredentials) reload(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	signer, ok := cert.PrivateKey.(*ecdsa.PrivateKey)
-	if !ok || len(cert.Certificate) == 0 || len(cert.Certificate[0]) > 4096 {
-		return fmt.Errorf("capture requires a bounded ECDSA workload certificate")
-	}
 	c.credential.Store(&workloadCaptureCredential{
 		fingerprint: digest,
 		cert:        cert,
-		signing:     captureSigning{leaf: base64.StdEncoding.EncodeToString(cert.Certificate[0]), signer: signer},
 	})
-	return nil
-}
-
-func (s *captureSigning) authenticate(timestamp string, body []byte, metadata map[string]string) error {
-	hash := sha256.New()
-	_, _ = hash.Write([]byte("sipbridge-capture-v2\x00" + timestamp + "\x00"))
-	_, _ = hash.Write(body)
-	signature, err := s.signer.Sign(rand.Reader, hash.Sum(nil), crypto.SHA256)
-	if err != nil {
-		return err
-	}
-	metadata["capture_cert"] = s.leaf
-	metadata["capture_signature"] = base64.StdEncoding.EncodeToString(signature)
 	return nil
 }

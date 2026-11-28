@@ -226,11 +226,7 @@ func indexedMethod(method string) string {
 	}
 }
 
-func encode(items []queued, instance, epoch string) ([]byte, error) {
-	return encodeSigned(items, instance, epoch, nil)
-}
-
-func encodeSigned(items []queued, instance, epoch string, signing *captureSigning) ([]byte, error) {
+func encode(items []queued, instance, epoch string, authenticated bool) ([]byte, error) {
 	groups := make(map[string]*stream)
 	for _, item := range items {
 		id, delivery, method := identity(item.Wire)
@@ -247,7 +243,7 @@ func encodeSigned(items []queued, instance, epoch string, signing *captureSignin
 			groups[key] = group
 		}
 		version := 1
-		if signing != nil {
+		if authenticated {
 			version = 2
 			group.Stream["capture_contract"] = "v2"
 		}
@@ -259,10 +255,7 @@ func encodeSigned(items []queued, instance, epoch string, signing *captureSignin
 		dstIP, dstPort, _ := net.SplitHostPort(item.Destination)
 		metadata := map[string]string{"call_id": id, "delivery_id": delivery, "method": method, "src_ip": srcIP, "src_port": srcPort, "dst_ip": dstIP, "dst_port": dstPort, "direction": item.Direction, "transport": item.Transport, "write_outcome": item.Outcome, "capture_id": epoch + ":" + strconv.FormatUint(item.Sequence, 10)}
 		timestamp := strconv.FormatInt(item.Timestamp.UnixNano(), 10)
-		if signing != nil {
-			if err := signing.authenticate(timestamp, body, metadata); err != nil {
-				return nil, err
-			}
+		if authenticated {
 			if item.NativeCallID != "" {
 				metadata["native_call_id"] = item.NativeCallID
 			}
@@ -281,7 +274,6 @@ func encodeSigned(items []queued, instance, epoch string, signing *captureSignin
 }
 
 func (e *exporter) send(ctx context.Context, items []queued) error {
-	var signing *captureSigning
 	if e.credentials != nil {
 		previous := e.credentials.credential.Load()
 		if err := e.credentials.reload(time.Now()); err != nil {
@@ -291,9 +283,8 @@ func (e *exporter) send(ctx context.Context, items []queued) error {
 		if previous != current {
 			e.client.CloseIdleConnections()
 		}
-		signing = &current.signing
 	}
-	body, err := encodeSigned(items, e.instance, e.epoch, signing)
+	body, err := encode(items, e.instance, e.epoch, e.credentials != nil)
 	if err != nil {
 		return err
 	}

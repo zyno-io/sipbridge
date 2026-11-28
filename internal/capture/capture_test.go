@@ -16,7 +16,7 @@ import (
 func TestEncodingPreservesTextAndCorrelations(t *testing.T) {
 	wire := []byte("NOTIFY sip:test@example.test SIP/2.0\r\ni: CaseSensitive\r\nX-Zyno-Event-Id: delivery\r\nContent-Length: 19\r\n\r\nGrüße \"SIP\"\r\n\x00<&>")
 	now := time.Unix(123, 456)
-	encoded, err := encode([]queued{{Observation: Observation{Timestamp: now, Direction: "out", Transport: "tls", Source: "192.0.2.1:5061", Destination: "192.0.2.2:1000", Outcome: "written", Wire: wire}, Sequence: 1}}, "instance", "epoch")
+	encoded, err := encode([]queued{{Observation: Observation{Timestamp: now, Direction: "out", Transport: "tls", Source: "192.0.2.1:5061", Destination: "192.0.2.2:1000", Outcome: "written", Wire: wire}, Sequence: 1}}, "instance", "epoch", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestEncodingReplacesNonUTF8BodyWithOriginalByteCount(t *testing.T) {
 		head := fmt.Sprintf("MESSAGE sip:test SIP/2.0\r\nCall-ID: binary\r\nContent-Length: %d\r\n\r\n", len(body))
 		wire := append([]byte(head), body...)
 		original := bytes.Clone(wire)
-		encoded, err := encode([]queued{{Observation: Observation{Wire: wire, Direction: "out", Outcome: "written", BytesWritten: len(wire)}}}, "instance", "epoch")
+		encoded, err := encode([]queued{{Observation: Observation{Wire: wire, Direction: "out", Outcome: "written", BytesWritten: len(wire)}}}, "instance", "epoch", false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,7 +114,7 @@ func TestEncodedMethodLabelGroupsRequestsAndResponses(t *testing.T) {
 	request := []byte("INVITE sip:x SIP/2.0\r\nCall-ID: a\r\nCSeq: 1 INVITE\r\n\r\n")
 	response := []byte("SIP/2.0 200 OK\r\nCall-ID: a\r\nCSeq: 1 INVITE\r\n\r\n")
 	items := []queued{{Observation: Observation{Timestamp: time.Unix(1, 0), Wire: request}}, {Observation: Observation{Timestamp: time.Unix(1, 1), Wire: response}}}
-	encoded, err := encode(items, "instance", "epoch")
+	encoded, err := encode(items, "instance", "epoch", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func BenchmarkEncodeBatch(b *testing.B) {
 	b.ReportAllocs()
 	b.SetBytes(int64(len(wire) * len(items)))
 	for range b.N {
-		if _, err := encode(items, "benchmark", "epoch"); err != nil {
+		if _, err := encode(items, "benchmark", "epoch", false); err != nil {
 			b.Fatal(err)
 		}
 	}

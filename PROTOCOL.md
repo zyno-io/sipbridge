@@ -252,12 +252,9 @@ under load or during exporter outages, independently of SIP signaling.
 
 On an authenticated collector connection, v2 records include the observed
 attribution in the JSON body and copy the lookup UUIDs to structured
-metadata. The capture's ECDSA client certificate signs the exact bytes of
-`sipbridge-capture-v2`, a NUL, the Loki timestamp in decimal nanoseconds,
-a NUL, and the original JSON body. The DER leaf and ASN.1 signature are
-base64-encoded in `capture_cert` and `capture_signature`. UUIDs and
-certificates do not become stream labels. The local development HTTP
-exporter produces v1 physical observations.
+metadata. The collector authenticates the exporter with mutual TLS.
+UUIDs stay in structured metadata. The local development HTTP exporter
+produces v1 physical observations.
 
 ### JSON WebSocket framing
 

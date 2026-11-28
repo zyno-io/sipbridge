@@ -25,7 +25,7 @@ runtime reports these:
 | `zt_sipbridge_invalid_messages_total` | Public SIP messages that failed framing or parsing, or exceeded 64 KiB. |
 | `zt_sipbridge_method_rejected_total` | Local `405` responses from `--allow-register=false` / `--allow-subscribe=false`. |
 | `zt_sipbridge_runtime_*` | Go runtime: `gomaxprocs`, `goroutines`, GC CPU seconds and cycles, heap allocation and live heap bytes. |
-| `sipbridge_state_codec_*_total` | Stored-record encoding and decoding: operations, bytes, seconds and failures, labelled by fixed record `kind` and `operation`. |
+| `sipbridge_state_codec_*_total` | Stored-record encoding and decoding: operations, bytes, seconds and failures, labeled by fixed record `kind` and `operation`. |
 | `zt_sipbridge_capture_dropped_total` | Capture records dropped because the queue was full. Only with capture enabled. |
 | `zt_sipbridge_capture_export_failures_total` | Capture batches the collector did not accept. Only with capture enabled. |
 

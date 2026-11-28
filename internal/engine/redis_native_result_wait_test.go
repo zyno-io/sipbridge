@@ -33,7 +33,7 @@ func TestNativeResultWaiterHintsAreExactAndCoalesced(t *testing.T) {
 	next := e.resultWaiterSignal(waiter)
 	select {
 	case <-next:
-		t.Fatal("new generation already signalled")
+		t.Fatal("new generation already signaled")
 	default:
 	}
 	e.resultHint(key)

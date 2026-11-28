@@ -941,6 +941,10 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             notify: {
                 kind: 'message',
                 message: '.sipbridge.control.v1.DialogRequest'
+            },
+            nativeCallId: {
+                kind: 'string',
+                alias: 'native_call_id'
             }
         },
         oneofs: []
@@ -1076,6 +1080,14 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
             },
             method: {
                 kind: 'string'
+            },
+            outboundCallId: {
+                kind: 'string',
+                alias: 'outbound_call_id'
+            },
+            nativeCallId: {
+                kind: 'string',
+                alias: 'native_call_id'
             }
         },
         oneofs: []
@@ -1092,6 +1104,25 @@ export const SIPBRIDGE_JSON_MESSAGES: Record<string, JsonMessage> = {
                 kind: 'message',
                 message: '.sipbridge.control.v1.Header',
                 repeated: true
+            },
+            blfCapture: {
+                kind: 'message',
+                message: '.sipbridge.control.v1.BlfCaptureAttribution',
+                alias: 'blf_capture'
+            }
+        },
+        oneofs: []
+    },
+    '.sipbridge.control.v1.BlfCaptureAttribution': {
+        fields: {
+            deliveryId: {
+                kind: 'string',
+                alias: 'delivery_id'
+            },
+            nativeCallIds: {
+                kind: 'string',
+                repeated: true,
+                alias: 'native_call_ids'
             }
         },
         oneofs: []

@@ -83,6 +83,7 @@ func receiveRedisClientCancelResponse(ctx context.Context, store *rediscore.Stor
 	if _, err = selectRedisClientCancelParent(ctx, store, selected.Identity, view.Revision, view.Timer, current, selected.Record, proc.Native.Key, proc.Refs.Origin, proc.Metadata.Flow, tx.Origin, key); err != nil {
 		return true, err
 	}
+	attributeNativeCall(ctx, current)
 	if tx.Phase == portable.Terminated {
 		return true, nil
 	}

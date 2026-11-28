@@ -9,6 +9,7 @@ import (
 	"github.com/emiago/sipgo/sip/portable"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
+	"sipbridge/internal/capture"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/rediscore"
@@ -45,5 +46,20 @@ func (e *redisNative) receiveInitialInvite(parent context.Context, peer *control
 	if ctx.Err() != nil || remaining <= 0 {
 		return rediscore.ErrUnknown
 	}
-	return peer.Send(&pb.Envelope{CorrelationId: uuid.NewString(), RemainingBudgetMs: uint32(min(2000, remaining)), Payload: &pb.Envelope_Request{Request: presentation}})
+	capture.Hold(parent, captureContextKey(ref), deadline.Add(50*time.Millisecond), func(lookup context.Context) string {
+		observed, observeErr := store.ObserveContext(lookup, ref.Id, ref.State.Incarnation, "r:context")
+		if observeErr != nil {
+			return ""
+		}
+		current, decodeErr := decodeNativeContext(observed.View.Records["r:context"])
+		if decodeErr != nil || !proto.Equal(current.Context, ref) {
+			return ""
+		}
+		return current.NativeCallId
+	})
+	if err := peer.Send(&pb.Envelope{CorrelationId: uuid.NewString(), RemainingBudgetMs: uint32(min(2000, remaining)), Payload: &pb.Envelope_Request{Request: presentation}}); err != nil {
+		e.cfg.Capture.Bind(captureContextKey(ref), "")
+		return err
+	}
+	return nil
 }

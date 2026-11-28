@@ -118,7 +118,8 @@ func validateTreeJSONMessage(value interface{}, descriptor protoreflect.MessageD
 		}
 	}
 	for i := 0; i < descriptor.Oneofs().Len(); i++ {
-		if !oneofs[descriptor.Oneofs().Get(i).FullName()] {
+		oneof := descriptor.Oneofs().Get(i)
+		if !oneof.IsSynthetic() && !oneofs[oneof.FullName()] {
 			return errors.New("missing JSON variant")
 		}
 	}

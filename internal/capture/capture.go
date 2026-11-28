@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,7 +23,9 @@ import (
 
 const maxWire = 65536
 const queueSize = 256
-const batchSize = 32
+
+// A 64 KiB wire can grow sixfold when escaped as JSON.
+const batchSize = 12
 
 // Observation contains one physical SIP message or attempted socket write.
 // Wire is copied by Submit before the caller is allowed to reuse it.
@@ -35,6 +38,7 @@ type Observation struct {
 	Outcome      string
 	BytesWritten int
 	Wire         []byte
+	Attribution
 }
 
 type queued struct {
@@ -43,17 +47,19 @@ type queued struct {
 }
 
 type exporter struct {
-	url      string
-	instance string
-	epoch    string
-	client   *http.Client
-	queue    chan queued
-	slots    chan struct{}
-	mu       sync.RWMutex
-	closed   bool
-	sequence atomic.Uint64
-	dropped  atomic.Uint64
-	failures atomic.Uint64
+	url         string
+	instance    string
+	epoch       string
+	client      *http.Client
+	queue       chan queued
+	slots       chan struct{}
+	mu          sync.RWMutex
+	closed      bool
+	pending     map[string]map[*pendingObservation]struct{}
+	credentials *captureCredentials
+	sequence    atomic.Uint64
+	dropped     atomic.Uint64
+	failures    atomic.Uint64
 }
 
 // Exporter owns the nonblocking capture queue and worker.
@@ -62,41 +68,26 @@ type Exporter struct{ *exporter }
 // New creates an exporter. The destination must be an explicitly configured
 // local collector URL, not an arbitrary URL containing credentials.
 func New(destination, instance, epoch string) (*Exporter, error) {
+	return newExporter(destination, instance, epoch, nil, nil)
+}
+
+func newExporter(destination, instance, epoch string, config *tls.Config, credentials *captureCredentials) (*Exporter, error) {
 	u, err := url.Parse(destination)
-	if err != nil || u.Scheme != "http" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "/loki/api/v1/push" || instance == "" || epoch == "" {
+	if err != nil || (config == nil && u.Scheme != "http" || config != nil && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "/loki/api/v1/push" || instance == "" || epoch == "" {
 		return nil, fmt.Errorf("invalid capture collector configuration")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
-	e := &exporter{url: destination, instance: instance, epoch: epoch, client: &http.Client{Timeout: 3 * time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, queue: make(chan queued, queueSize), slots: make(chan struct{}, queueSize)}
+	transport.TLSClientConfig = config
+	e := &exporter{url: destination, instance: instance, epoch: epoch, client: &http.Client{Timeout: 3 * time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, credentials: credentials, pending: make(map[string]map[*pendingObservation]struct{}), queue: make(chan queued, queueSize), slots: make(chan struct{}, queueSize)}
 	return &Exporter{e}, nil
 }
 
 // Submit never waits for the collector. Queue overflow discards evidence, not
 // signaling; counters let operators detect missing observations.
 func (e *Exporter) Submit(o Observation) {
-	if e == nil || e.exporter == nil {
-		return
-	}
-	if len(o.Wire) == 0 || len(o.Wire) > maxWire {
-		e.dropped.Add(1)
-		return
-	}
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	if e.closed {
-		e.dropped.Add(1)
-		return
-	}
-	select {
-	case e.slots <- struct{}{}:
-	default:
-		e.dropped.Add(1)
-		return
-	}
-	o.Wire = bytes.Clone(o.Wire)
-	item := queued{Observation: o, Sequence: e.sequence.Add(1)}
-	e.queue <- item // A reserved slot guarantees space, including in-flight records.
+	_, finish := e.Begin(context.Background(), o)
+	finish()
 }
 
 // Stats returns cumulative queue-drop and failed-batch counts.
@@ -110,18 +101,21 @@ type stream struct {
 	Values [][]interface{}   `json:"values"`
 }
 type line struct {
-	Version      int    `json:"version"`
-	Instance     string `json:"instance"`
-	Epoch        string `json:"epoch"`
-	Sequence     string `json:"sequence"`
-	Direction    string `json:"direction"`
-	Transport    string `json:"transport"`
-	Source       string `json:"source"`
-	Destination  string `json:"destination"`
-	Outcome      string `json:"outcome"`
-	BytesWritten int    `json:"bytesWritten"`
-	Wire         string `json:"wire"`
-	WireBytes    int    `json:"wireBytes"`
+	Version          int      `json:"version"`
+	Instance         string   `json:"instance"`
+	Epoch            string   `json:"epoch"`
+	Sequence         string   `json:"sequence"`
+	Direction        string   `json:"direction"`
+	Transport        string   `json:"transport"`
+	Source           string   `json:"source"`
+	Destination      string   `json:"destination"`
+	Outcome          string   `json:"outcome"`
+	BytesWritten     int      `json:"bytesWritten"`
+	Wire             string   `json:"wire"`
+	WireBytes        int      `json:"wireBytes"`
+	NativeCallID     string   `json:"nativeCallId,omitempty"`
+	BLFDeliveryID    string   `json:"blfDeliveryId,omitempty"`
+	BLFNativeCallIDs []string `json:"blfNativeCallIds,omitempty"`
 }
 
 // displayWire keeps text readable and replaces a non-UTF-8 body as a whole.
@@ -233,6 +227,10 @@ func indexedMethod(method string) string {
 }
 
 func encode(items []queued, instance, epoch string) ([]byte, error) {
+	return encodeSigned(items, instance, epoch, nil)
+}
+
+func encodeSigned(items []queued, instance, epoch string, signing *captureSigning) ([]byte, error) {
 	groups := make(map[string]*stream)
 	for _, item := range items {
 		id, delivery, method := identity(item.Wire)
@@ -248,14 +246,32 @@ func encode(items []queued, instance, epoch string) ([]byte, error) {
 			group = &stream{Stream: map[string]string{"job": "sipbridge", "type": "sip", "sip_bucket": bucket, "sip_method": methodLabel}}
 			groups[key] = group
 		}
-		body, err := json.Marshal(line{Version: 1, Instance: instance, Epoch: epoch, Sequence: strconv.FormatUint(item.Sequence, 10), Direction: item.Direction, Transport: item.Transport, Source: item.Source, Destination: item.Destination, Outcome: item.Outcome, BytesWritten: item.BytesWritten, Wire: displayWire(item.Wire), WireBytes: len(item.Wire)})
+		version := 1
+		if signing != nil {
+			version = 2
+			group.Stream["capture_contract"] = "v2"
+		}
+		body, err := json.Marshal(line{Version: version, NativeCallID: item.NativeCallID, BLFDeliveryID: item.BLFDeliveryID, BLFNativeCallIDs: item.BLFNativeCallIDs, Instance: instance, Epoch: epoch, Sequence: strconv.FormatUint(item.Sequence, 10), Direction: item.Direction, Transport: item.Transport, Source: item.Source, Destination: item.Destination, Outcome: item.Outcome, BytesWritten: item.BytesWritten, Wire: displayWire(item.Wire), WireBytes: len(item.Wire)})
 		if err != nil {
 			return nil, err
 		}
 		srcIP, srcPort, _ := net.SplitHostPort(item.Source)
 		dstIP, dstPort, _ := net.SplitHostPort(item.Destination)
 		metadata := map[string]string{"call_id": id, "delivery_id": delivery, "method": method, "src_ip": srcIP, "src_port": srcPort, "dst_ip": dstIP, "dst_port": dstPort, "direction": item.Direction, "transport": item.Transport, "write_outcome": item.Outcome, "capture_id": epoch + ":" + strconv.FormatUint(item.Sequence, 10)}
-		group.Values = append(group.Values, []interface{}{strconv.FormatInt(item.Timestamp.UnixNano(), 10), string(body), metadata})
+		timestamp := strconv.FormatInt(item.Timestamp.UnixNano(), 10)
+		if signing != nil {
+			if err := signing.authenticate(timestamp, body, metadata); err != nil {
+				return nil, err
+			}
+			if item.NativeCallID != "" {
+				metadata["native_call_id"] = item.NativeCallID
+			}
+			if item.BLFDeliveryID != "" {
+				metadata["blf_delivery_id"] = item.BLFDeliveryID
+			}
+			delete(metadata, "delivery_id")
+		}
+		group.Values = append(group.Values, []interface{}{timestamp, string(body), metadata})
 	}
 	p := push{}
 	for _, group := range groups {
@@ -265,7 +281,19 @@ func encode(items []queued, instance, epoch string) ([]byte, error) {
 }
 
 func (e *exporter) send(ctx context.Context, items []queued) error {
-	body, err := encode(items, e.instance, e.epoch)
+	var signing *captureSigning
+	if e.credentials != nil {
+		previous := e.credentials.credential.Load()
+		if err := e.credentials.reload(time.Now()); err != nil {
+			slog.Warn("SIP capture certificate reload failed", "error", err)
+		}
+		current := e.credentials.credential.Load()
+		if previous != current {
+			e.client.CloseIdleConnections()
+		}
+		signing = &current.signing
+	}
+	body, err := encodeSigned(items, e.instance, e.epoch, signing)
 	if err != nil {
 		return err
 	}
@@ -304,6 +332,11 @@ func (e *Exporter) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			e.mu.Lock()
+			for _, group := range e.pending {
+				for pending := range group {
+					pending.finishLocked("")
+				}
+			}
 			e.closed = true
 			e.mu.Unlock()
 			drainCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

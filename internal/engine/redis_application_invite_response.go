@@ -145,6 +145,7 @@ func completeRedisApplicationInviteResponse(ctx context.Context, store *rediscor
 	if err != nil || previous.LocalInvite == nil || !portable.MatchRequest(previous.LocalInvite.Request, tx.Origin) || !portable.MatchDialogResponse(previous, message) {
 		return true, errNativeRecord
 	}
+	attributeNativeCall(ctx, current)
 	now := time.Now()
 	next, txEffects, err := portable.StepTransaction(tx, portable.Input{Kind: portable.ReceiveResponse, Now: now.UnixMilli(), Message: message})
 	if err != nil {

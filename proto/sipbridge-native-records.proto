@@ -28,6 +28,7 @@ message Context {
   repeated string initial_procedures = 28;
   repeated string dialogs = 29;
   repeated string noninitial_procedures = 30;
+  string native_call_id = 31;
 }
 message Procedure {
   .sipbridge.storage.v1.PortableTransaction native = 1;

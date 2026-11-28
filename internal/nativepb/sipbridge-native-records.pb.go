@@ -57,6 +57,7 @@ type Context struct {
 	InitialProcedures    []string                       `protobuf:"bytes,28,rep,name=initial_procedures,json=initialProcedures,proto3" json:"initial_procedures,omitempty"`
 	Dialogs              []string                       `protobuf:"bytes,29,rep,name=dialogs,proto3" json:"dialogs,omitempty"`
 	NoninitialProcedures []string                       `protobuf:"bytes,30,rep,name=noninitial_procedures,json=noninitialProcedures,proto3" json:"noninitial_procedures,omitempty"`
+	NativeCallId         string                         `protobuf:"bytes,31,opt,name=native_call_id,json=nativeCallId,proto3" json:"native_call_id,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -299,6 +300,13 @@ func (x *Context) GetNoninitialProcedures() []string {
 		return x.NoninitialProcedures
 	}
 	return nil
+}
+
+func (x *Context) GetNativeCallId() string {
+	if x != nil {
+		return x.NativeCallId
+	}
+	return ""
 }
 
 type Procedure struct {
@@ -1401,7 +1409,7 @@ var File_sipbridge_native_records_proto protoreflect.FileDescriptor
 
 const file_sipbridge_native_records_proto_rawDesc = "" +
 	"\n" +
-	"\x1esipbridge-native-records.proto\x12\x13sipbridge.native.v1\x1a\x17sipbridge-control.proto\x1a\x17sipbridge-storage.proto\"\xc4\t\n" +
+	"\x1esipbridge-native-records.proto\x12\x13sipbridge.native.v1\x1a\x17sipbridge-control.proto\x1a\x17sipbridge-storage.proto\"\xea\t\n" +
 	"\aContext\x12:\n" +
 	"\acontext\x18\x01 \x01(\v2 .sipbridge.control.v1.ContextRefR\acontext\x12B\n" +
 	"\vapplication\x18\x02 \x01(\v2 .sipbridge.control.v1.ProcessRefR\vapplication\x124\n" +
@@ -1438,7 +1446,8 @@ const file_sipbridge_native_records_proto_rawDesc = "" +
 	"\x11call_retire_at_ms\x18\x1b \x01(\x03R\x0ecallRetireAtMs\x12-\n" +
 	"\x12initial_procedures\x18\x1c \x03(\tR\x11initialProcedures\x12\x18\n" +
 	"\adialogs\x18\x1d \x03(\tR\adialogs\x123\n" +
-	"\x15noninitial_procedures\x18\x1e \x03(\tR\x14noninitialProcedures\"\xbc\n" +
+	"\x15noninitial_procedures\x18\x1e \x03(\tR\x14noninitialProcedures\x12$\n" +
+	"\x0enative_call_id\x18\x1f \x01(\tR\fnativeCallId\"\xbc\n" +
 	"\n" +
 	"\tProcedure\x12A\n" +
 	"\x06native\x18\x01 \x01(\v2).sipbridge.storage.v1.PortableTransactionR\x06native\x12\x16\n" +

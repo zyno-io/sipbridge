@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/emiago/sipgo/sip"
+	"sipbridge/internal/capture"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/rediscore"
@@ -19,6 +20,7 @@ const LocalChallengeCapability = control.LocalChallengeCapability
 
 type Config struct {
 	Process                                             *pb.ProcessRef
+	Capture                                             *capture.Exporter
 	AdvertiseAddress, PlainAdvertiseAddress, ContactURI string
 	OpenNetwork                                         func(context.Context, string, *pb.NetworkTarget) (*pb.FlowRef, error)
 	StateIdentityKey                                    []byte

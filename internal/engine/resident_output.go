@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"sipbridge/internal/capture"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/state"
@@ -24,6 +25,7 @@ const (
 // independently owned, and the exact physical attempt remains valid even when an
 // unrelated transition changes the context revision.
 type residentOutput struct {
+	attribution           capture.Attribution
 	applicationCapability *control.ApplicationCapability
 	settled               bool
 	wireBytes             int64
@@ -83,7 +85,7 @@ func (o *residentOutput) reserve(write *pb.FlowWrite, now time.Time) (*Committed
 	o.state = residentOutputStarted
 	wire := o.wire
 	o.wire = nil
-	return &CommittedWrite{Wire: wire}, nil
+	return &CommittedWrite{Wire: wire, Attribution: o.attribution}, nil
 }
 
 func (o *residentOutput) complete(write *pb.FlowWrite, result *pb.DeliveryResult) error {

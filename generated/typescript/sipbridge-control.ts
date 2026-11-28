@@ -533,6 +533,7 @@ export interface RequestDecision {
     headers: Header[];
     body: Buffer;
     notify?: DialogRequest | undefined;
+    nativeCallId?: string | undefined;
 }
 
 /**
@@ -590,12 +591,20 @@ export interface OpenUac {
     network?: NetworkTarget | undefined;
     transport: string;
     method: string;
+    outboundCallId?: string | undefined;
+    nativeCallId?: string | undefined;
 }
 
 export interface DialogRequest {
     method: string;
     body: Buffer;
     headers: Header[];
+    blfCapture?: BlfCaptureAttribution | undefined;
+}
+
+export interface BlfCaptureAttribution {
+    deliveryId: string;
+    nativeCallIds: string[];
 }
 
 export interface Cancel {}
@@ -2679,7 +2688,12 @@ export const RequestDecision: MessageFns<RequestDecision> = {
             status: isSet(object.status) ? globalThis.Number(object.status) : 0,
             headers: globalThis.Array.isArray(object?.headers) ? object.headers.map((e: unknown) => Header.fromJSON(e)) : [],
             body: isSet(object.body) ? Buffer.from(bytesFromBase64(globalThis.String(object.body))) : Buffer.alloc(0),
-            notify: isSet(object.notify) ? DialogRequest.fromJSON(object.notify) : undefined
+            notify: isSet(object.notify) ? DialogRequest.fromJSON(object.notify) : undefined,
+            nativeCallId: isSet(object.nativeCallId)
+                ? globalThis.String(object.nativeCallId)
+                : isSet(object.native_call_id)
+                  ? globalThis.String(object.native_call_id)
+                  : undefined
         };
     },
 
@@ -2720,6 +2734,9 @@ export const RequestDecision: MessageFns<RequestDecision> = {
         }
         if (message.notify !== undefined) {
             obj.notify = DialogRequest.toJSON(message.notify);
+        }
+        if (message.nativeCallId !== undefined) {
+            obj.nativeCallId = message.nativeCallId;
         }
         return obj;
     }
@@ -2922,7 +2939,17 @@ export const OpenUac: MessageFns<OpenUac> = {
                   : '',
             network: isSet(object.network) ? NetworkTarget.fromJSON(object.network) : undefined,
             transport: isSet(object.transport) ? globalThis.String(object.transport) : '',
-            method: isSet(object.method) ? globalThis.String(object.method) : ''
+            method: isSet(object.method) ? globalThis.String(object.method) : '',
+            outboundCallId: isSet(object.outboundCallId)
+                ? globalThis.String(object.outboundCallId)
+                : isSet(object.outbound_call_id)
+                  ? globalThis.String(object.outbound_call_id)
+                  : undefined,
+            nativeCallId: isSet(object.nativeCallId)
+                ? globalThis.String(object.nativeCallId)
+                : isSet(object.native_call_id)
+                  ? globalThis.String(object.native_call_id)
+                  : undefined
         };
     },
 
@@ -2952,6 +2979,12 @@ export const OpenUac: MessageFns<OpenUac> = {
         if (message.method !== '') {
             obj.method = message.method;
         }
+        if (message.outboundCallId !== undefined) {
+            obj.outboundCallId = message.outboundCallId;
+        }
+        if (message.nativeCallId !== undefined) {
+            obj.nativeCallId = message.nativeCallId;
+        }
         return obj;
     }
 };
@@ -2962,7 +2995,12 @@ export const DialogRequest: MessageFns<DialogRequest> = {
         return {
             method: isSet(object.method) ? globalThis.String(object.method) : '',
             body: isSet(object.body) ? Buffer.from(bytesFromBase64(globalThis.String(object.body))) : Buffer.alloc(0),
-            headers: globalThis.Array.isArray(object?.headers) ? object.headers.map((e: unknown) => Header.fromJSON(e)) : []
+            headers: globalThis.Array.isArray(object?.headers) ? object.headers.map((e: unknown) => Header.fromJSON(e)) : [],
+            blfCapture: isSet(object.blfCapture)
+                ? BlfCaptureAttribution.fromJSON(object.blfCapture)
+                : isSet(object.blf_capture)
+                  ? BlfCaptureAttribution.fromJSON(object.blf_capture)
+                  : undefined
         };
     },
 
@@ -2976,6 +3014,38 @@ export const DialogRequest: MessageFns<DialogRequest> = {
         }
         if (message.headers?.length) {
             obj.headers = message.headers.map(e => Header.toJSON(e));
+        }
+        if (message.blfCapture !== undefined) {
+            obj.blfCapture = BlfCaptureAttribution.toJSON(message.blfCapture);
+        }
+        return obj;
+    }
+};
+
+export const BlfCaptureAttribution: MessageFns<BlfCaptureAttribution> = {
+    fromJSON(value: unknown): BlfCaptureAttribution {
+        const object = isObject(value) ? value : {};
+        return {
+            deliveryId: isSet(object.deliveryId)
+                ? globalThis.String(object.deliveryId)
+                : isSet(object.delivery_id)
+                  ? globalThis.String(object.delivery_id)
+                  : '',
+            nativeCallIds: globalThis.Array.isArray(object?.nativeCallIds)
+                ? object.nativeCallIds.map((e: unknown) => globalThis.String(e))
+                : globalThis.Array.isArray(object?.native_call_ids)
+                  ? object.native_call_ids.map((e: unknown) => globalThis.String(e))
+                  : []
+        };
+    },
+
+    toJSON(message: BlfCaptureAttribution): unknown {
+        const obj: Record<string, unknown> = {};
+        if (message.deliveryId !== '') {
+            obj.deliveryId = message.deliveryId;
+        }
+        if (message.nativeCallIds?.length) {
+            obj.nativeCallIds = message.nativeCallIds;
         }
         return obj;
     }

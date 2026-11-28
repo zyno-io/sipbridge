@@ -185,6 +185,7 @@ func (e *ResidentMemory) stageResidentOutputGroupsUnfencedLocked(c *residentCont
 			if err != nil {
 				return nil, err
 			}
+			output.attribution = selected.attribution
 			output.transaction, output.operation, output.command = selected.native.Key, operation, selected.command
 			if e.phoneDomain && class == pb.EffectAuthorization_APPLICATION {
 				output.applicationCapability = group.capability

@@ -137,6 +137,7 @@ func receiveRedisUACProvisional(ctx context.Context, store *rediscore.Store, flo
 	if !portable.MatchResponse(tx.Origin, message) {
 		return true, errors.New("UAC response mismatch")
 	}
+	attributeNativeCall(ctx, current)
 	now := time.Now()
 	if ctx.Err() != nil || !now.Before(deadline) {
 		return true, rediscore.ErrExpired

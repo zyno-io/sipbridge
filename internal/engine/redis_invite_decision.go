@@ -22,6 +22,9 @@ func commitRedisInviteDeferral(ctx context.Context, store *rediscore.Store, key 
 	if store == nil || decision == nil || decision.Context == nil || decision.Context.State == nil || decision.Status != 0 || decision.Sequence != 1 || !validSendText(operation, 160, false) || !time.Now().Before(deadline) {
 		return nil, errNativeRecord
 	}
+	if decision.NativeCallId != nil && !validCaptureUUID(decision.GetNativeCallId()) {
+		return nil, errNativeRecord
+	}
 	app, err := nativeApplicationReference(key, application)
 	if err != nil || app != lease.Application {
 		return nil, rediscore.ErrAuthority
@@ -78,6 +81,7 @@ func commitRedisInviteDeferral(ctx context.Context, store *rediscore.Store, key 
 		return nil, err
 	}
 	next := proto.Clone(current).(*nativepb.Context)
+	next.NativeCallId = decision.GetNativeCallId()
 	next.Application = proto.Clone(application).(*pb.ProcessRef)
 	next.ApplicationLeaseTerm = lease.Term
 	next.PrincipalId, next.BindingId = decision.PrincipalId, decision.BindingId

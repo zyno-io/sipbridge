@@ -176,5 +176,6 @@ func receiveRedisDialogRequest(ctx context.Context, store *rediscore.Store, in r
 	if ctx.Err() != nil || !time.Now().Before(until) {
 		return nil, rediscore.ErrUnknown
 	}
+	attributeNativeCall(ctx, current)
 	return &pb.RequestPresented{Snapshot: snapshot, RequestId: in.RequestID, Message: observed, Flow: proto.Clone(in.Flow).(*pb.FlowRef), FlowAdoption: proposal}, nil
 }

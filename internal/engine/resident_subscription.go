@@ -53,13 +53,17 @@ func (e *ResidentMemory) prepareResidentNotify(c *residentContext, command *pb.D
 	if c == nil || c.snapshot == nil || c.snapshot.Context == nil || c.snapshot.Context.State == nil {
 		return nil, nil, nil, errors.New("subscription context identity required")
 	}
+	attribution, valid := notifyCapture(command)
+	if !valid {
+		return nil, nil, nil, errors.New("invalid NOTIFY capture delivery ID")
+	}
 	ref := c.snapshot.Context
 	branch := sip.RFC3261BranchMagicCookie + e.id("notify", e.authority.PrimaryId, ref.State.Incarnation, ref.Id, strconv.FormatUint(c.snapshot.CommandSequence, 10), operation)[:32]
 	sub, native, effects, err := nativePrepareNotify(c.subscription, c.snapshot, command, e.nativeAdvertisement(), branch, now)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return sub, &residentTransaction{native: native, flow: proto.Clone(c.flow).(*pb.FlowRef), application: proto.Clone(c.snapshot.Application).(*pb.ProcessRef)}, effects, nil
+	return sub, &residentTransaction{native: native, attribution: attribution, flow: proto.Clone(c.flow).(*pb.FlowRef), application: proto.Clone(c.snapshot.Application).(*pb.ProcessRef)}, effects, nil
 }
 
 func (e *ResidentMemory) nativeAdvertisement() nativeSIPAdvertisement {

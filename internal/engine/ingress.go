@@ -249,8 +249,9 @@ func (i *Ingress) readStream(ctx context.Context, flow *physicalFlow) {
 				wire := append([]byte(nil), original[:size]...)
 				original = original[size:]
 				largeFrame = largeFrame || size > 8192
-				i.capture.Submit(capture.Observation{Timestamp: time.Now(), Direction: "in", Transport: flow.ref.Transport, Source: conn.RemoteAddr().String(), Destination: conn.LocalAddr().String(), Outcome: "received", Wire: wire})
+				captureCtx, finishCapture := i.capture.Begin(ctx, capture.Observation{Timestamp: time.Now(), Direction: "in", Transport: flow.ref.Transport, Source: conn.RemoteAddr().String(), Destination: conn.LocalAddr().String(), Outcome: "received", Wire: wire})
 				if err := validateObservedMessage(m); err != nil {
+					finishCapture()
 					i.invalidMessages.Add(1)
 					return
 				}
@@ -259,9 +260,11 @@ func (i *Ingress) readStream(ctx context.Context, flow *physicalFlow) {
 				usable := flow.admitSIPUse()
 				flow.write.Unlock()
 				if !usable {
+					finishCapture()
 					return
 				}
-				i.routeParsed(ctx, flow, message, m, drainMessageObservation(m))
+				i.routeParsed(captureCtx, flow, message, m, drainMessageObservation(m))
+				finishCapture()
 				if len(original) == 0 && largeFrame {
 					// A rare large SDP/message must not pin its framing buffers for
 					// the rest of this phone's connection lifetime.
@@ -596,6 +599,7 @@ func (i *Ingress) routeUDPParsed(parent context.Context, flow *physicalFlow, mes
 	i.mu.Unlock()
 	go func() {
 		defer cancel()
+		defer capture.Finish(parent)
 		defer func() {
 			i.mu.Lock()
 			if i.udpRoutes[key] == done {
@@ -801,7 +805,11 @@ func (f *physicalFlow) writeWire(wire []byte) (writtenResult int, resultErr erro
 	return f.writeWireFenced(wire, nil, time.Time{})
 }
 
-func (f *physicalFlow) writeWireFenced(wire []byte, ctx context.Context, until time.Time) (writtenResult int, resultErr error) {
+func (f *physicalFlow) writeWireFenced(wire []byte, ctx context.Context, until time.Time) (int, error) {
+	return f.writeWireCaptured(wire, ctx, until, capture.Attribution{})
+}
+
+func (f *physicalFlow) writeWireCaptured(wire []byte, ctx context.Context, until time.Time, attribution capture.Attribution) (writtenResult int, resultErr error) {
 	if f.capture != nil && len(bytes.Trim(wire, "\r\n")) > 0 {
 		defer func() {
 			outcome := "failed"
@@ -817,7 +825,7 @@ func (f *physicalFlow) writeWireFenced(wire []byte, ctx context.Context, until t
 				local, remote = f.conn.LocalAddr(), f.conn.RemoteAddr()
 			}
 			if local != nil && remote != nil && f.ref != nil {
-				f.capture.Submit(capture.Observation{Timestamp: time.Now(), Direction: "out", Transport: f.ref.Transport, Source: local.String(), Destination: remote.String(), Outcome: outcome, BytesWritten: writtenResult, Wire: wire})
+				f.capture.Submit(capture.Observation{Timestamp: time.Now(), Direction: "out", Transport: f.ref.Transport, Source: local.String(), Destination: remote.String(), Outcome: outcome, BytesWritten: writtenResult, Wire: wire, Attribution: attribution})
 			}
 		}()
 	}
@@ -994,9 +1002,10 @@ func (i *Ingress) ServeUDP(ctx context.Context, conn net.PacketConn) error {
 			i.invalidMessages.Add(1)
 			continue
 		}
-		i.capture.Submit(capture.Observation{Timestamp: time.Now(), Direction: "in", Transport: "udp", Source: remote.String(), Destination: conn.LocalAddr().String(), Outcome: "received", Wire: buffer[:n]})
+		captureCtx, finishCapture := i.capture.Begin(ctx, capture.Observation{Timestamp: time.Now(), Direction: "in", Transport: "udp", Source: remote.String(), Destination: conn.LocalAddr().String(), Outcome: "received", Wire: buffer[:n]})
 		flow, err := i.packetFlow(remote)
 		if err != nil {
+			finishCapture()
 			i.flowRejected.Add(1)
 			continue
 		}
@@ -1006,15 +1015,19 @@ func (i *Ingress) ServeUDP(ctx context.Context, conn net.PacketConn) error {
 		wire := append([]byte(nil), buffer[:n]...)
 		parsed, err := parseObservedMessage(wire)
 		if err != nil {
+			finishCapture()
 			i.invalidMessages.Add(1)
 			continue
 		}
 		message := i.projectInboundMessage(wire, parsed)
 		callID := parsed.CallID().Value()
 		if callID == "" {
+			finishCapture()
 			continue
 		}
-		i.routeUDPParsed(ctx, flow, message, parsed, callID, drainMessageObservation(parsed))
+		if !i.routeUDPParsed(captureCtx, flow, message, parsed, callID, drainMessageObservation(parsed)) {
+			finishCapture()
+		}
 	}
 }
 

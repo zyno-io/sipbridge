@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"sipbridge/internal/capture"
 	"sipbridge/internal/control"
 	pb "sipbridge/internal/controlpb"
 	"sipbridge/internal/state"
@@ -16,10 +17,11 @@ type CommittedWrite struct {
 	Wire []byte
 	// Until, when present, is the backend's conservative monotonic lease and
 	// output cutoff. Waiting for another dialog's stream write cannot extend it.
-	Until   time.Time
-	Known   bool
-	Outcome pb.DeliveryResult_Outcome
-	Drain   *state.LocalDrainObservation
+	Until       time.Time
+	Known       bool
+	Outcome     pb.DeliveryResult_Outcome
+	Drain       *state.LocalDrainObservation
+	Attribution capture.Attribution
 
 	attachment      string
 	checkAttachment func() error
@@ -52,7 +54,7 @@ func (i *Ingress) WriteNativeRetry(ctx context.Context, ref *pb.FlowRef, wire []
 	if ctx.Err() != nil || !time.Now().Before(until) || flow.packet == nil && flow.conn == nil || !proto.Equal(flow.ref, ref) {
 		return errors.New("native retry fenced")
 	}
-	n, err := flow.writeWireFenced(wire, ctx, until)
+	n, err := flow.writeWireCaptured(wire, ctx, until, capture.AttributionFrom(ctx))
 	if err != nil {
 		return err
 	}
@@ -278,7 +280,7 @@ func (i *Ingress) committedResult(parent context.Context, cmd *pb.FlowWrite) *pb
 		result.Outcome = pb.DeliveryResult_NOT_WRITTEN
 		result.Error = "control attachment closed before write"
 	} else {
-		n, writeErr := flow.writeWire(reserved.Wire)
+		n, writeErr := flow.writeWireCaptured(reserved.Wire, nil, time.Time{}, reserved.Attribution)
 		if writeErr == nil && n == len(reserved.Wire) {
 			result.Outcome = pb.DeliveryResult_WRITTEN
 			flow.retainedUntil = time.Now().Add(4 * time.Hour)

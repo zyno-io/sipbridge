@@ -214,13 +214,55 @@ verifiable ACKs for those challenges. An authenticated retry's new CSeq routes
 normally. The bounded proof only identifies a rejected local transaction; it
 cannot authorize a SIP dialog or account, and does not create a resident FSM.
 
+An authenticated controller can set the optional `OpenUac.outbound_call_id` on a new
+INVITE before admission. It must allocate a globally unique value for each new
+outbound attempt. The field accepts up to 128 ASCII letters, digits, dots,
+underscores, or hyphens, starting with a letter or digit, and an optional
+`@host` within the same total length. The native context, emitted INVITE and
+accepted snapshot share that exact value. The native transaction retains it
+for retries and subsequent dialog traffic. Generic SIP headers cannot set
+this identity. When the field is absent the serving backend allocates the Call-ID.
+
 The serving profiles encode newly generated SIP dialog tags and outbound
 Call-IDs in unpadded base64url. A 128-bit tag occupies 22 characters and a full
 256-bit digest occupies 43. Outbound Call-IDs retain the `@sipbridge` suffix.
 Retained dialogs use the original wire values. Local challenge ACK validation
 accepts both the hexadecimal and base64url encodings of the same proof.
 
+### Capture attribution
+
+An authenticated controller can supply a canonical `native_call_id` UUID
+with an initial `OpenUac` INVITE or the deferring `RequestDecision` for a fresh
+UAS INVITE. Only the exact accepted native operation associates the UUID with
+the context incarnation. Wire Call-ID negotiation, routing, authentication,
+and native matching have their own authority. Peers cannot assign capture
+attribution through SIP headers.
+
+An authenticated BLF NOTIFY command may include `blf_capture` with a delivery UUID
+and up to 20 native call UUIDs naming the calls that caused the delivery. They
+apply to that transaction's writes and exact matching responses, including
+retries. The retained subscription has its own identity.
+
+The exporter may hold the first observed INVITE in its bounded queue until
+the native decision commits or the admission budget expires. On expiry the
+ingress worker may read the exact retained context to discover a decision
+committed by a different worker. The lookup has its own short deadline.
+The capture preserves its original observation timestamp and sequence. Capture can drop records
+under load or during exporter outages, independently of SIP signaling.
+
+On an authenticated collector connection, v2 records include the observed
+attribution in the JSON body and copy the lookup UUIDs to structured
+metadata. The capture's ECDSA client certificate signs the exact bytes of
+`sipbridge-capture-v2`, a NUL, the Loki timestamp in decimal nanoseconds,
+a NUL, and the original JSON body. The DER leaf and ASN.1 signature are
+base64-encoded in `capture_cert` and `capture_signature`. UUIDs and
+certificates do not become stream labels. The local development HTTP
+exporter produces v1 physical observations.
+
 ### JSON WebSocket framing
+
+Proto3 optional scalar fields retain presence and may be omitted. Required
+JSON variants correspond to explicit protocol oneofs.
 
 The controller opens `/v1/control` and negotiates `sipbridge.control.json.v1`.
 TLS transport uses `wss:` and validates the server chain and endpoint DNS SAN.

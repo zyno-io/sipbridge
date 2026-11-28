@@ -123,12 +123,14 @@ try {
                             {
                                 ...fieldType(field),
                                 ...(field.label === 3 && !messages.get(field.typeName)?.options?.mapEntry ? { repeated: true } : {}),
-                                ...(Object.hasOwn(field, 'oneofIndex') ? { oneof: message.oneofDecl[field.oneofIndex].name } : {}),
+                                ...(Object.hasOwn(field, 'oneofIndex') && !field.proto3Optional ? { oneof: message.oneofDecl[field.oneofIndex].name } : {}),
                                 ...(field.name !== field.jsonName ? { alias: field.name } : {})
                             }
                         ])
                     ),
-                    oneofs: message.oneofDecl.map(oneof => oneof.name)
+                    oneofs: message.oneofDecl.flatMap((oneof, index) =>
+                        message.field.some(field => field.proto3Optional && field.oneofIndex === index) ? [] : [oneof.name]
+                    )
                 }
             ])
     );

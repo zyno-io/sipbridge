@@ -211,6 +211,7 @@ message RequestDecision {
   string principal_id = 6; string binding_id = 7; ContextDelivery delivery = 8;
   uint32 status = 9; repeated Header headers = 10; bytes body = 11;
   DialogRequest notify = 12;
+  optional string native_call_id = 13;
 }
 // Trusted directory admission anchor for a business-selected response. Native
 // completion writes remain independently authorized by the SIP state owner.
@@ -222,8 +223,9 @@ message CredentialRef { string id = 1; string version = 2; }
 message CredentialLookup { ContextRef context = 1; CredentialRef credential = 2; }
 message CredentialResult { string username = 1; string password = 2; string version = 3; string error = 4; }
 message NetworkTarget { string proxy = 1; string transport = 2; CredentialRef credential = 5; }
-message OpenUac { string uri = 1; bytes body = 2; repeated Header headers = 3; string binding_id = 4; string principal_id = 5; NetworkTarget network = 6; string transport = 7; string method = 8; }
-message DialogRequest { string method = 1; bytes body = 2; repeated Header headers = 3; }
+message OpenUac { string uri = 1; bytes body = 2; repeated Header headers = 3; string binding_id = 4; string principal_id = 5; NetworkTarget network = 6; string transport = 7; string method = 8; optional string outbound_call_id = 9; optional string native_call_id = 10; }
+message DialogRequest { string method = 1; bytes body = 2; repeated Header headers = 3; BlfCaptureAttribution blf_capture = 4; }
+message BlfCaptureAttribution { string delivery_id = 1; repeated string native_call_ids = 2; }
 message Cancel {}
 // One command-time policy/route decision from the authenticated controller.
 // It authorizes only this command's native construction, never arbitrary wire.
